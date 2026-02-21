@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  SALES
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(SALES)
+  isActive     Boolean  @default(true)
+
+  // Para ADMIN puede estar vacío (no tiene cuentas)
+  memberships   AccountUser[]
+  refreshTokens RefreshToken[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Account {
+  id        String @id @default(uuid())
+  name      String
+
+  // Identificadores YCloud para multi-cuenta
+  wabaId    String
+  phoneE164 String // ejemplo: +34645730616
+
+  memberships AccountUser[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Unicidad: una cuenta se identifica por wabaId + teléfono
+  @@unique([wabaId, phoneE164])
+
+  // Si quieres que el teléfono sea único globalmente (solo 1 waba por número), agrega esto:
+  // @@unique([phoneE164])
+
+  @@index([phoneE164])
+  @@index([wabaId])
+}
+
+model AccountUser {
+  id        String @id @default(uuid())
+  userId    String
+  accountId String
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  // Impide duplicados de asociación
+  @@unique([userId, accountId])
+
+  @@index([accountId])
+  @@index([userId])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String   @unique
+  revokedAt DateTime?
+  expiresAt DateTime
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
