@@ -6,11 +6,13 @@ import { AuthService } from './auth.service';
 import { UsersModule } from '../users/users.module';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { RolesGuard } from './guards/roles.guard';
+import { RefreshTokensModule } from '../refresh-tokens/refresh-tokens.module';
 
 @Module({
   imports: [
     ConfigModule,
     UsersModule,
+    RefreshTokensModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
