@@ -11,6 +11,36 @@ enum Role {
   SALES
 }
 
+enum LeadStatus {
+  NEW          // creado/confirmado al aceptar el primer envío
+  RESPONDED    // cuando llega el primer inbound (de cualquier tipo)
+  // luego: WAITING_SKETCH, IN_PRODUCTION, CLOSED_WON, etc.
+}
+
+enum MessageDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum MessageType {
+  TEMPLATE
+  TEXT
+  IMAGE
+  AUDIO
+  VIDEO
+  DOCUMENT
+  UNKNOWN
+}
+
+enum MessageStatus {
+  ACCEPTED     // lo que llega en envío: "accepted"
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  UNKNOWN
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
@@ -45,6 +75,8 @@ model Account {
 
   // Una cuenta puede tener múltiples leads o ninguno
   leads Lead[]
+  // Una cuenta puede tener múltiples mensajes o ninguno
+  messages Message[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -58,15 +90,17 @@ model Account {
 
 model Lead {
   id        String @id @default(uuid())
-
-  // Datos mínimos recomendados (ajústalo a tu CRM)
   name      String?
   phoneE164 String?
   email     String?
+  status    LeadStatus @default(NEW)
+  firstOutboundAt DateTime? // se setea cuando aceptan el 1er envío
+  firstInboundAt  DateTime? // se setea cuando llega el 1er inbound
 
   // Lead asociado a una cuenta (0..N por cuenta)
   accountId String?
   account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  messages Message[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -74,6 +108,7 @@ model Lead {
   @@index([accountId])
   @@index([phoneE164])
   @@index([email])
+  @@unique([accountId, phoneE164])
 }
 
 model RefreshToken {
@@ -89,4 +124,48 @@ model RefreshToken {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+model Message {
+  id String @id @default(uuid())
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  leadId String
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  direction MessageDirection
+  type      MessageType
+
+  // IDs de YCloud/WhatsApp para correlación
+  ycloudMessageId String? // outbound: response.id, inbound: whatsappInboundMessage.id
+  wamid           String? // wamid.HBg...
+  contextWamid    String? // inbound.context.id (si viene)
+
+  // Campaña/plantilla para métrica #1
+  templateName   String? // outbound.template.name
+  templateLang   String? // outbound.template.language.code
+  pricingCategory String? // outbound.pricingCategory (opcional)
+
+  status MessageStatus @default(UNKNOWN)
+
+  // timestamps del proveedor
+  providerCreateTime DateTime? // outbound.createTime o inbound.createTime
+  providerUpdateTime DateTime? // outbound.updateTime
+  providerSendTime   DateTime? // inbound.sendTime (si aplica)
+
+  // contenido (opcional ahora, útil luego)
+  textBody String? // inbound.text.body si type=TEXT
+  mediaUrl String? // para image/video/document (si luego lo necesitas)
+
+  // debug/auditoría
+  rawPayload Json? // guardas el payload entero por si mañana necesitas campos
+
+  createdAt DateTime @default(now())
+
+  @@index([accountId, leadId, direction, createdAt])
+  @@index([templateName])
+  @@index([wamid])
+  @@unique([accountId, ycloudMessageId])
 }

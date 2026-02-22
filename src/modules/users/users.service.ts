@@ -20,4 +20,8 @@ export class UsersService {
       data: { email, passwordHash, role },
     });
   }
+
+  async getSales() {
+    return this.prisma.user.findMany({ where: { role: Role.SALES } });
+  }
 }
