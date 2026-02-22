@@ -18,12 +18,18 @@ model User {
   role         Role     @default(SALES)
   isActive     Boolean  @default(true)
 
-  // Para ADMIN puede estar vacío (no tiene cuentas)
-  memberships   AccountUser[]
+  // Un SALES puede tener (como máximo) 1 cuenta.
+  // ADMIN normalmente lo tendrá null.
+  accountId String?  @unique
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
   refreshTokens RefreshToken[]
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role])
+  @@index([isActive])
 }
 
 model Account {
@@ -34,7 +40,11 @@ model Account {
   wabaId    String
   phoneE164 String // ejemplo: +34645730616
 
-  memberships AccountUser[]
+  // Relación 1-1 inversa con User (SALES)
+  user User?
+
+  // Una cuenta puede tener múltiples leads o ninguno
+  leads Lead[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -42,26 +52,28 @@ model Account {
   // Unicidad: una cuenta se identifica por wabaId + teléfono
   @@unique([wabaId, phoneE164])
 
-  // Si quieres que el teléfono sea único globalmente (solo 1 waba por número), agrega esto:
-  // @@unique([phoneE164])
-
   @@index([phoneE164])
   @@index([wabaId])
 }
 
-model AccountUser {
+model Lead {
   id        String @id @default(uuid())
-  userId    String
-  accountId String
 
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  // Datos mínimos recomendados (ajústalo a tu CRM)
+  name      String?
+  phoneE164 String?
+  email     String?
 
-  // Impide duplicados de asociación
-  @@unique([userId, accountId])
+  // Lead asociado a una cuenta (0..N por cuenta)
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([accountId])
-  @@index([userId])
+  @@index([phoneE164])
+  @@index([email])
 }
 
 model RefreshToken {

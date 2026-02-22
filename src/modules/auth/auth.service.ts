@@ -18,8 +18,8 @@ export class AuthService {
     return bcrypt.hash(password, rounds);
   }
 
-  private signAccessToken(user: { id: string; role: Role }) {
-    return this.jwt.sign({ role: user.role }, { subject: user.id });
+  private signAccessToken(user: { id: string; role: Role, accountId?: string | null }) {
+    return this.jwt.sign({ role: user.role, accountId: user.accountId ?? null }, { subject: user.id });
   }
 
   async login(email: string, password: string) {
