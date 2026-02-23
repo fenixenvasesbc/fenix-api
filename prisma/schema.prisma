@@ -96,6 +96,7 @@ model Lead {
   status    LeadStatus @default(NEW)
   firstOutboundAt DateTime? // se setea cuando aceptan el 1er envío
   firstInboundAt  DateTime? // se setea cuando llega el 1er inbound
+  firstOutboundTemplateName String? // para métrica #1, se setea con el template del 1er envío
 
   // Lead asociado a una cuenta (0..N por cuenta)
   accountId String?

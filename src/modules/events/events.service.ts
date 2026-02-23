@@ -64,7 +64,7 @@ export class EventsService {
 
     const providerCreateTime = body.createTime ? new Date(body.createTime) : null;
     const providerUpdateTime = body.updateTime ? new Date(body.updateTime) : null;
-
+    const firstOutboundTemplateName = body.template?.name ?? null;
     // Reglas solicitadas
     const nameFromInput = (body.leadName ?? '').trim();
     const emailFromInput = (body.leadEmail ?? '').trim();
@@ -90,6 +90,7 @@ export class EventsService {
           email: leadEmailFinal,
           status: 'NEW',
           firstOutboundAt: providerCreateTime ?? new Date(),
+          firstOutboundTemplateName: firstOutboundTemplateName,
         },
         select: { id: true },
       });
