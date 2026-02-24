@@ -109,6 +109,9 @@ model Lead {
   @@index([accountId])
   @@index([phoneE164])
   @@index([email])
+  @@index([firstInboundAt])
+  @@index([accountId, firstOutboundAt])
+  @@index([firstOutboundTemplateName])
   @@unique([accountId, phoneE164])
 }
 
