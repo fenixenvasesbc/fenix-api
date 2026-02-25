@@ -142,8 +142,14 @@ export class EventsService {
       if (!existingLead.firstOutboundAt) {
         data.firstOutboundAt = providerCreateTime ?? new Date();
       }
+      
+      const templateName = body.template?.name ?? null;
+      if (templateName) {
+        data.firstOutboundTemplateName = templateName;
+      }
 
       const existingName = (existingLead.name ?? '').trim();
+      
       if (existingName.length === 0) {
         data.name = leadNameFinal;
       }
