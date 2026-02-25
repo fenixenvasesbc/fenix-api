@@ -171,6 +171,8 @@ model Message {
   createdAt DateTime @default(now())
 
   @@index([accountId, leadId, direction, createdAt])
+  @@index([accountId, direction, type, providerCreateTime])
+  @@index([accountId, templateName, providerCreateTime])
   @@index([templateName])
   @@index([wamid])
   @@unique([accountId, ycloudMessageId])
