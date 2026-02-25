@@ -142,7 +142,7 @@ export class EventsService {
       if (!existingLead.firstOutboundAt) {
         data.firstOutboundAt = providerCreateTime ?? new Date();
       }
-      
+
       const templateName = body.template?.name ?? null;
       if (templateName) {
         data.firstOutboundTemplateName = templateName;
@@ -177,7 +177,8 @@ export class EventsService {
       templateName: body.template?.name ?? null,
       templateLang: body.template?.language?.code ?? null,
       pricingCategory: body.pricingCategory ?? null,
-
+      totalPrice: body.totalPrice ?? null,
+      currency: body.currency ?? null,
       status: this.mapStatus(body.status),
 
       providerCreateTime,

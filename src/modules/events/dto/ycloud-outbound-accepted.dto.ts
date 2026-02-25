@@ -1,4 +1,4 @@
-import { IsEmail, IsISO8601, IsNotEmpty, IsObject, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsISO8601, IsNotEmpty, IsNumber, IsObject, IsOptional, IsString } from 'class-validator';
 
 class YCloudTemplateLanguageDto {
   @IsString()
@@ -71,4 +71,12 @@ export class YCloudOutboundAcceptedDto {
   @IsOptional()
   @IsString()
   pricingCategory?: string;
+
+  @IsOptional()
+  @IsNumber()
+  totalPrice?: number;
+  
+  @IsOptional()
+  @IsString()
+  currency?: string;
 }
