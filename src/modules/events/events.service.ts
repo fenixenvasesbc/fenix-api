@@ -1,12 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, MessageDirection, MessageStatus, MessageType } from '@prisma/client';
+import { Prisma, MessageDirection, MessageStatus, MessageType, LeadStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { YCloudOutboundAcceptedDto } from './dto/ycloud-outbound-accepted.dto';
+import { YCloudInboundReceivedDto } from './dto/ycloud-inbound-received.dto';
 
 @Injectable()
 export class EventsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // -------------------------
+  // Helpers
+  // -------------------------
   private mapStatus(status?: string): MessageStatus {
     switch ((status || '').toLowerCase()) {
       case 'accepted': return MessageStatus.ACCEPTED;
@@ -50,8 +54,44 @@ export class EventsService {
     }
   }
 
+  private toStr(v: any): string {
+    return v === null || v === undefined ? '' : String(v);
+  }
+
+  private normE164Loose(v: any): string {
+    // Para producción: evita que “34645...” no matchee con "+34645..."
+    let s = this.toStr(v).trim().replace(/\s+/g, '');
+    if (!s) return '';
+    if (!s.startsWith('+') && /^\d{7,20}$/.test(s)) s = '+' + s;
+    return s;
+  }
+
+  private pickIsoToDate(iso?: string): Date | null {
+    if (!iso) return null;
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  private extractInboundMedia(msg: any): { mediaUrl: string | null; caption: string | null } {
+    const t = (msg?.type || '').toLowerCase();
+
+    const media =
+      t === 'image' ? msg?.image :
+      t === 'video' ? msg?.video :
+      t === 'audio' ? msg?.audio :
+      t === 'document' ? msg?.document :
+      null;
+
+    const mediaUrl = media?.link ?? null;
+    const caption = media?.caption ?? null;
+
+    return { mediaUrl, caption };
+  }
+
+  // -------------------------
+  // Outbound accepted (ya lo tenías)
+  // -------------------------
   async registerOutboundAccepted(body: YCloudOutboundAcceptedDto) {
-    // 1) Resolver Account por unique(wabaId, phoneE164=from)
     const account = await this.prisma.account.findUnique({
       where: { wabaId_phoneE164: { wabaId: body.wabaId, phoneE164: body.from } },
       select: { id: true },
@@ -65,13 +105,12 @@ export class EventsService {
     const providerCreateTime = body.createTime ? new Date(body.createTime) : null;
     const providerUpdateTime = body.updateTime ? new Date(body.updateTime) : null;
     const firstOutboundTemplateName = body.template?.name ?? null;
-    // Reglas solicitadas
+
     const nameFromInput = (body.leadName ?? '').trim();
     const emailFromInput = (body.leadEmail ?? '').trim();
-    const leadNameFinal = nameFromInput.length > 0 ? nameFromInput : body.to; // fallback: teléfono
-    const leadEmailFinal = emailFromInput.length > 0 ? emailFromInput : null; // vacío -> null
+    const leadNameFinal = nameFromInput.length > 0 ? nameFromInput : body.to;
+    const leadEmailFinal = emailFromInput.length > 0 ? emailFromInput : null;
 
-    // 2) Obtener lead existente (si existe) para actualizar solo lo necesario
     const existingLead = await this.prisma.lead.findUnique({
       where: {
         accountId_phoneE164: { accountId: account.id, phoneE164: body.to },
@@ -98,23 +137,17 @@ export class EventsService {
     } else {
       leadId = existingLead.id;
 
-      // Construimos update mínimo (solo si hace falta)
       const data: Prisma.LeadUpdateInput = {};
 
-      // firstOutboundAt solo si está null
       if (!existingLead.firstOutboundAt) {
         data.firstOutboundAt = providerCreateTime ?? new Date();
       }
 
-      // name:
-      // - si viene leadName => si está vacío en BD, lo rellenamos con leadName
-      // - si NO viene leadName => si está vacío en BD, lo ponemos como teléfono
       const existingName = (existingLead.name ?? '').trim();
       if (existingName.length === 0) {
-        data.name = leadNameFinal; // ya incluye fallback a teléfono
+        data.name = leadNameFinal;
       }
 
-      // email: solo rellenar si está null/vacío y llega leadEmail válido
       const existingEmail = (existingLead.email ?? '').trim();
       if ((existingEmail.length === 0) && leadEmailFinal) {
         data.email = leadEmailFinal;
@@ -125,7 +158,6 @@ export class EventsService {
       }
     }
 
-    // 3) Crear Message idempotente por unique(accountId, ycloudMessageId)
     const msgData: Prisma.MessageCreateInput = {
       account: { connect: { id: account.id } },
       lead: { connect: { id: leadId } },
@@ -166,6 +198,147 @@ export class EventsService {
             accountId_ycloudMessageId: {
               accountId: account.id,
               ycloudMessageId: body.id,
+            },
+          },
+          select: { id: true, leadId: true },
+        });
+
+        return {
+          ok: true,
+          createdMessage: false,
+          idempotent: true,
+          accountId: account.id,
+          leadId: existing?.leadId ?? leadId,
+          messageId: existing?.id ?? null,
+        };
+      }
+      throw e;
+    }
+  }
+
+  // -------------------------
+  // Inbound received (nuevo)
+  // -------------------------
+  async registerInboundReceived(body: YCloudInboundReceivedDto) {
+    const msg = body.whatsappInboundMessage;
+
+    // Normaliza teléfonos por si llegan sin '+'
+    const wabaId = msg.wabaId;
+    const businessPhone = this.normE164Loose(msg.to);
+    const customerPhone = this.normE164Loose(msg.from);
+
+    // 1) Resolver Account por unique(wabaId, phoneE164=to)
+    const account = await this.prisma.account.findUnique({
+      where: { wabaId_phoneE164: { wabaId, phoneE164: businessPhone } },
+      select: { id: true },
+    });
+    if (!account) {
+      throw new NotFoundException(
+        `Account not found for wabaId=${wabaId} and to=${businessPhone}`,
+      );
+    }
+
+    // 2) Upsert Lead por unique(accountId, phoneE164=from)
+    const providerCreateTime = this.pickIsoToDate(body.createTime) ?? null;
+    const providerSendTime = this.pickIsoToDate(msg.sendTime) ?? null;
+
+    const inboundName = (msg.customerProfile?.name ?? '').trim();
+    const leadNameFallback = customerPhone; // si no hay nombre, al menos queda el teléfono
+
+    const existingLead = await this.prisma.lead.findUnique({
+      where: {
+        accountId_phoneE164: { accountId: account.id, phoneE164: customerPhone },
+      },
+      select: { id: true, name: true, firstInboundAt: true, status: true },
+    });
+
+    let leadId: string;
+
+    if (!existingLead) {
+      const created = await this.prisma.lead.create({
+        data: {
+          accountId: account.id,
+          phoneE164: customerPhone,
+          name: inboundName.length > 0 ? inboundName : leadNameFallback,
+          status: LeadStatus.RESPONDED,
+          firstInboundAt: providerSendTime ?? providerCreateTime ?? new Date(),
+        },
+        select: { id: true },
+      });
+      leadId = created.id;
+    } else {
+      leadId = existingLead.id;
+
+      const leadUpdate: Prisma.LeadUpdateInput = {};
+
+      // firstInboundAt solo si está null
+      if (!existingLead.firstInboundAt) {
+        leadUpdate.firstInboundAt = providerSendTime ?? providerCreateTime ?? new Date();
+      }
+
+      // status: al primer inbound, pasa a RESPONDED (si todavía está NEW)
+      if (existingLead.status !== LeadStatus.RESPONDED) {
+        leadUpdate.status = LeadStatus.RESPONDED;
+      }
+
+      // name: si está vacío y llega customerProfile.name
+      const existingName = (existingLead.name ?? '').trim();
+      if (existingName.length === 0) {
+        leadUpdate.name = inboundName.length > 0 ? inboundName : leadNameFallback;
+      }
+
+      if (Object.keys(leadUpdate).length > 0) {
+        await this.prisma.lead.update({ where: { id: leadId }, data: leadUpdate });
+      }
+    }
+
+    // 3) Crear Message INBOUND idempotente por unique(accountId, ycloudMessageId)
+    const mappedType = this.mapType(msg.type);
+    const textBody =
+      mappedType === MessageType.TEXT ? (msg.text?.body ?? null) : null;
+
+    const { mediaUrl, caption } = this.extractInboundMedia(msg as any);
+
+    const msgData: Prisma.MessageCreateInput = {
+      account: { connect: { id: account.id } },
+      lead: { connect: { id: leadId } },
+
+      direction: MessageDirection.INBOUND,
+      type: mappedType,
+
+      ycloudMessageId: msg.id,
+      wamid: msg.wamid ?? null,
+      contextWamid: msg.context?.id ?? null,
+
+      // inbound normalmente no trae status
+      status: MessageStatus.UNKNOWN,
+
+      providerCreateTime,
+      providerSendTime,
+
+      textBody: textBody ?? caption ?? null,
+      mediaUrl: mediaUrl,
+
+      rawPayload: body as any,
+    };
+
+    try {
+      const created = await this.prisma.message.create({ data: msgData });
+      return {
+        ok: true,
+        createdMessage: true,
+        idempotent: false,
+        accountId: account.id,
+        leadId,
+        messageId: created.id,
+      };
+    } catch (e: any) {
+      if (e?.code === 'P2002') {
+        const existing = await this.prisma.message.findUnique({
+          where: {
+            accountId_ycloudMessageId: {
+              accountId: account.id,
+              ycloudMessageId: msg.id,
             },
           },
           select: { id: true, leadId: true },

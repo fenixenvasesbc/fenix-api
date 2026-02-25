@@ -91,7 +91,7 @@ model Account {
 model Lead {
   id        String @id @default(uuid())
   name      String?
-  phoneE164 String?
+  phoneE164 String
   email     String?
   status    LeadStatus @default(NEW)
   firstOutboundAt DateTime? // se setea cuando aceptan el 1er envío
