@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsISO8601,
   IsNotEmpty,
   IsObject,
@@ -14,22 +15,7 @@ class CustomerProfileDto {
   name?: string;
 }
 
-class ContextDto {
-  @IsOptional()
-  @IsString()
-  from?: string;
-
-  @IsOptional()
-  @IsString()
-  id?: string;
-}
-
-class TextDto {
-  @IsString()
-  @IsNotEmpty()
-  body!: string;
-}
-
+// Media para image/audio/video/document
 class MediaDto {
   @IsOptional()
   @IsString()
@@ -50,12 +36,23 @@ class MediaDto {
   @IsOptional()
   @IsString()
   mime_type?: string;
+
+  // ✅ audio.voice
+  @IsOptional()
+  @IsBoolean()
+  voice?: boolean;
+}
+
+class TextDto {
+  @IsString()
+  @IsNotEmpty()
+  body!: string;
 }
 
 class WhatsAppInboundMessageDto {
   @IsString()
   @IsNotEmpty()
-  id!: string; // inboundMessageId (ycloud)
+  id!: string; // inbound message id (ycloud)
 
   @IsOptional()
   @IsString()
@@ -67,7 +64,7 @@ class WhatsAppInboundMessageDto {
 
   @IsString()
   @IsNotEmpty()
-  from!: string; // customer phone
+  from!: string;
 
   @IsOptional()
   @ValidateNested()
@@ -76,7 +73,7 @@ class WhatsAppInboundMessageDto {
 
   @IsString()
   @IsNotEmpty()
-  to!: string; // business phone
+  to!: string;
 
   @IsOptional()
   @IsISO8601()
@@ -84,23 +81,17 @@ class WhatsAppInboundMessageDto {
 
   @IsString()
   @IsNotEmpty()
-  type!: string; // text|image|document|video|audio...
+  type!: string; // text|image|audio|video|document|...
 
   @IsOptional()
   @ValidateNested()
   @Type(() => TextDto)
   text?: TextDto;
 
-  // media types (solo uno suele venir según type)
   @IsOptional()
   @ValidateNested()
   @Type(() => MediaDto)
   image?: MediaDto;
-
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => MediaDto)
-  video?: MediaDto;
 
   @IsOptional()
   @ValidateNested()
@@ -110,12 +101,20 @@ class WhatsAppInboundMessageDto {
   @IsOptional()
   @ValidateNested()
   @Type(() => MediaDto)
-  document?: MediaDto;
+  video?: MediaDto;
 
   @IsOptional()
   @ValidateNested()
-  @Type(() => ContextDto)
-  context?: ContextDto;
+  @Type(() => MediaDto)
+  document?: MediaDto;
+
+  /**
+   * ✅ Context cambia mucho (forwarded, id, from, etc.)
+   * Para que NO te rompa con forbidNonWhitelisted, lo aceptamos libre.
+   */
+  @IsOptional()
+  @IsObject()
+  context?: Record<string, any>;
 }
 
 export class YCloudInboundReceivedDto {
@@ -125,7 +124,7 @@ export class YCloudInboundReceivedDto {
 
   @IsString()
   @IsNotEmpty()
-  type!: string; // whatsapp.inbound_message.received
+  type!: string;
 
   @IsOptional()
   @IsString()
@@ -135,7 +134,6 @@ export class YCloudInboundReceivedDto {
   @IsISO8601()
   createTime?: string;
 
-  @IsObject()
   @ValidateNested()
   @Type(() => WhatsAppInboundMessageDto)
   whatsappInboundMessage!: WhatsAppInboundMessageDto;
