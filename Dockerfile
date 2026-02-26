@@ -11,6 +11,7 @@ COPY . .
 
 # ✅ genera el client de Prisma (clave para que existan Role/User en @prisma/client)
 RUN pnpm prisma generate
+RUN pnpm build
 
 EXPOSE 3000
-CMD ["pnpm","start:dev"]
+CMD ["node", "dist/main.js"]
