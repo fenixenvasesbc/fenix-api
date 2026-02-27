@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsISO8601,
   IsNotEmpty,
   IsObject,
@@ -50,6 +51,10 @@ class MediaDto {
   @IsOptional()
   @IsString()
   mime_type?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  voice?: boolean;
 }
 
 class WhatsAppInboundMessageDto {
