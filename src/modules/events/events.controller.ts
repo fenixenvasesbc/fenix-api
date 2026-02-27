@@ -14,7 +14,7 @@ export class EventsController {
     return this.events.registerOutboundAccepted(body);
   }
 
-  @UseGuards(ApiKeyGuard)
+  //@UseGuards(ApiKeyGuard)
   @Post('inbound/received')
   async inboundReceived(@Body() body: YCloudInboundReceivedDto) {
     return this.events.registerInboundReceived(body);
