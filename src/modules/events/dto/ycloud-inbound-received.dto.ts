@@ -15,7 +15,22 @@ class CustomerProfileDto {
   name?: string;
 }
 
-// Media para image/audio/video/document
+class ContextDto {
+  @IsOptional()
+  @IsString()
+  from?: string;
+
+  @IsOptional()
+  @IsString()
+  id?: string;
+}
+
+class TextDto {
+  @IsString()
+  @IsNotEmpty()
+  body!: string;
+}
+
 class MediaDto {
   @IsOptional()
   @IsString()
@@ -45,7 +60,7 @@ class MediaDto {
 class WhatsAppInboundMessageDto {
   @IsString()
   @IsNotEmpty()
-  id!: string; // inbound message id (ycloud)
+  id!: string; // inboundMessageId (ycloud)
 
   @IsOptional()
   @IsString()
@@ -57,7 +72,7 @@ class WhatsAppInboundMessageDto {
 
   @IsString()
   @IsNotEmpty()
-  from!: string;
+  from!: string; // customer phone
 
   @IsOptional()
   @ValidateNested()
@@ -66,7 +81,7 @@ class WhatsAppInboundMessageDto {
 
   @IsString()
   @IsNotEmpty()
-  to!: string;
+  to!: string; // business phone
 
   @IsOptional()
   @IsISO8601()
@@ -74,22 +89,18 @@ class WhatsAppInboundMessageDto {
 
   @IsString()
   @IsNotEmpty()
-  type!: string; // text|image|audio|video|document|...
+  type!: string; // text|image|document|video|audio...
 
   @IsOptional()
   @ValidateNested()
   @Type(() => TextDto)
   text?: TextDto;
 
+  // media types (solo uno suele venir según type)
   @IsOptional()
   @ValidateNested()
   @Type(() => MediaDto)
   image?: MediaDto;
-
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => MediaDto)
-  audio?: MediaDto;
 
   @IsOptional()
   @ValidateNested()
@@ -99,15 +110,17 @@ class WhatsAppInboundMessageDto {
   @IsOptional()
   @ValidateNested()
   @Type(() => MediaDto)
+  audio?: MediaDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => MediaDto)
   document?: MediaDto;
 
-  /**
-   * ✅ Context cambia mucho (forwarded, id, from, etc.)
-   * Para que NO te rompa con forbidNonWhitelisted, lo aceptamos libre.
-   */
   @IsOptional()
-  @IsObject()
-  context?: Record<string, any>;
+  @ValidateNested()
+  @Type(() => ContextDto)
+  context?: ContextDto;
 }
 
 export class YCloudInboundReceivedDto {
@@ -117,7 +130,7 @@ export class YCloudInboundReceivedDto {
 
   @IsString()
   @IsNotEmpty()
-  type!: string;
+  type!: string; // whatsapp.inbound_message.received
 
   @IsOptional()
   @IsString()
@@ -127,6 +140,7 @@ export class YCloudInboundReceivedDto {
   @IsISO8601()
   createTime?: string;
 
+  @IsObject()
   @ValidateNested()
   @Type(() => WhatsAppInboundMessageDto)
   whatsappInboundMessage!: WhatsAppInboundMessageDto;
