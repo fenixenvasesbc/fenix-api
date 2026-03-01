@@ -37,22 +37,9 @@ class MediaDto {
   @IsString()
   mime_type?: string;
 
-<<<<<<< HEAD
-  // ✅ audio.voice
   @IsOptional()
   @IsBoolean()
   voice?: boolean;
-}
-
-class TextDto {
-  @IsString()
-  @IsNotEmpty()
-  body!: string;
-=======
-  @IsOptional()
-  @IsBoolean()
-  voice?: boolean;
->>>>>>> main
 }
 
 class WhatsAppInboundMessageDto {
