@@ -7,17 +7,23 @@ async function bootstrap() {
 
   // CORS (debe ir antes de listen)
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'https://v0-postman-to-app.vercel.app',
+    origin: true, // refleja el Origin que llega (permite todos)
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: false, // pon true SOLO si usas cookies/sesión
+    credentials: false,
   });
+  // app.enableCors({
+  //   origin: process.env.CORS_ORIGIN || 'https://v0-postman-to-app.vercel.app',
+  //   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  //   allowedHeaders: ['Content-Type', 'Authorization'],
+  //   credentials: false, // pon true SOLO si usas cookies/sesión
+  // });
 
   // Fallback opcional: responde preflight siempre (no debería hacer falta, pero evita el 404 en OPTIONS)
-  app.use((req: any, res: any, next: any) => {
-    if (req.method === 'OPTIONS') return res.sendStatus(204);
-    next();
-  });
+  // app.use((req: any, res: any, next: any) => {
+  //   if (req.method === 'OPTIONS') return res.sendStatus(204);
+  //   next();
+  // });
 
   app.useGlobalPipes(
     new ValidationPipe({
