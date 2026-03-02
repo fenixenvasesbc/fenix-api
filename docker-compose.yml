@@ -10,6 +10,38 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: fenix_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: fenix
+      RABBITMQ_DEFAULT_PASS: fenix
+      RABBITMQ_DEFAULT_VHOST: /
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # UI Management
+    volumes:
+      - rabbitdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fenix_worker
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - rabbitmq
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: pnpm start:worker:dev
 
   api:
     build:
@@ -22,6 +54,7 @@ services:
       - "3000:3000"
     depends_on:
       - db
+      - rabbitmq
     volumes:
       - .:/app
       - /app/node_modules
@@ -29,3 +62,4 @@ services:
 
 volumes:
   pgdata:
+  rabbitdata:

@@ -13,10 +13,13 @@ import { EventsModule } from './modules/events/events.module';
 import { DashboardController } from './modules/dashboard/dashboard.controller';
 import { DashboardService } from './modules/dashboard/dashboard.service';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { RabbitmqService } from './modules/rabbitmq/rabbitmq.service';
+import { RabbitmqModule } from './modules/rabbitmq/rabbitmq.module';
+import { WorkerModule } from './modules/worker/worker.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }),UsersModule, AuthModule, PrismaModule, RefreshTokensModule, AccountsModule, EventsModule, DashboardModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }),UsersModule, AuthModule, PrismaModule, RefreshTokensModule, AccountsModule, EventsModule, DashboardModule, RabbitmqModule, WorkerModule],
   controllers: [AppController, EventsController, DashboardController],
-  providers: [AppService, EventsService, DashboardService],
+  providers: [AppService, EventsService, DashboardService, RabbitmqService],
 })
 export class AppModule {}
