@@ -1,8 +1,13 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import * as amqplib from 'amqplib';
-import type { ConfirmChannel, ConsumeMessage } from 'amqplib';
+import type { ConfirmChannel, ConsumeMessage, Options } from 'amqplib';
 
 type AmqpConnection = Awaited<ReturnType<typeof amqplib.connect>>;
+
+export type ConsumeDecision =
+  | { action: 'ack' }
+  | { action: 'retry'; routingKey: string }
+  | { action: 'dead'; routingKey: string };
 
 @Injectable()
 export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
@@ -30,31 +35,27 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async connectWithRetry(url: string) {
-    const delaysMs = [500, 1000, 2000, 5000, 10000]; // backoff simple
+    const delaysMs = [500, 1000, 2000, 5000, 10000];
     let attempt = 0;
 
     while (true) {
       try {
         this.conn = await amqplib.connect(url);
 
-        // eventos útiles
         this.conn.on('error', (err: unknown) => {
           this.logger.error(`RabbitMQ connection error: ${String(err)}`);
         });
 
         this.conn.on('close', () => {
           this.logger.warn('RabbitMQ connection closed.');
-          // Nota: en Nest dev/watch suele reiniciar; si quieres auto-reconnect en caliente,
-          // se puede implementar aquí con un guard (para no crear loops).
         });
 
-        // ConfirmChannel para publish confiable
         this.ch = await this.conn.createConfirmChannel();
 
-        // si el channel cierra, lo logueamos
         this.ch.on('error', (err: unknown) => {
           this.logger.error(`RabbitMQ channel error: ${String(err)}`);
         });
+
         this.ch.on('close', () => {
           this.logger.warn('RabbitMQ channel closed.');
         });
@@ -81,20 +82,20 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async assertTopology() {
-    const exchange = process.env.RABBITMQ_EXCHANGE; // ycloud.events
-    const dlx = process.env.RABBITMQ_DLX_EXCHANGE; // ycloud.dlx
+    const exchange = process.env.RABBITMQ_EXCHANGE;
+    const dlx = process.env.RABBITMQ_DLX_EXCHANGE;
 
-    const qMain = process.env.RABBITMQ_QUEUE_MAIN; // q_webhook_main
-    const qRetry10s = process.env.RABBITMQ_QUEUE_RETRY_10S; // q_retry_10s
+    const qMain = process.env.RABBITMQ_QUEUE_MAIN;
+    const qRetry10s = process.env.RABBITMQ_QUEUE_RETRY_10S;
     const qRetry1m = process.env.RABBITMQ_QUEUE_RETRY_1M;
     const qRetry10m = process.env.RABBITMQ_QUEUE_RETRY_10M;
-    const qDead = process.env.RABBITMQ_QUEUE_DEAD; // q_webhook_dead
+    const qDead = process.env.RABBITMQ_QUEUE_DEAD;
 
-    const rkProcess = process.env.RABBITMQ_RK_PROCESS; // webhook.process
-    const rkRetry10s = process.env.RABBITMQ_RK_RETRY_10S; // webhook.retry.10s
+    const rkProcess = process.env.RABBITMQ_RK_PROCESS;
+    const rkRetry10s = process.env.RABBITMQ_RK_RETRY_10S;
     const rkRetry1m = process.env.RABBITMQ_RK_RETRY_1M;
     const rkRetry10m = process.env.RABBITMQ_RK_RETRY_10M;
-    const rkDead = process.env.RABBITMQ_RK_DEAD; // webhook.dead
+    const rkDead = process.env.RABBITMQ_RK_DEAD;
 
     const missing = [
       ['RABBITMQ_EXCHANGE', exchange],
@@ -115,21 +116,15 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
       throw new Error(`Missing env vars: ${missing.map(([k]) => k).join(', ')}`);
     }
 
-    // Exchanges
     await this.ch!.assertExchange(exchange!, 'topic', { durable: true });
     await this.ch!.assertExchange(dlx!, 'topic', { durable: true });
 
-    // Main queue -> DLX -> retry.10s (primer escalón)
+    // Cola principal: SIN depender de DLX fijo para retries
     await this.ch!.assertQueue(qMain!, {
       durable: true,
-      arguments: {
-        'x-dead-letter-exchange': dlx!,
-        'x-dead-letter-routing-key': rkRetry10s!,
-      },
     });
     await this.ch!.bindQueue(qMain!, exchange!, rkProcess!);
 
-    // Retry queues (TTL) -> de vuelta al exchange principal con rkProcess
     await this.ch!.assertQueue(qRetry10s!, {
       durable: true,
       arguments: {
@@ -160,7 +155,6 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     });
     await this.ch!.bindQueue(qRetry10m!, dlx!, rkRetry10m!);
 
-    // Dead queue
     await this.ch!.assertQueue(qDead!, { durable: true });
     await this.ch!.bindQueue(qDead!, dlx!, rkDead!);
   }
@@ -172,48 +166,27 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
 
     const body = Buffer.from(JSON.stringify(payload));
 
-    // confirm publish (callback) para saber si el broker lo aceptó
     await new Promise<void>((resolve, reject) => {
       this.ch!.publish(
         exchange,
         routingKey,
         body,
-        { persistent: true, contentType: 'application/json' },
+        {
+          persistent: true,
+          contentType: 'application/json',
+        },
         (err) => (err ? reject(err) : resolve()),
       );
     });
   }
 
-  async consume(queue: string, handler: (msg: ConsumeMessage) => Promise<void>) {
-    if (!this.ch) throw new Error('Rabbit channel is not initialized');
-
-    await this.ch.consume(queue, async (msg) => {
-      if (!msg) return;
-
-      try {
-        await handler(msg);
-        this.ch!.ack(msg);
-      } catch (err) {
-        // Por defecto, mantiene tu comportamiento actual:
-        // nack sin requeue => cae en DLX del queue actual
-        this.logger.error(`Handler failed. nack->DLX. ${String(err)}`);
-        this.ch!.nack(msg, false, false);
-      }
-    });
-  }
-
-    /**
-   * Publica directamente al DLX exchange con una routing key específica (retry_1m, retry_10m, dead, etc)
-   * y preserva headers/metadata importantes del mensaje original.
-   */
   async publishToDLX(routingKey: string, msg: ConsumeMessage) {
     const dlx = process.env.RABBITMQ_DLX_EXCHANGE;
     if (!dlx) throw new Error('Missing env RABBITMQ_DLX_EXCHANGE');
     if (!this.ch) throw new Error('Rabbit channel is not initialized');
 
-    // preserva headers + contentType, etc
-    const props = {
-      headers: msg.properties.headers ?? {},
+    const properties: Options.Publish = {
+      persistent: true,
       contentType: msg.properties.contentType ?? 'application/json',
       contentEncoding: msg.properties.contentEncoding,
       correlationId: msg.properties.correlationId,
@@ -221,21 +194,68 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
       timestamp: msg.properties.timestamp,
       type: msg.properties.type,
       appId: msg.properties.appId,
-      deliveryMode: 2, // persistent
+      headers: {
+        ...(msg.properties.headers ?? {}),
+      },
     };
 
     await new Promise<void>((resolve, reject) => {
-      this.ch!.publish(dlx, routingKey, msg.content, props, (err) => (err ? reject(err) : resolve()));
+      this.ch!.publish(dlx, routingKey, msg.content, properties, (err) =>
+        err ? reject(err) : resolve(),
+      );
     });
   }
 
-  /** Lee cantidad de muertes (reintentos) desde header x-death */
   getDeathCount(msg: ConsumeMessage): number {
-    const headers = (msg.properties.headers ?? {}) as Record<string, any>;
+    const headers = (msg.properties.headers ?? {}) as Record<string, unknown>;
     const xDeath = headers['x-death'];
+
     if (!Array.isArray(xDeath)) return 0;
 
-    // suma counts si hay varios entries (por cola)
-    return xDeath.reduce((acc: number, d: any) => acc + (typeof d?.count === 'number' ? d.count : 0), 0);
+    return xDeath.reduce((acc: number, item: any) => {
+      const count = typeof item?.count === 'number' ? item.count : 0;
+      return acc + count;
+    }, 0);
+  }
+
+  async consume(
+    queue: string,
+    handler: (msg: ConsumeMessage) => Promise<ConsumeDecision>,
+  ) {
+    if (!this.ch) throw new Error('Rabbit channel is not initialized');
+
+    await this.ch.consume(queue, async (msg) => {
+      if (!msg) return;
+
+      try {
+        const decision = await handler(msg);
+
+        if (decision.action === 'ack') {
+          this.ch!.ack(msg);
+          return;
+        }
+
+        if (decision.action === 'retry' || decision.action === 'dead') {
+          await this.publishToDLX(decision.routingKey, msg);
+          this.ch!.ack(msg);
+          return;
+        }
+
+        this.ch!.ack(msg);
+      } catch (err) {
+        this.logger.error(`Unhandled consumer error. Sending to dead. ${String(err)}`);
+
+        try {
+          const rkDead = process.env.RABBITMQ_RK_DEAD;
+          if (!rkDead) throw new Error('Missing env RABBITMQ_RK_DEAD');
+
+          await this.publishToDLX(rkDead, msg);
+          this.ch!.ack(msg);
+        } catch (publishErr) {
+          this.logger.error(`Failed to publish to DLX dead queue. ${String(publishErr)}`);
+          this.ch!.nack(msg, false, false);
+        }
+      }
+    });
   }
 }
