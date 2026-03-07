@@ -16,10 +16,15 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { RabbitmqService } from './modules/rabbitmq/rabbitmq.service';
 import { RabbitmqModule } from './modules/rabbitmq/rabbitmq.module';
 import { WorkerModule } from './modules/worker/worker.module';
+import { WebhookService } from './modules/webhook/webhook.service';
+import { WebhookController } from './modules/webhook/webhook.controller';
+import { WebhookModule } from './modules/webhook/webhook.module';
+import { WebhookInboxService } from './modules/webhook-inbox/webhook-inbox.service';
+import { WebhookInboxModule } from './modules/webhook-inbox/webhook-inbox.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }),UsersModule, AuthModule, PrismaModule, RefreshTokensModule, AccountsModule, EventsModule, DashboardModule, RabbitmqModule, WorkerModule],
-  controllers: [AppController, EventsController, DashboardController],
-  providers: [AppService, EventsService, DashboardService, RabbitmqService],
+  imports: [ConfigModule.forRoot({ isGlobal: true }),UsersModule, AuthModule, PrismaModule, RefreshTokensModule, AccountsModule, EventsModule, DashboardModule, RabbitmqModule, WorkerModule, WebhookModule, WebhookInboxModule],
+  controllers: [AppController, EventsController, DashboardController, WebhookController],
+  providers: [AppService, EventsService, DashboardService, RabbitmqService, WebhookService, WebhookInboxService],
 })
 export class AppModule {}

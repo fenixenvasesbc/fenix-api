@@ -1,0 +1,595 @@
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eEkn26qar3nOB8md",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f872f6741c165b4342a751",
+    "wamid": "wamid.HBgNODi...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "text",
+    "text": {
+      "body": "OK"
+    },
+    "context": {
+      "from": "447901614024",
+      "id": "wamid.HBgNODr..."
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eEkn26qar3nOB8md",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f872f6741c165b4342a751",
+    "wamid": "wamid.HBgNODi...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "text",
+    "text": {
+      "body": "OK"
+    },
+    "referral": {
+      "source_url": "https://fb.me/xxx",
+      "source_type": "ad",
+      "source_id": "MEDIA-ID",
+      "headline": "Chat with us",
+      "media_type": "image",
+      "image_url": "https://scontent.xx.fbcdn.net/v/t45.1600-4/xxx.jpg",
+      "ctwa_clid": "feRgX__yiYtsI1HhjI2FRjyKInYlrU9cm9ml-Yl1MXp_fJy6Mwp-adZ-yLqOWX5CiZJYtjQERgKbAUetcwFXb_6FUYyOl9Kc6HFOBCd"
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eEkv5wsCJItpaH01",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f87878509703399f3fd3d0",
+    "wamid": "wamid.HBgNODi...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "image",
+    "image": {
+      "link": "https://api.ycloud.com/v2/whatsapp/media/download/592623615738103?sig=t%3D1677228150%2Cs%3D0aa4810392602afb2a91e28e54223c4c0e638bba298f19f07a6c3a2ccf6bdf1e&payload=eyJ3YWJhSWQiOiIxMDY2ODE3NzIxOTE4NzQiLCJpbmJvdW5kTWVzc2FnZUlkIjoiNjNmODc4Nzg1MDk3MDMzOTlmM2ZkM2QwIiwibWltZVR5cGUiOiJpbWFnZS9qcGVnIiwic2hhMjU2IjoiTGVScFFKcS9oNEhUam1QOHNtRkpRRXdZQm5rR0JVdDFjeDRxekZjblVoUT0ifQ",
+      "caption": "Go for a walk.",
+      "id": "592623615738103",
+      "sha256": "LeRpQJq/h4HTjmP8smFJQEwYBnkGBUt1cx4qzFcnUhQ=",
+      "mime_type": "image/jpeg"
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eEkwhYtqMPmYdsN3",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f87991741c165b4342a797",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "video",
+    "video": {
+      "link": "https://api.ycloud.com/v2/whatsapp/media/download/919306472440541?sig=t%3D1677228430%2Cs%3D481b972ebc10e6b384f11274ba59e64b8c355543ea0b30e066b209361212abad&payload=eyJ3YWJhSWQiOiIxMDY2ODE3NzIxOTE4NzQiLCJpbmJvdW5kTWVzc2FnZUlkIjoiNjNmODc5OTE3NDFjMTY1YjQzNDJhNzk3IiwibWltZVR5cGUiOiJ2aWRlby9tcDQiLCJzaGEyNTYiOiJ4RHpyU1R1YnZURm53MytzMVdJbEFiSUZLanpBS2k1dFZWaVFOVjhKV3BnPSJ9",
+      "caption": "Go for a walk.",
+      "id": "919306472440541",
+      "sha256": "xDzrSTubvTFnw3+s1WIlAbIFKjzAKi5tVViQNV8JWpg=",
+      "mime_type": "video/mp4"
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eEl1TDAcquZUxzLn",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f87cd3509703399f3fd3f2",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "audio",
+    "audio": {
+      "link": "https://api.ycloud.com/v2/whatsapp/media/download/712063723747110?sig=t%3D1677229265%2Cs%3D5c6a65172ef8caa7bc969dacb831d6e15362fd7a5b6be7aa994aa83cdd15fc4e&payload=eyJ3YWJhSWQiOiIxMDY2ODE3NzIxOTE4NzQiLCJpbmJvdW5kTWVzc2FnZUlkIjoiNjNmODdjZDM1MDk3MDMzOTlmM2ZkM2YyIiwibWltZVR5cGUiOiJhdWRpby9tcGVnIiwic2hhMjU2IjoiQWtSWkR5dEx5MkkxSzFkT2VMNnBRT2pZblBwcGdqdFNDTzlNUStDcnkwUT0ifQ",
+      "id": "712063723747110",
+      "sha256": "AkRZDytLy2I1K1dOeL6pQOjYnPppgjtSCO9MQ+Cry0Q=",
+      "mime_type": "audio/mpeg"
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eEkz3y7V6TCqgkbK",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f87b2e741c165b4342a79b",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "document",
+    "document": {
+      "link": "https://api.ycloud.com/v2/whatsapp/media/download/948915536111569?sig=t%3D1677228843%2Cs%3D6eb8b4fc2796bae9f2e95702fbbd4d211cace96bc5c934a12d97704140e47a16&payload=eyJ3YWJhSWQiOiIxMDY2ODE3NzIxOTE4NzQiLCJpbmJvdW5kTWVzc2FnZUlkIjoiNjNmODdiMmU3NDFjMTY1YjQzNDJhNzliIiwibWltZVR5cGUiOiJhcHBsaWNhdGlvbi9wZGYiLCJzaGEyNTYiOiJFcHZDdHpUallkcTRleG1xc2ZHYmVpK1NUZ1h4VnFUQzJ0b2laODB2bW5rPSJ9",
+      "caption": "PDF example",
+      "filename": "sample.pdf",
+      "id": "948915536111569",
+      "sha256": "EpvCtzTjYdq4exmqsfGbei+STgXxVqTC2toiZ80vmnk=",
+      "mime_type": "application/pdf"
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eF6mVJUj5OWfKXMD",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63fc1678741c165b4342b38e",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "sticker",
+    "sticker": {
+      "link": "https://api.ycloud.com/v2/whatsapp/media/download/729118992174848?sig=t%3D1677465205%2Cs%3Dbc0d582e37cc701d5d090c1d11aa7eaed9b3f8e83925425a82d0aaab8b7da258&payload=eyJ3YWJhSWQiOiIxMDY2ODE3NzIxOTE4NzQiLCJpbmJvdW5kTWVzc2FnZUlkIjoiNjNmYzE2Nzg3NDFjMTY1YjQzNDJiMzhlIiwibWltZVR5cGUiOiJpbWFnZS93ZWJwIiwic2hhMjU2IjoiUlpFRWw1SFZXVDRTNkMwUG9PZ2pZQ1FWRFdzNWVzSU1Kc2pjRFlJODBaRT0ifQ",
+      "id": "729118992174848",
+      "sha256": "RZEEl5HVWT4S6C0PoOgjYCQVDWs5esIMJsjcDYI80ZE=",
+      "mime_type": "image/webp"
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eF6mVJUj5OWfKXMD",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63fc18ae509703399f3fe000",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "location",
+    "location": {
+      "latitude": 1.40435,
+      "longitude": 103.79304,
+      "name": "Singapore Zoo",
+      "address": "80 Mandai Lake Road Singapore 72",
+      "url": "https://www.zoo.com.sg"
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eF6mVJUj5OWfKXMD",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f71fb8741c165b434292fb",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "contacts",
+    "contacts": [
+      {
+        "addresses": [
+          {
+            "street": "<ADDRESS_STREET>",
+            "city": "<ADDRESS_CITY>",
+            "state": "<ADDRESS_STATE>",
+            "zip": "<ADDRESS_ZIP>",
+            "country": "<ADDRESS_COUNTRY>",
+            "country_code": "<ADDRESS_COUNTRY_CODE>",
+            "type": "HOME"
+          }
+        ],
+        "birthday": "2001-01-01",
+        "emails": [
+          {
+            "email": "joe@example.com",
+            "type": "WORK"
+          }
+        ],
+        "name": {
+          "formatted_name": "<CONTACT_FORMATTED_NAME>",
+          "first_name": "<CONTACT_FIRST_NAME>",
+          "last_name": "<CONTACT_LAST_NAME>",
+          "middle_name": "<CONTACT_MIDDLE_NAME>",
+          "suffix": "<CONTACT_SUFFIX>",
+          "prefix": "<CONTACT_PREFIX>"
+        },
+        "org": {
+          "company": "<CONTACT_ORG_COMPANY>",
+          "department": "<CONTACT_ORG_DEPARTMENT>",
+          "title": "<CONTACT_ORG_TITLE>"
+        },
+        "phones": [
+          {
+            "phone": "+447901614024",
+            "wa_id": "447901614024",
+            "type": "WORK"
+          }
+        ],
+        "urls": [
+          {
+            "url": "<CONTACT_URL>",
+            "type": "WORK"
+          }
+        ]
+      }
+    ]
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eF6mVJUj5OWfKXMD",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f71fb8741c165b434292fb",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "reaction",
+    "reaction": {
+      "message_id": "wamid.HBgNODYxNTcwMDA3NzE0NRUCABIYIEYyMzY3OUJBMzY2RkFFQkRDQjYyQ0Q5RDE1QjA2RUYyAA==",
+      "emoji": "👍"
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eF6mVJUj5OWfKXMD",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f71fb8741c165b434292fb",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "reaction",
+    "reaction": {
+      "message_id": "wamid.HBgNODYxNTcwMDA3NzE0NRUCABIYIEYyMzY3OUJBMzY2RkFFQkRDQjYyQ0Q5RDE1QjA2RUYyAA==",
+      "emoji": "👍"
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eF6mVJUj5OWfKXMD",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f71fb8741c165b434292fb",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "button",
+    "button": {
+      "payload": "more_about_marketing_friday",
+      "text": "Learn more"
+    },
+    "context": {
+      "from": "447901614024",
+      "id": "wamid.HBgNODr..."
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eF6mVJUj5OWfKXMD",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f73942741c165b43429f86",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "interactive",
+    "interactive": {
+      "type": "list_reply",
+      "list_reply": {
+        "id": "<LIST_SECTION_2_ROW_1_ID>",
+        "title": "<SECTION_2_ROW_1_TITLE>",
+        "description": "<SECTION_2_ROW_1_DESC>"
+      }
+    },
+    "context": {
+      "from": "447901614024",
+      "id": "wamid.HBgNODr..."
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eF6mVJUj5OWfKXMD",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f71fb8741c165b434292fb",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "interactive",
+    "interactive": {
+      "type": "button_reply",
+      "button_reply": {
+        "id": "<UNIQUE_BUTTON_ID_2>",
+        "title": "<BUTTON_TITLE_2>"
+      }
+    },
+    "context": {
+      "from": "447901614024",
+      "id": "wamid.HBgNODr..."
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eF6mVJUj5OWfKXMD",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f71fb8741c165b434292fb",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "interactive",
+    "interactive": {
+      "type": "nfm_reply",
+      "nfm_reply": {
+        "name": "flow",
+        "body": "Sent",
+        "response_json": "{\"flow_token\": \"<FLOW_TOKEN>\", \"optional_param1\": \"<value1>\", \"optional_param2\": \"<value2>\"}"
+      }
+    },
+    "context": {
+      "from": "447901614024",
+      "id": "wamid.HBgNODr..."
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eF6mVJUj5OWfKXMD",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f8709b741c165b4342a714",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "unsupported",
+    "errors": [
+      {
+        "code": "131051",
+        "title": "Message type is currently not supported."
+      }
+    ]
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eF6mVJUj5OWfKXMD",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f71fb8741c165b434292fb",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "system",
+    "system": {
+      "body": "User A changed from 123456789 to 987654321",
+      "wa_id": "987654321",
+      "type": "user_changed_number"
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eF6mVJUj5OWfKXMD",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f71fb8741c165b434292fb",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "order",
+    "order": {
+      "catalog_id": "the-catalog_id",
+      "product_items": [
+        {
+          "product_retailer_id": "the-product-SKU-identifier",
+          "quantity": "number-of-item",
+          "item_price": "unitary-price-of-item",
+          "currency": "price-currency"
+        }
+      ],
+      "text": "text-message-sent-along-with-the-order"
+    },
+    "context": {
+      "from": "16315551234",
+      "id": "wamid.gBGGFlaCGg0xcvAdgmZ9plHrf2Mh-o"
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eF6mVJUj5OWfKXMD",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f71fb8741c165b434292fb",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "text",
+    "text": {
+      "body": "Can I get this in another color?"
+    },
+    "context": {
+      "referred_product": {
+        "catalog_id": "catalog-ID",
+        "product_retailer_id": "product-ID"
+      }
+    }
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eF6mVJUj5OWfKXMD",
+  "type": "whatsapp.inbound_message.received",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappInboundMessage": {
+    "id": "63f71fb8741c165b434292fb",
+    "wamid": "wamid.HBgNOD...",
+    "wabaId": "WABA-ID",
+    "from": "CUSTOMER-PHONE-NUMBER",
+    "customerProfile": {
+      "name": "Joe"
+    },
+    "to": "BUSINESS-PHONE-NUMBER",
+    "sendTime": "2023-02-22T12:00:00.000Z",
+    "type": "request_welcome"
+  }
+}'

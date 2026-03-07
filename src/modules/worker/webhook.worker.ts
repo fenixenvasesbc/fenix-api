@@ -1,12 +1,18 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { ConsumeMessage } from 'amqplib';
 import { RabbitmqService, type ConsumeDecision } from '../rabbitmq/rabbitmq.service';
+import { WebhookInboxService } from '../webhook-inbox/webhook-inbox.service';
+import { WebhookInboxJob } from 'src/common/types/webhook-inbox-job';
+
 
 @Injectable()
 export class WebhookWorker implements OnModuleInit {
   private readonly logger = new Logger(WebhookWorker.name);
 
-  constructor(private readonly rabbit: RabbitmqService) {}
+  constructor(
+    private readonly rabbit: RabbitmqService,
+    private readonly webhookInboxService: WebhookInboxService,
+  ) {}
 
   async onModuleInit() {
     const qMain = process.env.RABBITMQ_QUEUE_MAIN!;
@@ -19,24 +25,25 @@ export class WebhookWorker implements OnModuleInit {
 
   private async handleMessage(msg: ConsumeMessage): Promise<ConsumeDecision> {
     const payload = this.safeJson(msg);
-    const id = payload?.id ?? msg.properties.messageId ?? '(no id)';
+    const id = payload?.providerEventId ?? msg.properties.messageId ?? '(no id)';
     const deaths = this.rabbit.getDeathCount(msg);
 
     try {
-      this.logger.log(`Received message: ${id} deaths=${deaths}`);
-
       if (!payload) {
         throw new Error('Invalid JSON payload');
       }
 
-      // TODO:
-      // 1) guardar en DB
-      // 2) idempotencia
-      // 3) dispatch por tipo de evento
-      // 4) transiciones de estado
+      const job = this.validateJob(payload);
 
-      // Simulación opcional de error para pruebas:
-      // if (payload.fail === true) throw new Error('Forced failure');
+      this.logger.log(
+        `Received webhook job providerEventId=${job.providerEventId} eventType=${job.eventType} deaths=${deaths}`,
+      );
+
+      const result = await this.webhookInboxService.store(job);
+
+      if (result === 'duplicate') {
+        return { action: 'ack' };
+      }
 
       return { action: 'ack' };
     } catch (err) {
@@ -49,6 +56,16 @@ export class WebhookWorker implements OnModuleInit {
 
       return decision;
     }
+  }
+
+  private validateJob(payload: any): WebhookInboxJob {
+    if (!payload?.provider) throw new Error('Missing provider');
+    if (!payload?.providerEventId) throw new Error('Missing providerEventId');
+    if (!payload?.eventType) throw new Error('Missing eventType');
+    if (!payload?.payload) throw new Error('Missing payload');
+    if (!payload?.receivedAt) throw new Error('Missing receivedAt');
+
+    return payload as WebhookInboxJob;
   }
 
   private safeJson(msg: ConsumeMessage): any | null {

@@ -78,6 +78,8 @@ model Account {
   // Una cuenta puede tener múltiples mensajes o ninguno
   messages Message[]
 
+  webhookEvents WebhookEvent[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -98,6 +100,12 @@ model Lead {
   firstInboundAt  DateTime? // se setea cuando llega el 1er inbound
   firstOutboundTemplateName String? // para métrica #1, se setea con el template del 1er envío
 
+  lastInboundAt DateTime?// se actualiza cada vez que llega un inbound
+  lastOutboundAt DateTime?// se actualiza cada vez que se envía un mensaje
+  respondedAt DateTime?// se setea con el timestamp del primer inbound (si no se ha seteado antes)
+  lastMessageAt DateTime?// se actualiza con el timestamp de cada mensaje (inbound o outbound)
+  sourceTemplateName String?// se setea con el template del primer mensaje (inbound o outbound) para métrica #2
+
   // Lead asociado a una cuenta (0..N por cuenta)
   accountId String?
   account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
@@ -106,6 +114,8 @@ model Lead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  webhookEvents WebhookEvent[]
+
   @@index([accountId])
   @@index([phoneE164])
   @@index([email])
@@ -113,6 +123,9 @@ model Lead {
   @@index([accountId, firstOutboundAt])
   @@index([firstOutboundTemplateName])
   @@unique([accountId, phoneE164])
+  @@index([accountId, status, createdAt])
+  @@index([accountId, lastInboundAt])
+  @@index([accountId, lastOutboundAt])
 }
 
 model RefreshToken {
@@ -161,14 +174,32 @@ model Message {
   providerUpdateTime DateTime? // outbound.updateTime
   providerSendTime   DateTime? // inbound.sendTime (si aplica)
 
+  updatedAt DateTime @updatedAt // para saber cuándo se actualizó el status por última vez
+
   // contenido (opcional ahora, útil luego)
   textBody String? // inbound.text.body si type=TEXT
   mediaUrl String? // para image/video/document (si luego lo necesitas)
+  caption   String?
+  mimeType  String?
+  fileName  String?
+  errors    Json?
+  interactivePayload Json?
 
   // debug/auditoría
   rawPayload Json? // guardas el payload entero por si mañana necesitas campos
 
   createdAt DateTime @default(now())
+
+  externalId       String?
+  respondedAt      DateTime?
+  responseToId     String?
+  responseTo   Message?  @relation("MessageReplies", fields: [responseToId], references: [id], onDelete: SetNull)
+  responses    Message[] @relation("MessageReplies")
+  campaignKey      String?
+
+  webhookEvents   WebhookEvent[]
+  statusHistory   MessageStatusHistory[]
+
 
   @@index([accountId, leadId, direction, createdAt])
   @@index([accountId, direction, type, providerCreateTime])
@@ -176,4 +207,63 @@ model Message {
   @@index([templateName])
   @@index([wamid])
   @@unique([accountId, ycloudMessageId])
+  @@index([accountId, externalId])
+  @@index([accountId, wamid])
+  @@index([leadId, createdAt])
+  @@index([templateName, createdAt])
+}
+// Para manejar webhooks de YCloud u otros proveedores, y tener un historial de eventos
+enum WebhookEventStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+  DEAD
+}
+
+model WebhookEvent {
+  id              String             @id @default(uuid())
+  provider        String
+  eventType       String
+  providerEventId String             @unique
+  accountId       String?
+  leadId          String?
+  messageId       String?
+  payload         Json
+  status          WebhookEventStatus @default(PENDING)
+  attempts        Int                @default(0)
+  lastAttemptAt DateTime?
+  deadAt        DateTime?
+  lastError       String?
+  createdAt       DateTime           @default(now())
+  processedAt     DateTime?
+
+  account         Account?           @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  lead            Lead?              @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  message         Message?           @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  apiVersion    String?
+  providerTime  DateTime?
+  routingKey    String?
+  queueName     String?
+
+  @@index([status, createdAt])
+  @@index([accountId, createdAt])
+  @@index([leadId, createdAt])
+}
+// Para tener un historial de cambios de estado de los mensajes (útil para debug, auditoría, métricas avanzadas, etc.)
+model MessageStatusHistory {
+  id             String        @id @default(uuid())
+  messageId      String
+  fromStatus     MessageStatus?
+  toStatus       MessageStatus
+  providerEventId String?
+  providerTime   DateTime?
+  payload        Json?
+  createdAt      DateTime      @default(now())
+
+  message        Message       @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  @@index([messageId, toStatus, createdAt])
+  @@index([messageId, createdAt])
+  @@index([providerEventId])
 }
