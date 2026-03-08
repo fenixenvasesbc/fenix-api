@@ -43,6 +43,14 @@ export class MessageStatusService {
       this.logger.log(
         `Ignoring non-forward transition messageId=${message.id} current=${message.status} next=${nextStatus}`,
       );
+      await this.prisma.webhookEvent.updateMany({
+        where: { providerEventId: job.providerEventId },
+        data: {
+          status: 'PROCESSED',
+          processedAt: new Date(),
+          lastError: null,
+        },
+      });
       return;
     }
 
