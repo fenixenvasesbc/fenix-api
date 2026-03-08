@@ -5,6 +5,7 @@ import { WebhookInboxModule } from '../webhook-inbox/webhook-inbox.module';
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { ConfigModule } from '@nestjs/config';
 import { InboundMessageModule } from '../inbound-message/inbound-message.module';
+import { MessageStatusModule } from '../message-status/message-status.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { InboundMessageModule } from '../inbound-message/inbound-message.module'
     WebhookInboxModule,
     PrismaModule,
     InboundMessageModule,
+    MessageStatusModule,
   ],
   providers: [WebhookWorker],
 })

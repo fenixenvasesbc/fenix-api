@@ -27,7 +27,8 @@ export class WebhookWorker implements OnModuleInit {
 
   private async handleMessage(msg: ConsumeMessage): Promise<ConsumeDecision> {
     const payload = this.safeJson(msg);
-    const id = payload?.providerEventId ?? msg.properties.messageId ?? '(no id)';
+    const id =
+      payload?.providerEventId ?? msg.properties.messageId ?? '(no id)';
     const deaths = this.rabbit.getDeathCount(msg);
 
     try {

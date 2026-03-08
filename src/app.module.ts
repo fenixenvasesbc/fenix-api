@@ -23,10 +23,40 @@ import { WebhookInboxService } from './modules/webhook-inbox/webhook-inbox.servi
 import { WebhookInboxModule } from './modules/webhook-inbox/webhook-inbox.module';
 import { InboundMessageService } from './modules/inbound-message/inbound-message.service';
 import { InboundMessageModule } from './modules/inbound-message/inbound-message.module';
+import { MessageStatusService } from './modules/message-status/message-status.service';
+import { MessageStatusModule } from './modules/message-status/message-status.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }),UsersModule, AuthModule, PrismaModule, RefreshTokensModule, AccountsModule, EventsModule, DashboardModule, RabbitmqModule, WorkerModule, WebhookModule, WebhookInboxModule, InboundMessageModule],
-  controllers: [AppController, EventsController, DashboardController, WebhookController],
-  providers: [AppService, EventsService, DashboardService, RabbitmqService, WebhookService, WebhookInboxService, InboundMessageService],
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    UsersModule,
+    AuthModule,
+    PrismaModule,
+    RefreshTokensModule,
+    AccountsModule,
+    EventsModule,
+    DashboardModule,
+    RabbitmqModule,
+    WorkerModule,
+    WebhookModule,
+    WebhookInboxModule,
+    InboundMessageModule,
+    MessageStatusModule,
+  ],
+  controllers: [
+    AppController,
+    EventsController,
+    DashboardController,
+    WebhookController,
+  ],
+  providers: [
+    AppService,
+    EventsService,
+    DashboardService,
+    WebhookService,
+    WebhookInboxService,
+    InboundMessageService,
+    MessageStatusService,
+  ],
 })
 export class AppModule {}
