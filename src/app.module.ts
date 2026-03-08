@@ -21,10 +21,12 @@ import { WebhookController } from './modules/webhook/webhook.controller';
 import { WebhookModule } from './modules/webhook/webhook.module';
 import { WebhookInboxService } from './modules/webhook-inbox/webhook-inbox.service';
 import { WebhookInboxModule } from './modules/webhook-inbox/webhook-inbox.module';
+import { InboundMessageService } from './modules/inbound-message/inbound-message.service';
+import { InboundMessageModule } from './modules/inbound-message/inbound-message.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }),UsersModule, AuthModule, PrismaModule, RefreshTokensModule, AccountsModule, EventsModule, DashboardModule, RabbitmqModule, WorkerModule, WebhookModule, WebhookInboxModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }),UsersModule, AuthModule, PrismaModule, RefreshTokensModule, AccountsModule, EventsModule, DashboardModule, RabbitmqModule, WorkerModule, WebhookModule, WebhookInboxModule, InboundMessageModule],
   controllers: [AppController, EventsController, DashboardController, WebhookController],
-  providers: [AppService, EventsService, DashboardService, RabbitmqService, WebhookService, WebhookInboxService],
+  providers: [AppService, EventsService, DashboardService, RabbitmqService, WebhookService, WebhookInboxService, InboundMessageService],
 })
 export class AppModule {}

@@ -1,9 +1,11 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { ConsumeMessage } from 'amqplib';
-import { RabbitmqService, type ConsumeDecision } from '../rabbitmq/rabbitmq.service';
+import {
+  RabbitmqService,
+  type ConsumeDecision,
+} from '../rabbitmq/rabbitmq.service';
 import { WebhookInboxService } from '../webhook-inbox/webhook-inbox.service';
 import { WebhookInboxJob } from 'src/common/types/webhook-inbox-job';
-
 
 @Injectable()
 export class WebhookWorker implements OnModuleInit {
@@ -44,6 +46,8 @@ export class WebhookWorker implements OnModuleInit {
       if (result === 'duplicate') {
         return { action: 'ack' };
       }
+
+      await this.routeEvent(job);
 
       return { action: 'ack' };
     } catch (err) {
@@ -95,5 +99,21 @@ export class WebhookWorker implements OnModuleInit {
     }
 
     return { action: 'dead', routingKey: rkDead };
+  }
+
+  private async routeEvent(job: WebhookInboxJob) {
+    if (job.eventType === 'whatsapp.inbound_message.received') {
+      await this.rabbit.publish(process.env.RABBITMQ_RK_INBOUND!, job);
+      return;
+    }
+
+    if (job.eventType === 'whatsapp.message.updated') {
+      await this.rabbit.publish(process.env.RABBITMQ_RK_MESSAGE_UPDATED!, job);
+      return;
+    }
+
+    this.logger.warn(
+      `No downstream route configured for eventType=${job.eventType} providerEventId=${job.providerEventId}`,
+    );
   }
 }

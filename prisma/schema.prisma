@@ -196,6 +196,7 @@ model Message {
   responseTo   Message?  @relation("MessageReplies", fields: [responseToId], references: [id], onDelete: SetNull)
   responses    Message[] @relation("MessageReplies")
   campaignKey      String?
+  referralPayload Json?// para guardar el referral payload de inbounds que vienen con referral (ejemplo: click en un anuncio)
 
   webhookEvents   WebhookEvent[]
   statusHistory   MessageStatusHistory[]

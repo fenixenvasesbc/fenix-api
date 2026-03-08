@@ -4,10 +4,16 @@ import { WebhookWorker } from './webhook.worker';
 import { WebhookInboxModule } from '../webhook-inbox/webhook-inbox.module';
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { ConfigModule } from '@nestjs/config';
-
+import { InboundMessageModule } from '../inbound-message/inbound-message.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }),RabbitmqModule, WebhookInboxModule, PrismaModule],
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    RabbitmqModule,
+    WebhookInboxModule,
+    PrismaModule,
+    InboundMessageModule,
+  ],
   providers: [WebhookWorker],
 })
 export class WorkerModule {}
