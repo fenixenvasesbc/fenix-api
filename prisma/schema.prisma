@@ -42,23 +42,17 @@ enum MessageStatus {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  passwordHash String
-  role         Role     @default(SALES)
-  isActive     Boolean  @default(true)
-
-  // Un SALES puede tener (como máximo) 1 cuenta.
-  // ADMIN normalmente lo tendrá null.
-  accountId String?  @unique
-  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
-
-  refreshTokens RefreshToken[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([role])
+  id String @id @default(uuid())
+  email String @unique 
+  passwordHash String 
+  role Role @default(SALES) 
+  isActive Boolean @default(true) // Un SALES puede tener (como máximo) 1 cuenta. // ADMIN normalmente lo tendrá null. 
+  accountId String? @unique 
+  account Account? @relation(fields: [accountId],references: [id], onDelete: SetNull) 
+  refreshTokens RefreshToken[] 
+  createdAt DateTime @default(now()) 
+  updatedAt DateTime @updatedAt 
+  @@index([role]) 
   @@index([isActive])
 }
 

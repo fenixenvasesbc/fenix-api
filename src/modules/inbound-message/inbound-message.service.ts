@@ -23,6 +23,7 @@ export class InboundMessageService {
     this.logger.log(
       `Processing inbound message job id=${job.providerEventId} type=${job.eventType}`,
     );
+
     const payload = job.payload as YCloudInboundPayload;
     const inbound = this.normalizeInbound(payload);
 
@@ -67,10 +68,10 @@ export class InboundMessageService {
       },
       update: {
         status: LeadStatus.RESPONDED,
-        firstInboundAt: undefined, // no tocar si ya existe
+        firstInboundAt: undefined,
         lastInboundAt:
           inbound.providerSendTime ?? inbound.providerCreateTime ?? new Date(),
-        respondedAt: undefined, // no tocar si ya existe
+        respondedAt: undefined,
         lastMessageAt:
           inbound.providerSendTime ?? inbound.providerCreateTime ?? new Date(),
       },
@@ -111,6 +112,21 @@ export class InboundMessageService {
         })
       : null;
 
+    const interactivePayloadInput =
+      inbound.interactivePayload === null
+        ? undefined
+        : (inbound.interactivePayload as Prisma.InputJsonValue);
+
+    const referralPayloadInput =
+      inbound.referralPayload === null
+        ? undefined
+        : (inbound.referralPayload as Prisma.InputJsonValue);
+
+    const errorsInput =
+      inbound.errors === null
+        ? undefined
+        : (inbound.errors as Prisma.InputJsonValue);
+
     await this.prisma.message.upsert({
       where: {
         accountId_ycloudMessageId: {
@@ -134,26 +150,38 @@ export class InboundMessageService {
         mimeType: inbound.mimeType,
         caption: inbound.caption,
         fileName: inbound.fileName,
-        interactivePayload: inbound.interactivePayload,
-        referralPayload: inbound.referralPayload,
-        errors: inbound.errors,
-        rawPayload: inbound.rawPayload,
+        rawPayload: inbound.rawPayload as Prisma.InputJsonValue,
         responseToId: responseTo?.id ?? null,
         respondedAt:
           inbound.providerSendTime ?? inbound.providerCreateTime ?? new Date(),
-      } as any,
+        ...(interactivePayloadInput !== undefined && {
+          interactivePayload: interactivePayloadInput,
+        }),
+        ...(referralPayloadInput !== undefined && {
+          referralPayload: referralPayloadInput,
+        }),
+        ...(errorsInput !== undefined && {
+          errors: errorsInput,
+        }),
+      },
       update: {
         textBody: inbound.textBody,
         mediaUrl: inbound.mediaUrl,
         mimeType: inbound.mimeType,
         caption: inbound.caption,
         fileName: inbound.fileName,
-        interactivePayload: inbound.interactivePayload,
-        referralPayload: inbound.referralPayload,
-        errors: inbound.errors,
-        rawPayload: inbound.rawPayload,
+        rawPayload: inbound.rawPayload as Prisma.InputJsonValue,
         responseToId: responseTo?.id ?? undefined,
-      } as any,
+        ...(interactivePayloadInput !== undefined && {
+          interactivePayload: interactivePayloadInput,
+        }),
+        ...(referralPayloadInput !== undefined && {
+          referralPayload: referralPayloadInput,
+        }),
+        ...(errorsInput !== undefined && {
+          errors: errorsInput,
+        }),
+      },
     });
 
     this.logger.log(
