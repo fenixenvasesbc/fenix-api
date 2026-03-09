@@ -4,25 +4,36 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: fenix_api
-    restart: unless-stopped
-
-    # Carga todas las variables del .env (más simple y evita olvidos)
     env_file:
       - .env
-
-    # Opcional: sobreescribir/asegurar algunas variables (si quieres)
     environment:
       NODE_ENV: ${NODE_ENV}
       PORT: ${PORT}
       DATABASE_URL: ${DATABASE_URL}
-
-    # Para poder usar host.docker.internal en Linux
     extra_hosts:
-      - "host.docker.internal:host-gateway"
-
+      - host.docker.internal:host-gateway
+    restart: unless-stopped
     networks:
       - nginx-proxy-manager-zr1y_default
-
+      - rabbitmq-543o_default
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fenix_worker
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      DATABASE_URL: ${DATABASE_URL}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    restart: unless-stopped
+    command: ["node", "dist/worker.main.js"]
+    networks:
+      - rabbitmq-543o_default
 networks:
   nginx-proxy-manager-zr1y_default:
+    external: true
+  rabbitmq-543o_default:
     external: true
