@@ -1,0 +1,113 @@
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eEVCy8eNqD9EvcFI",
+  "type": "whatsapp.message.updated",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappMessage": {
+    "id": "63f5d602367ea403f8175a6c",
+    "wamid": "wamid.BgNODYxN...",
+    "status": "sent",
+    "pricingCategory": "marketing",
+    "totalPrice": 0.0,
+    "currency": "USD",
+    "createTime": "2022-03-01T12:00:00.000Z",
+    "sendTime": "2022-03-01T12:00:01.000Z",
+    "bizType": "whatsapp",
+    "type": "text",
+    "text": {
+      "body": "Hi there! How can we help?"
+    },
+    "externalId": "EXTERNAL-ID"
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eEVCy8eNqD9EvcFI",
+  "type": "whatsapp.message.updated",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappMessage": {
+    "id": "63f5d602367ea403f8175a6c",
+    "wamid": "wamid.BgNODYxN...",
+    "status": "delivered",
+    "pricingModel": "PMP",
+    "pricingType": "regular",
+    "pricingCategory": "marketing",
+    "totalPrice": 0.0,
+    "currency": "USD",
+    "createTime": "2022-03-01T12:00:00.000Z",
+    "sendTime": "2022-03-01T12:00:01.000Z",
+    "deliverTime": "2022-03-01T12:00:02.000Z",
+    "bizType": "whatsapp",
+    "type": "text",
+    "text": {
+      "body": "Hi there! How can we help?"
+    },
+    "externalId": "EXTERNAL-ID"
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eEVCy8eNqD9EvcFI",
+  "type": "whatsapp.message.updated",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappMessage": {
+    "id": "63f5d602367ea403f8175a6c",
+    "wamid": "wamid.BgNODYxN...",
+    "status": "read",
+    "pricingModel": "PMP",
+    "pricingType": "regular",
+    "pricingCategory": "marketing",
+    "totalPrice": 0.0,
+    "currency": "USD",
+    "createTime": "2022-03-01T12:00:00.000Z",
+    "sendTime": "2022-03-01T12:00:01.000Z",
+    "deliverTime": "2022-03-01T12:00:02.000Z",
+    "readTime": "2022-03-01T12:00:02.000Z",
+    "bizType": "whatsapp",
+    "type": "text",
+    "text": {
+      "body": "Hi there! How can we help?"
+    },
+    "externalId": "EXTERNAL-ID"
+  }
+}'
+curl 'https://YOUR-WEBHOOK-ENDPOINT-URL' \
+-H 'Content-Type: application/json' \
+-d '{
+  "id": "evt_eEVCy8eNqD9EvcFI",
+  "type": "whatsapp.message.updated",
+  "apiVersion": "v2",
+  "createTime": "2023-02-22T12:00:00.000Z",
+  "whatsappMessage": {
+    "id": "63f5d602367ea403f8175a6c",
+    "wamid": "wamid.BgNODYxN...",
+    "status": "failed",
+    "errorCode": "100",
+    "errorMessage": "Parameter Invalid",
+    "whatsappApiError": {
+      "message": "(#100) Invalid parameter",
+      "type": "OAuthException",
+      "code": "100",
+      "fbtrace_id": "AwmiSOCojlAkqvjCTjGt37r",
+      "error_data": {
+        "messaging_product": "whatsapp",
+        "details": "Parameter Invalid"
+      }
+    },
+    "pricingCategory": "marketing",
+    "totalPrice": 0.0,
+    "currency": "USD",
+    "bizType": "whatsapp",
+    "type": "text",
+    "text": {
+      "body": "Hi there! How can we help?"
+    },
+    "externalId": "EXTERNAL-ID"
+  }
+}'

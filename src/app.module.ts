@@ -13,10 +13,50 @@ import { EventsModule } from './modules/events/events.module';
 import { DashboardController } from './modules/dashboard/dashboard.controller';
 import { DashboardService } from './modules/dashboard/dashboard.service';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { RabbitmqService } from './modules/rabbitmq/rabbitmq.service';
+import { RabbitmqModule } from './modules/rabbitmq/rabbitmq.module';
+import { WorkerModule } from './modules/worker/worker.module';
+import { WebhookService } from './modules/webhook/webhook.service';
+import { WebhookController } from './modules/webhook/webhook.controller';
+import { WebhookModule } from './modules/webhook/webhook.module';
+import { WebhookInboxService } from './modules/webhook-inbox/webhook-inbox.service';
+import { WebhookInboxModule } from './modules/webhook-inbox/webhook-inbox.module';
+import { InboundMessageService } from './modules/inbound-message/inbound-message.service';
+import { InboundMessageModule } from './modules/inbound-message/inbound-message.module';
+import { MessageStatusService } from './modules/message-status/message-status.service';
+import { MessageStatusModule } from './modules/message-status/message-status.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }),UsersModule, AuthModule, PrismaModule, RefreshTokensModule, AccountsModule, EventsModule, DashboardModule],
-  controllers: [AppController, EventsController, DashboardController],
-  providers: [AppService, EventsService, DashboardService],
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    UsersModule,
+    AuthModule,
+    PrismaModule,
+    RefreshTokensModule,
+    AccountsModule,
+    EventsModule,
+    DashboardModule,
+    RabbitmqModule,
+    WorkerModule,
+    WebhookModule,
+    WebhookInboxModule,
+    InboundMessageModule,
+    MessageStatusModule,
+  ],
+  controllers: [
+    AppController,
+    EventsController,
+    DashboardController,
+    WebhookController,
+  ],
+  providers: [
+    AppService,
+    EventsService,
+    DashboardService,
+    WebhookService,
+    WebhookInboxService,
+    InboundMessageService,
+    MessageStatusService,
+  ],
 })
 export class AppModule {}
