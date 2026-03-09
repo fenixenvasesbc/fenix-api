@@ -1,28 +1,22 @@
-import { IsDateString, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsDateString, IsBoolean, IsOptional, IsUUID } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class FirstMessageMetricsDto {
+export class DateRangeDto {
   @IsDateString()
   from!: string;
 
   @IsDateString()
   to!: string;
+}
 
-  @IsIn(['week', 'month'])
-  groupBy!: 'week' | 'month';
-
-  // ADMIN puede pasar accountId; SALES se fuerza al suyo
-  @IsOptional()
-  @IsString()
-  accountId?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  responseWindowHours: number = 168; // 7 días por defecto
-
+export class FirstMessageMetricsDto extends DateRangeDto {
   @IsOptional()
   @Type(() => Boolean)
+  @IsBoolean()
   groupByAccount?: boolean = false;
+}
+
+export class AccountFirstMessageMetricsDto extends DateRangeDto {
+  @IsUUID()
+  accountId!: string;
 }
