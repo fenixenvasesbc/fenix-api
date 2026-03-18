@@ -23,7 +23,9 @@ export class ReengagementSchedulerService {
   @Cron('0 8 * * 1-5', { timeZone: 'Europe/Madrid' })
   async run(): Promise<void> {
     const window = resolveReengagementWindow(new Date());
-
+    this.logger.log(
+      'Bussiness window for reengagement: ' + window?.businessWindowKey,
+    );
     if (!window) {
       this.logger.log('No business window today, skipping reengagement job');
       return;
