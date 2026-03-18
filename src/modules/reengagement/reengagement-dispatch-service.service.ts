@@ -61,6 +61,7 @@ export class ReengagementDispatchService {
     }
 
     if (lead.status !== 'NEW') {
+      this.logger.warn(`Lead status is not NEW leadId=${lead.id}`);
       await this.markSkipped(
         leadCampaignId,
         ReengagementSkipReason.LEAD_STATUS_CHANGED,

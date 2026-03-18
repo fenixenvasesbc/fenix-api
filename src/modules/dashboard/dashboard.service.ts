@@ -160,6 +160,104 @@ export class DashboardService {
     };
   }
 
+  async getAccountFirstMessageResponses(
+    dto: AccountFirstMessageMetricsDto,
+    user: { role: Role },
+  ) {
+    const { accountId, from, to } = dto;
+
+    if (user.role !== Role.ADMIN) {
+      throw new ForbiddenException('Only admins can query by account');
+    }
+
+    const { fromDate, toExclusiveDate } = this.buildInclusiveDateRange(
+      from,
+      to,
+    );
+
+    const rows = await this.prisma.$queryRaw<FirstMessageRow[]>(Prisma.sql`
+    WITH base AS (
+      -- Campañas originales
+      SELECT
+        l."accountId",
+        l."firstOutboundTemplateName" as "templateName",
+        1::bigint as "sentFirst",
+        CASE
+          WHEN l."firstInboundAt" IS NOT NULL
+            AND (
+              l."reengagementSentAt" IS NULL
+              OR l."firstInboundAt" < l."reengagementSentAt"
+            )
+          THEN 1::bigint
+          ELSE 0::bigint
+        END as "responded",
+        CASE
+          WHEN l."firstInboundAt" IS NULL
+            OR (
+              l."reengagementSentAt" IS NOT NULL
+              AND l."firstInboundAt" >= l."reengagementSentAt"
+            )
+          THEN 1::bigint
+          ELSE 0::bigint
+        END as "notResponded"
+      FROM "Lead" l
+      WHERE l."accountId" = ${accountId}
+        AND l."firstOutboundAt" IS NOT NULL
+        AND l."firstOutboundTemplateName" IS NOT NULL
+        AND l."firstOutboundAt" >= ${fromDate}
+        AND l."firstOutboundAt" < ${toExclusiveDate}
+
+      UNION ALL
+
+      -- Reenganches agrupados en una sola campaña
+      SELECT
+        l2."accountId",
+        're_enganche' as "templateName",
+        1::bigint as "sentFirst",
+        CASE
+          WHEN l2."reengagementSentAt" IS NOT NULL
+            AND l2."firstInboundAt" IS NOT NULL
+            AND l2."firstInboundAt" >= l2."reengagementSentAt"
+          THEN 1::bigint
+          ELSE 0::bigint
+        END as "responded",
+        CASE
+          WHEN l2."reengagementSentAt" IS NOT NULL
+            AND (
+              l2."firstInboundAt" IS NULL
+              OR l2."firstInboundAt" < l2."reengagementSentAt"
+            )
+          THEN 1::bigint
+          ELSE 0::bigint
+        END as "notResponded"
+      FROM "Lead" l2
+      WHERE l2."accountId" = ${accountId}
+        AND l2."reengagementSentAt" IS NOT NULL
+        AND l2."reengagementSentAt" >= ${fromDate}
+        AND l2."reengagementSentAt" < ${toExclusiveDate}
+    )
+    SELECT
+      base."accountId",
+      a.name as "accountName",
+      base."templateName",
+      SUM(base."sentFirst")::bigint as "sentFirst",
+      SUM(base."responded")::bigint as "responded",
+      SUM(base."notResponded")::bigint as "notResponded"
+    FROM base
+    JOIN "Account" a ON a.id = base."accountId"
+    GROUP BY base."accountId", a.name, base."templateName"
+    ORDER BY base."templateName" ASC
+  `);
+
+    return this.mapFlatRows(rows, {
+      from,
+      to,
+      scope: 'ACCOUNT',
+      appliedAccountId: accountId,
+      groupedBy: ['template'],
+    });
+  }
+
   async getFirstMessageResponses(
     dto: FirstMessageMetricsDto,
     user: { role: Role; accountId?: string | null },
@@ -266,7 +364,7 @@ export class DashboardService {
 
       UNION ALL
 
-      -- Reenganches, todos acumulados bajo templateName='re_enganche'
+      -- Reenganches agrupados en una sola campaña
       SELECT
         l2."accountId",
         're_enganche' as "templateName",
@@ -318,104 +416,6 @@ export class DashboardService {
       to,
       scope: isGlobal ? 'GLOBAL' : 'MY_ACCOUNT',
       appliedAccountId: effectiveAccountId,
-      groupedBy: ['template'],
-    });
-  }
-
-  async getAccountFirstMessageResponses(
-    dto: AccountFirstMessageMetricsDto,
-    user: { role: Role },
-  ) {
-    const { accountId, from, to } = dto;
-
-    if (user.role !== Role.ADMIN) {
-      throw new ForbiddenException('Only admins can query by account');
-    }
-
-    const { fromDate, toExclusiveDate } = this.buildInclusiveDateRange(
-      from,
-      to,
-    );
-
-    const rows = await this.prisma.$queryRaw<FirstMessageRow[]>(Prisma.sql`
-    WITH base AS (
-      -- Campañas originales
-      SELECT
-        l."accountId",
-        l."firstOutboundTemplateName" as "templateName",
-        1::bigint as "sentFirst",
-        CASE
-          WHEN l."firstInboundAt" IS NOT NULL
-            AND (
-              l."reengagementSentAt" IS NULL
-              OR l."firstInboundAt" < l."reengagementSentAt"
-            )
-          THEN 1::bigint
-          ELSE 0::bigint
-        END as "responded",
-        CASE
-          WHEN l."firstInboundAt" IS NULL
-            OR (
-              l."reengagementSentAt" IS NOT NULL
-              AND l."firstInboundAt" >= l."reengagementSentAt"
-            )
-          THEN 1::bigint
-          ELSE 0::bigint
-        END as "notResponded"
-      FROM "Lead" l
-      WHERE l."accountId" = ${accountId}
-        AND l."firstOutboundAt" IS NOT NULL
-        AND l."firstOutboundTemplateName" IS NOT NULL
-        AND l."firstOutboundAt" >= ${fromDate}
-        AND l."firstOutboundAt" < ${toExclusiveDate}
-
-      UNION ALL
-
-      -- Reenganches acumulados bajo re_enganche
-      SELECT
-        l2."accountId",
-        're_enganche' as "templateName",
-        1::bigint as "sentFirst",
-        CASE
-          WHEN l2."reengagementSentAt" IS NOT NULL
-            AND l2."firstInboundAt" IS NOT NULL
-            AND l2."firstInboundAt" >= l2."reengagementSentAt"
-          THEN 1::bigint
-          ELSE 0::bigint
-        END as "responded",
-        CASE
-          WHEN l2."reengagementSentAt" IS NOT NULL
-            AND (
-              l2."firstInboundAt" IS NULL
-              OR l2."firstInboundAt" < l2."reengagementSentAt"
-            )
-          THEN 1::bigint
-          ELSE 0::bigint
-        END as "notResponded"
-      FROM "Lead" l2
-      WHERE l2."accountId" = ${accountId}
-        AND l2."reengagementSentAt" IS NOT NULL
-        AND l2."reengagementSentAt" >= ${fromDate}
-        AND l2."reengagementSentAt" < ${toExclusiveDate}
-    )
-    SELECT
-      base."accountId",
-      a.name as "accountName",
-      base."templateName",
-      SUM(base."sentFirst")::bigint as "sentFirst",
-      SUM(base."responded")::bigint as "responded",
-      SUM(base."notResponded")::bigint as "notResponded"
-    FROM base
-    JOIN "Account" a ON a.id = base."accountId"
-    GROUP BY base."accountId", a.name, base."templateName"
-    ORDER BY base."templateName" ASC
-  `);
-
-    return this.mapFlatRows(rows, {
-      from,
-      to,
-      scope: 'ACCOUNT',
-      appliedAccountId: accountId,
       groupedBy: ['template'],
     });
   }
