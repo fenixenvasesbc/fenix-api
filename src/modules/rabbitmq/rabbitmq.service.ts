@@ -90,11 +90,13 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     const qRetry1m = process.env.RABBITMQ_QUEUE_RETRY_1M;
     const qRetry10m = process.env.RABBITMQ_QUEUE_RETRY_10M;
     const qDead = process.env.RABBITMQ_QUEUE_DEAD;
-    const qInbound = process.env.RABBITMQ_QUEUE_INBOUND!;
-    const qMessageUpdated = process.env.RABBITMQ_QUEUE_MESSAGE_UPDATED!;
+    const qInbound = process.env.RABBITMQ_QUEUE_INBOUND;
+    const qMessageUpdated = process.env.RABBITMQ_QUEUE_MESSAGE_UPDATED;
 
-    const rkInbound = process.env.RABBITMQ_RK_INBOUND!;
-    const rkMessageUpdated = process.env.RABBITMQ_RK_MESSAGE_UPDATED!;
+    const rkInbound = process.env.RABBITMQ_RK_INBOUND;
+    const rkMessageUpdated = process.env.RABBITMQ_RK_MESSAGE_UPDATED;
+    const qReengagement = process.env.RABBITMQ_QUEUE_REENGAGEMENT;
+    const rkReengagement = process.env.RABBITMQ_RK_REENGAGEMENT;
 
     const rkProcess = process.env.RABBITMQ_RK_PROCESS;
     const rkRetry10s = process.env.RABBITMQ_RK_RETRY_10S;
@@ -114,6 +116,8 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
       ['RABBITMQ_QUEUE_MESSAGE_UPDATED', qMessageUpdated],
       ['RABBITMQ_RK_INBOUND', rkInbound],
       ['RABBITMQ_RK_MESSAGE_UPDATED', rkMessageUpdated],
+      ['RABBITMQ_QUEUE_REENGAGEMENT', qReengagement],
+      ['RABBITMQ_RK_REENGAGEMENT', rkReengagement],
       ['RABBITMQ_RK_PROCESS', rkProcess],
       ['RABBITMQ_RK_RETRY_10S', rkRetry10s],
       ['RABBITMQ_RK_RETRY_1M', rkRetry1m],
@@ -134,11 +138,14 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     });
     await this.ch!.bindQueue(qMain!, exchange!, rkProcess!);
 
-    await this.ch!.assertQueue(qInbound, { durable: true });
-    await this.ch!.bindQueue(qInbound, exchange!, rkInbound);
+    await this.ch!.assertQueue(qInbound!, { durable: true });
+    await this.ch!.bindQueue(qInbound!, exchange!, rkInbound!);
 
-    await this.ch!.assertQueue(qMessageUpdated, { durable: true });
-    await this.ch!.bindQueue(qMessageUpdated, exchange!, rkMessageUpdated);
+    await this.ch!.assertQueue(qMessageUpdated!, { durable: true });
+    await this.ch!.bindQueue(qMessageUpdated!, exchange!, rkMessageUpdated!);
+
+    await this.ch!.assertQueue(qReengagement!, { durable: true });
+    await this.ch!.bindQueue(qReengagement!, exchange!, rkReengagement!);
 
     await this.ch!.assertQueue(qRetry10s!, {
       durable: true,

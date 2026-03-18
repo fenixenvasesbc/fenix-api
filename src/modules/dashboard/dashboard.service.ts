@@ -187,61 +187,123 @@ export class DashboardService {
       throw new ForbiddenException('Invalid role');
     }
 
-    const conditions: Prisma.Sql[] = [
-      Prisma.sql`l."firstOutboundAt" IS NOT NULL`,
-      Prisma.sql`l."firstOutboundTemplateName" IS NOT NULL`,
-      Prisma.sql`l."firstOutboundAt" >= ${fromDate}`,
-      Prisma.sql`l."firstOutboundAt" < ${toExclusiveDate}`,
-    ];
+    const leadScopeConditions: Prisma.Sql[] = [];
+    const reengagementScopeConditions: Prisma.Sql[] = [];
 
     if (!isGlobal) {
-      conditions.push(Prisma.sql`l."accountId" = ${effectiveAccountId}`);
+      leadScopeConditions.push(
+        Prisma.sql`l."accountId" = ${effectiveAccountId}`,
+      );
+      reengagementScopeConditions.push(
+        Prisma.sql`l2."accountId" = ${effectiveAccountId}`,
+      );
     }
 
-    const whereClause = Prisma.sql`
-      WHERE ${Prisma.join(conditions, ' AND ')}
-    `;
+    const leadScopeWhere =
+      leadScopeConditions.length > 0
+        ? Prisma.sql`AND ${Prisma.join(leadScopeConditions, ' AND ')}`
+        : Prisma.empty;
+
+    const reengagementScopeWhere =
+      reengagementScopeConditions.length > 0
+        ? Prisma.sql`AND ${Prisma.join(reengagementScopeConditions, ' AND ')}`
+        : Prisma.empty;
 
     const joinAccount =
       isGlobal && groupByAccount
-        ? Prisma.sql`JOIN "Account" a ON a.id = l."accountId"`
+        ? Prisma.sql`JOIN "Account" a ON a.id = base."accountId"`
         : Prisma.empty;
 
     const selectAccountFields =
       isGlobal && groupByAccount
         ? Prisma.sql`
-            l."accountId",
-            a.name as "accountName",
-          `
+          base."accountId",
+          a.name as "accountName",
+        `
         : Prisma.empty;
 
     const groupByAccountFields =
       isGlobal && groupByAccount
-        ? Prisma.sql`, l."accountId", a.name`
+        ? Prisma.sql`, base."accountId", a.name`
         : Prisma.empty;
 
     const orderByFields =
       isGlobal && groupByAccount
-        ? Prisma.sql`a.name ASC, l."firstOutboundTemplateName" ASC`
-        : Prisma.sql`l."firstOutboundTemplateName" ASC`;
+        ? Prisma.sql`a.name ASC, base."templateName" ASC`
+        : Prisma.sql`base."templateName" ASC`;
 
     const rows = await this.prisma.$queryRaw<FirstMessageRow[]>(Prisma.sql`
+    WITH base AS (
+      -- Campañas originales
       SELECT
-        ${selectAccountFields}
+        l."accountId",
         l."firstOutboundTemplateName" as "templateName",
-        COUNT(*)::bigint as "sentFirst",
-        COUNT(*) FILTER (
-          WHERE l."firstInboundAt" IS NOT NULL
-        )::bigint as "responded",
-        COUNT(*) FILTER (
-          WHERE l."firstInboundAt" IS NULL
-        )::bigint as "notResponded"
+        1::bigint as "sentFirst",
+        CASE
+          WHEN l."firstInboundAt" IS NOT NULL
+            AND (
+              l."reengagementSentAt" IS NULL
+              OR l."firstInboundAt" < l."reengagementSentAt"
+            )
+          THEN 1::bigint
+          ELSE 0::bigint
+        END as "responded",
+        CASE
+          WHEN l."firstInboundAt" IS NULL
+            OR (
+              l."reengagementSentAt" IS NOT NULL
+              AND l."firstInboundAt" >= l."reengagementSentAt"
+            )
+          THEN 1::bigint
+          ELSE 0::bigint
+        END as "notResponded"
       FROM "Lead" l
-      ${joinAccount}
-      ${whereClause}
-      GROUP BY l."firstOutboundTemplateName" ${groupByAccountFields}
-      ORDER BY ${orderByFields}
-    `);
+      WHERE l."firstOutboundAt" IS NOT NULL
+        AND l."firstOutboundTemplateName" IS NOT NULL
+        AND l."firstOutboundAt" >= ${fromDate}
+        AND l."firstOutboundAt" < ${toExclusiveDate}
+        ${leadScopeWhere}
+
+      UNION ALL
+
+      -- Reenganches, todos acumulados bajo templateName='re_enganche'
+      SELECT
+        l2."accountId",
+        're_enganche' as "templateName",
+        1::bigint as "sentFirst",
+        CASE
+          WHEN l2."reengagementSentAt" IS NOT NULL
+            AND l2."firstInboundAt" IS NOT NULL
+            AND l2."firstInboundAt" >= l2."reengagementSentAt"
+          THEN 1::bigint
+          ELSE 0::bigint
+        END as "responded",
+        CASE
+          WHEN l2."reengagementSentAt" IS NOT NULL
+            AND (
+              l2."firstInboundAt" IS NULL
+              OR l2."firstInboundAt" < l2."reengagementSentAt"
+            )
+          THEN 1::bigint
+          ELSE 0::bigint
+        END as "notResponded"
+      FROM "Lead" l2
+      WHERE l2."reengagementSentAt" IS NOT NULL
+        AND l2."reengagementSentAt" >= ${fromDate}
+        AND l2."reengagementSentAt" < ${toExclusiveDate}
+        ${reengagementScopeWhere}
+    )
+    SELECT
+      ${selectAccountFields}
+      base."templateName",
+      SUM(base."sentFirst")::bigint as "sentFirst",
+      SUM(base."responded")::bigint as "responded",
+      SUM(base."notResponded")::bigint as "notResponded"
+    FROM base
+    ${joinAccount}
+    GROUP BY base."templateName" ${groupByAccountFields}
+    ORDER BY ${orderByFields}
+  `);
 
     if (isGlobal && groupByAccount) {
       return this.mapRowsGroupedByAccount(rows, {
@@ -276,27 +338,78 @@ export class DashboardService {
     );
 
     const rows = await this.prisma.$queryRaw<FirstMessageRow[]>(Prisma.sql`
+    WITH base AS (
+      -- Campañas originales
       SELECT
         l."accountId",
-        a.name as "accountName",
         l."firstOutboundTemplateName" as "templateName",
-        COUNT(*)::bigint as "sentFirst",
-        COUNT(*) FILTER (
-          WHERE l."firstInboundAt" IS NOT NULL
-        )::bigint as "responded",
-        COUNT(*) FILTER (
-          WHERE l."firstInboundAt" IS NULL
-        )::bigint as "notResponded"
+        1::bigint as "sentFirst",
+        CASE
+          WHEN l."firstInboundAt" IS NOT NULL
+            AND (
+              l."reengagementSentAt" IS NULL
+              OR l."firstInboundAt" < l."reengagementSentAt"
+            )
+          THEN 1::bigint
+          ELSE 0::bigint
+        END as "responded",
+        CASE
+          WHEN l."firstInboundAt" IS NULL
+            OR (
+              l."reengagementSentAt" IS NOT NULL
+              AND l."firstInboundAt" >= l."reengagementSentAt"
+            )
+          THEN 1::bigint
+          ELSE 0::bigint
+        END as "notResponded"
       FROM "Lead" l
-      JOIN "Account" a ON a.id = l."accountId"
       WHERE l."accountId" = ${accountId}
         AND l."firstOutboundAt" IS NOT NULL
         AND l."firstOutboundTemplateName" IS NOT NULL
         AND l."firstOutboundAt" >= ${fromDate}
         AND l."firstOutboundAt" < ${toExclusiveDate}
-      GROUP BY l."accountId", a.name, l."firstOutboundTemplateName"
-      ORDER BY l."firstOutboundTemplateName" ASC
-    `);
+
+      UNION ALL
+
+      -- Reenganches acumulados bajo re_enganche
+      SELECT
+        l2."accountId",
+        're_enganche' as "templateName",
+        1::bigint as "sentFirst",
+        CASE
+          WHEN l2."reengagementSentAt" IS NOT NULL
+            AND l2."firstInboundAt" IS NOT NULL
+            AND l2."firstInboundAt" >= l2."reengagementSentAt"
+          THEN 1::bigint
+          ELSE 0::bigint
+        END as "responded",
+        CASE
+          WHEN l2."reengagementSentAt" IS NOT NULL
+            AND (
+              l2."firstInboundAt" IS NULL
+              OR l2."firstInboundAt" < l2."reengagementSentAt"
+            )
+          THEN 1::bigint
+          ELSE 0::bigint
+        END as "notResponded"
+      FROM "Lead" l2
+      WHERE l2."accountId" = ${accountId}
+        AND l2."reengagementSentAt" IS NOT NULL
+        AND l2."reengagementSentAt" >= ${fromDate}
+        AND l2."reengagementSentAt" < ${toExclusiveDate}
+    )
+    SELECT
+      base."accountId",
+      a.name as "accountName",
+      base."templateName",
+      SUM(base."sentFirst")::bigint as "sentFirst",
+      SUM(base."responded")::bigint as "responded",
+      SUM(base."notResponded")::bigint as "notResponded"
+    FROM base
+    JOIN "Account" a ON a.id = base."accountId"
+    GROUP BY base."accountId", a.name, base."templateName"
+    ORDER BY base."templateName" ASC
+  `);
 
     return this.mapFlatRows(rows, {
       from,
