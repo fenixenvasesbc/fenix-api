@@ -19,9 +19,9 @@ export class ReengagementSchedulerService {
     private readonly selectionService: ReengagementSelectionService,
     private readonly rabbitPublisher: RabbitmqService,
   ) {}
-  //@Cron('0 8 * * 1-5', { timeZone: 'Europe/Madrid' })
+  //@Cron('0 9 * * 1-5', { timeZone: 'Europe/Madrid' })
 
-  @Cron('0 8 * * 1-5', { timeZone: 'Europe/Madrid' })
+  @Cron('0 9 * * 1-5', { timeZone: 'Europe/Madrid' })
   async run(): Promise<void> {
     const window = resolveReengagementWindow(new Date());
     this.logger.log(

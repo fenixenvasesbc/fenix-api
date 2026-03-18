@@ -25,10 +25,6 @@ import { InboundMessageModule } from './modules/inbound-message/inbound-message.
 import { MessageStatusService } from './modules/message-status/message-status.service';
 import { MessageStatusModule } from './modules/message-status/message-status.module';
 import { ReengagementModule } from './modules/reengagement/reengagement.module';
-import { ReengagementSelectionService } from './modules/reengagement/reengagement-selection-service.service';
-import { ReengagementSchedulerService } from './modules/reengagement/reengagement-scheduler-service.service';
-import { CampaignTemplateResolverService } from './modules/reengagement/campaign-template-resolver-service.service';
-import { ReengagementDispatchService } from './modules/reengagement/reengagement-dispatch-service.service';
 import { CredentialsModule } from './modules/credentials/credentials.module';
 import { YcloudModule } from './modules/ycloud/ycloud.module';
 
@@ -66,10 +62,6 @@ import { YcloudModule } from './modules/ycloud/ycloud.module';
     WebhookInboxService,
     InboundMessageService,
     MessageStatusService,
-    ReengagementSelectionService,
-    ReengagementSchedulerService,
-    CampaignTemplateResolverService,
-    ReengagementDispatchService,
   ],
 })
 export class AppModule {}
