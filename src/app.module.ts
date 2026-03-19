@@ -60,7 +60,6 @@ import { YcloudModule } from './modules/ycloud/ycloud.module';
     DashboardService,
     WebhookService,
     WebhookInboxService,
-    InboundMessageService,
     MessageStatusService,
   ],
 })

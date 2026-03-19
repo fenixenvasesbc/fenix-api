@@ -11,13 +11,18 @@ import {
   NormalizedInbound,
   YCloudInboundPayload,
 } from 'src/common/types/ycloud-inbound';
+import { LeadLanguageResolverService } from 'src/common/utils/lead-language-resolver.service';
+
 import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class InboundMessageService {
   private readonly logger = new Logger(InboundMessageService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly leadLanguageResolverService: LeadLanguageResolverService,
+  ) {}
 
   async process(job: WebhookInboxJob) {
     this.logger.log(
@@ -44,6 +49,9 @@ export class InboundMessageService {
         `Account not found for wabaId=${inbound.wabaId} phoneE164=${inbound.to}`,
       );
     }
+    const resolvedPreferredLanguage =
+      this.leadLanguageResolverService.resolveFromPhone(inbound.from) ??
+      'es_ES';
 
     const lead = await this.prisma.lead.upsert({
       where: {
@@ -65,6 +73,7 @@ export class InboundMessageService {
           inbound.providerSendTime ?? inbound.providerCreateTime ?? new Date(),
         lastMessageAt:
           inbound.providerSendTime ?? inbound.providerCreateTime ?? new Date(),
+        preferredLanguage: resolvedPreferredLanguage,
       },
       update: {
         status: LeadStatus.RESPONDED,
