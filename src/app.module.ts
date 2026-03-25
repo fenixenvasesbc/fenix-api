@@ -13,7 +13,6 @@ import { EventsModule } from './modules/events/events.module';
 import { DashboardController } from './modules/dashboard/dashboard.controller';
 import { DashboardService } from './modules/dashboard/dashboard.service';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
-import { RabbitmqService } from './modules/rabbitmq/rabbitmq.service';
 import { RabbitmqModule } from './modules/rabbitmq/rabbitmq.module';
 import { WorkerModule } from './modules/worker/worker.module';
 import { WebhookService } from './modules/webhook/webhook.service';
@@ -25,6 +24,9 @@ import { InboundMessageService } from './modules/inbound-message/inbound-message
 import { InboundMessageModule } from './modules/inbound-message/inbound-message.module';
 import { MessageStatusService } from './modules/message-status/message-status.service';
 import { MessageStatusModule } from './modules/message-status/message-status.module';
+import { ReengagementModule } from './modules/reengagement/reengagement.module';
+import { CredentialsModule } from './modules/credentials/credentials.module';
+import { YcloudModule } from './modules/ycloud/ycloud.module';
 
 @Module({
   imports: [
@@ -42,6 +44,9 @@ import { MessageStatusModule } from './modules/message-status/message-status.mod
     WebhookInboxModule,
     InboundMessageModule,
     MessageStatusModule,
+    ReengagementModule,
+    CredentialsModule,
+    YcloudModule,
   ],
   controllers: [
     AppController,
@@ -55,7 +60,6 @@ import { MessageStatusModule } from './modules/message-status/message-status.mod
     DashboardService,
     WebhookService,
     WebhookInboxService,
-    InboundMessageService,
     MessageStatusService,
   ],
 })

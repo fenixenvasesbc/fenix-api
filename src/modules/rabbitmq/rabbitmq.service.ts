@@ -90,11 +90,25 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     const qRetry1m = process.env.RABBITMQ_QUEUE_RETRY_1M;
     const qRetry10m = process.env.RABBITMQ_QUEUE_RETRY_10M;
     const qDead = process.env.RABBITMQ_QUEUE_DEAD;
-    const qInbound = process.env.RABBITMQ_QUEUE_INBOUND!;
-    const qMessageUpdated = process.env.RABBITMQ_QUEUE_MESSAGE_UPDATED!;
+    const qInbound = process.env.RABBITMQ_QUEUE_INBOUND;
+    const qMessageUpdated = process.env.RABBITMQ_QUEUE_MESSAGE_UPDATED;
+    const qReengagement = process.env.RABBITMQ_QUEUE_REENGAGEMENT;
+    const qReengagementRetry10s =
+      process.env.RABBITMQ_QUEUE_REENGAGEMENT_RETRY_10S;
+    const qReengagementRetry1m =
+      process.env.RABBITMQ_QUEUE_REENGAGEMENT_RETRY_1M;
+    const qReengagementRetry10m =
+      process.env.RABBITMQ_QUEUE_REENGAGEMENT_RETRY_10M;
 
-    const rkInbound = process.env.RABBITMQ_RK_INBOUND!;
-    const rkMessageUpdated = process.env.RABBITMQ_RK_MESSAGE_UPDATED!;
+    const rkInbound = process.env.RABBITMQ_RK_INBOUND;
+    const rkMessageUpdated = process.env.RABBITMQ_RK_MESSAGE_UPDATED;
+    const rkReengagement = process.env.RABBITMQ_RK_REENGAGEMENT;
+    const rkReengagementRetry10s =
+      process.env.RABBITMQ_RK_REENGAGEMENT_RETRY_10S;
+    const rkReengagementRetry1m =
+      process.env.RABBITMQ_RK_REENGAGEMENT_RETRY_1M;
+    const rkReengagementRetry10m =
+      process.env.RABBITMQ_RK_REENGAGEMENT_RETRY_10M;
 
     const rkProcess = process.env.RABBITMQ_RK_PROCESS;
     const rkRetry10s = process.env.RABBITMQ_RK_RETRY_10S;
@@ -114,6 +128,14 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
       ['RABBITMQ_QUEUE_MESSAGE_UPDATED', qMessageUpdated],
       ['RABBITMQ_RK_INBOUND', rkInbound],
       ['RABBITMQ_RK_MESSAGE_UPDATED', rkMessageUpdated],
+      ['RABBITMQ_QUEUE_REENGAGEMENT', qReengagement],
+      ['RABBITMQ_QUEUE_REENGAGEMENT_RETRY_10S', qReengagementRetry10s],
+      ['RABBITMQ_QUEUE_REENGAGEMENT_RETRY_1M', qReengagementRetry1m],
+      ['RABBITMQ_QUEUE_REENGAGEMENT_RETRY_10M', qReengagementRetry10m],
+      ['RABBITMQ_RK_REENGAGEMENT', rkReengagement],
+      ['RABBITMQ_RK_REENGAGEMENT_RETRY_10S', rkReengagementRetry10s],
+      ['RABBITMQ_RK_REENGAGEMENT_RETRY_1M', rkReengagementRetry1m],
+      ['RABBITMQ_RK_REENGAGEMENT_RETRY_10M', rkReengagementRetry10m],
       ['RABBITMQ_RK_PROCESS', rkProcess],
       ['RABBITMQ_RK_RETRY_10S', rkRetry10s],
       ['RABBITMQ_RK_RETRY_1M', rkRetry1m],
@@ -134,11 +156,55 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     });
     await this.ch!.bindQueue(qMain!, exchange!, rkProcess!);
 
-    await this.ch!.assertQueue(qInbound, { durable: true });
-    await this.ch!.bindQueue(qInbound, exchange!, rkInbound);
+    await this.ch!.assertQueue(qInbound!, { durable: true });
+    await this.ch!.bindQueue(qInbound!, exchange!, rkInbound!);
 
-    await this.ch!.assertQueue(qMessageUpdated, { durable: true });
-    await this.ch!.bindQueue(qMessageUpdated, exchange!, rkMessageUpdated);
+    await this.ch!.assertQueue(qMessageUpdated!, { durable: true });
+    await this.ch!.bindQueue(qMessageUpdated!, exchange!, rkMessageUpdated!);
+
+    await this.ch!.assertQueue(qReengagement!, { durable: true });
+    await this.ch!.bindQueue(qReengagement!, exchange!, rkReengagement!);
+    await this.ch!.assertQueue(qReengagementRetry10s!, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 10_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkReengagement!,
+      },
+    });
+    await this.ch!.bindQueue(
+      qReengagementRetry10s!,
+      dlx!,
+      rkReengagementRetry10s!,
+    );
+
+    await this.ch!.assertQueue(qReengagementRetry1m!, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 60_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkReengagement!,
+      },
+    });
+    await this.ch!.bindQueue(
+      qReengagementRetry1m!,
+      dlx!,
+      rkReengagementRetry1m!,
+    );
+
+    await this.ch!.assertQueue(qReengagementRetry10m!, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 600_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkReengagement!,
+      },
+    });
+    await this.ch!.bindQueue(
+      qReengagementRetry10m!,
+      dlx!,
+      rkReengagementRetry10m!,
+    );
 
     await this.ch!.assertQueue(qRetry10s!, {
       durable: true,

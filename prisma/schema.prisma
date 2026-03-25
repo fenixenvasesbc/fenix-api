@@ -12,8 +12,8 @@ enum Role {
 }
 
 enum LeadStatus {
-  NEW          // creado/confirmado al aceptar el primer envío
-  RESPONDED    // cuando llega el primer inbound (de cualquier tipo)
+  NEW // creado/confirmado al aceptar el primer envío
+  RESPONDED // cuando llega el primer inbound (de cualquier tipo)
   // luego: WAITING_SKETCH, IN_PRODUCTION, CLOSED_WON, etc.
 }
 
@@ -33,7 +33,7 @@ enum MessageType {
 }
 
 enum MessageStatus {
-  ACCEPTED     // lo que llega en envío: "accepted"
+  ACCEPTED // lo que llega en envío: "accepted"
   SENT
   DELIVERED
   READ
@@ -42,23 +42,24 @@ enum MessageStatus {
 }
 
 model User {
-  id String @id @default(uuid())
-  email String @unique 
-  passwordHash String 
-  role Role @default(SALES) 
-  isActive Boolean @default(true) // Un SALES puede tener (como máximo) 1 cuenta. // ADMIN normalmente lo tendrá null. 
-  accountId String? @unique 
-  account Account? @relation(fields: [accountId],references: [id], onDelete: SetNull) 
-  refreshTokens RefreshToken[] 
-  createdAt DateTime @default(now()) 
-  updatedAt DateTime @updatedAt 
-  @@index([role]) 
+  id            String         @id @default(uuid())
+  email         String         @unique
+  passwordHash  String
+  role          Role           @default(SALES)
+  isActive      Boolean        @default(true) // Un SALES puede tener (como máximo) 1 cuenta. // ADMIN normalmente lo tendrá null. 
+  accountId     String?        @unique
+  account       Account?       @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  refreshTokens RefreshToken[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([role])
   @@index([isActive])
 }
 
 model Account {
-  id        String @id @default(uuid())
-  name      String
+  id   String @id @default(uuid())
+  name String
 
   // Identificadores YCloud para multi-cuenta
   wabaId    String
@@ -68,66 +69,72 @@ model Account {
   user User?
 
   // Una cuenta puede tener múltiples leads o ninguno
-  leads Lead[]
+  leads    Lead[]
   // Una cuenta puede tener múltiples mensajes o ninguno
   messages Message[]
 
   webhookEvents WebhookEvent[]
+  providerCredentials AccountProviderCredential[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  leadCampaigns LeadCampaign[]
+  campaignTemplates AccountCampaignTemplate[]
 
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
   // Unicidad: una cuenta se identifica por wabaId + teléfono
   @@unique([wabaId, phoneE164])
-
   @@index([phoneE164])
   @@index([wabaId])
 }
 
 model Lead {
-  id        String @id @default(uuid())
-  name      String?
-  phoneE164 String
-  email     String?
-  status    LeadStatus @default(NEW)
-  firstOutboundAt DateTime? // se setea cuando aceptan el 1er envío
-  firstInboundAt  DateTime? // se setea cuando llega el 1er inbound
+  id                        String     @id @default(uuid())
+  name                      String?
+  phoneE164                 String
+  email                     String?
+  status                    LeadStatus @default(NEW)
+
+  firstOutboundAt           DateTime? // se setea cuando aceptan el 1er envío
+  firstInboundAt            DateTime? // se setea cuando llega el 1er inbound
   firstOutboundTemplateName String? // para métrica #1, se setea con el template del 1er envío
 
-  lastInboundAt DateTime?// se actualiza cada vez que llega un inbound
-  lastOutboundAt DateTime?// se actualiza cada vez que se envía un mensaje
-  respondedAt DateTime?// se setea con el timestamp del primer inbound (si no se ha seteado antes)
-  lastMessageAt DateTime?// se actualiza con el timestamp de cada mensaje (inbound o outbound)
-  sourceTemplateName String?// se setea con el template del primer mensaje (inbound o outbound) para métrica #2
-
-  // Lead asociado a una cuenta (0..N por cuenta)
-  accountId String?
-  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  messages Message[]
+  preferredLanguage String? // para guardar el idioma preferido del cliente, si viene en el payload de YCloud (ejemplo: outbound.template.language.code o inbound.message.text.language)
+  lastInboundAt       DateTime? // se actualiza cada vez que llega un inbound
+  lastOutboundAt      DateTime? // se actualiza cada vez que se envía un mensaje
+  respondedAt         DateTime? // se setea con el timestamp del primer inbound (si no se ha seteado antes)
+  lastMessageAt       DateTime? // se actualiza con el timestamp de cada mensaje (inbound o outbound)
+  sourceTemplateName  String? // se setea con el template del primer mensaje (inbound o outbound) para métrica #2
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  reengagementSentAt  DateTime? // se setea cuando se envía un mensaje de reengagement (ejemplo: plantilla de "te seguimos esperando")
+  
+  // Lead asociado a una cuenta (0..N por cuenta)
+  accountId String?
+  account   Account?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  messages  Message[]
 
   webhookEvents WebhookEvent[]
+  leadCampaigns LeadCampaign[]
 
+  @@unique([accountId, phoneE164])
   @@index([accountId])
   @@index([phoneE164])
   @@index([email])
   @@index([firstInboundAt])
   @@index([accountId, firstOutboundAt])
   @@index([firstOutboundTemplateName])
-  @@unique([accountId, phoneE164])
   @@index([accountId, status, createdAt])
   @@index([accountId, lastInboundAt])
   @@index([accountId, lastOutboundAt])
 }
 
 model RefreshToken {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  tokenHash String   @unique
+  tokenHash String    @unique
   revokedAt DateTime?
   expiresAt DateTime
 
@@ -144,7 +151,7 @@ model Message {
   account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   leadId String
-  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   direction MessageDirection
   type      MessageType
@@ -155,13 +162,13 @@ model Message {
   contextWamid    String? // inbound.context.id (si viene)
 
   // Campaña/plantilla para métrica #1
-  templateName   String? // outbound.template.name
-  templateLang   String? // outbound.template.language.code
+  templateName    String? // outbound.template.name
+  templateLang    String? // outbound.template.language.code
   pricingCategory String? // outbound.pricingCategory (opcional)
   // coste por mensaje (lo que te manda YCloud)
-  totalPrice      Decimal? @db.Decimal(12, 6)
-  currency         String?  // outbound.pricingCurrency
-  status MessageStatus @default(UNKNOWN)
+  totalPrice      Decimal?      @db.Decimal(12, 6)
+  currency        String? // outbound.pricingCurrency
+  status          MessageStatus @default(UNKNOWN)
 
   // timestamps del proveedor
   providerCreateTime DateTime? // outbound.createTime o inbound.createTime
@@ -171,12 +178,12 @@ model Message {
   updatedAt DateTime @updatedAt // para saber cuándo se actualizó el status por última vez
 
   // contenido (opcional ahora, útil luego)
-  textBody String? // inbound.text.body si type=TEXT
-  mediaUrl String? // para image/video/document (si luego lo necesitas)
-  caption   String?
-  mimeType  String?
-  fileName  String?
-  errors    Json?
+  textBody           String? // inbound.text.body si type=TEXT
+  mediaUrl           String? // para image/video/document (si luego lo necesitas)
+  caption            String?
+  mimeType           String?
+  fileName           String?
+  errors             Json?
   interactivePayload Json?
 
   // debug/auditoría
@@ -184,29 +191,32 @@ model Message {
 
   createdAt DateTime @default(now())
 
-  externalId       String?
-  respondedAt      DateTime?
-  responseToId     String?
-  responseTo   Message?  @relation("MessageReplies", fields: [responseToId], references: [id], onDelete: SetNull)
-  responses    Message[] @relation("MessageReplies")
-  campaignKey      String?
-  referralPayload Json?// para guardar el referral payload de inbounds que vienen con referral (ejemplo: click en un anuncio)
+  externalId      String?  @unique 
+  respondedAt     DateTime?
+  responseToId    String?   
+  responseTo      Message?  @relation("MessageReplies", fields: [responseToId], references: [id], onDelete: SetNull)
+  responses       Message[] @relation("MessageReplies")
+  campaignKey     String?
+  referralPayload Json? // para guardar el referral payload de inbounds que vienen con referral (ejemplo: click en un anuncio)
 
-  webhookEvents   WebhookEvent[]
-  statusHistory   MessageStatusHistory[]
+  webhookEvents WebhookEvent[]
+  statusHistory MessageStatusHistory[]
+  leadCampaigns LeadCampaign[]
+  
 
-
+  @@unique([accountId, ycloudMessageId])
   @@index([accountId, leadId, direction, createdAt])
   @@index([accountId, direction, type, providerCreateTime])
   @@index([accountId, templateName, providerCreateTime])
   @@index([templateName])
   @@index([wamid])
-  @@unique([accountId, ycloudMessageId])
   @@index([accountId, externalId])
   @@index([accountId, wamid])
   @@index([leadId, createdAt])
   @@index([templateName, createdAt])
+  @@index([externalId])
 }
+
 // Para manejar webhooks de YCloud u otros proveedores, y tener un historial de eventos
 enum WebhookEventStatus {
   PENDING
@@ -227,38 +237,200 @@ model WebhookEvent {
   payload         Json
   status          WebhookEventStatus @default(PENDING)
   attempts        Int                @default(0)
-  lastAttemptAt DateTime?
-  deadAt        DateTime?
+  lastAttemptAt   DateTime?
+  deadAt          DateTime?
   lastError       String?
   createdAt       DateTime           @default(now())
   processedAt     DateTime?
 
-  account         Account?           @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  lead            Lead?              @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  message         Message?           @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  lead    Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  message Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
 
-  apiVersion    String?
-  providerTime  DateTime?
-  routingKey    String?
-  queueName     String?
+  apiVersion   String?
+  providerTime DateTime?
+  routingKey   String?
+  queueName    String?
 
   @@index([status, createdAt])
   @@index([accountId, createdAt])
   @@index([leadId, createdAt])
 }
+
 // Para tener un historial de cambios de estado de los mensajes (útil para debug, auditoría, métricas avanzadas, etc.)
 model MessageStatusHistory {
-  id             String        @id @default(uuid())
-  messageId      String
-  fromStatus     MessageStatus?
-  toStatus       MessageStatus
+  id              String         @id @default(uuid())
+  messageId       String
+  fromStatus      MessageStatus?
+  toStatus        MessageStatus
   providerEventId String?
-  providerTime   DateTime?
-  payload        Json?
-  createdAt      DateTime      @default(now())
+  providerTime    DateTime?
+  payload         Json?
+  createdAt       DateTime       @default(now())
 
-  message        Message       @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
   @@index([messageId, toStatus, createdAt])
   @@index([messageId, createdAt])
   @@index([providerEventId])
+}
+
+enum CampaignDefinitionType {
+  FIRST_CONTACT
+  WEEK1_REENGAGEMENT
+}
+
+enum CampaignDefinitionStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+enum AccountCampaignTemplateStatus {
+  DRAFT
+  SUBMITTED
+  PENDING
+  APPROVED
+  REJECTED
+  PAUSED
+  DISABLED
+  ERROR
+}
+
+enum LeadCampaignType {
+  WEEK1_REENGAGEMENT
+}
+
+enum LeadCampaignStatus {
+  UNKNOWN
+  PENDING
+  ENQUEUED
+  PROCESSING
+  SENT
+  SKIPPED
+  FAILED
+}
+//Esta es la campaña global, que define la plantilla, el tipo de campaña, etc. Luego cada cuenta puede tener 0..N plantillas basadas en esta definición global, y cada lead puede estar asociado a una campaña concreta (basada en una plantilla concreta).
+model CampaignDefinition {
+  id         String   @id @default(uuid())
+  key        String   @unique
+  name       String
+  type       CampaignDefinitionType
+  language   String
+  category   String?
+  payload    Json
+  version    Int      @default(1)
+  status     CampaignDefinitionStatus @default(ACTIVE)
+  isActive   Boolean  @default(true)
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  accountTemplates AccountCampaignTemplate[]
+
+  @@index([type, language])
+  @@index([status, isActive])
+}
+//Esta tabla representa la materialización de una campaña global en una cuenta concreta. Es decir, una cuenta puede tener 0..N campañas basadas en la misma definición global (por ejemplo, una campaña de reengagement para cada idioma). Cada plantilla de campaña de cuenta puede estar asociada a múltiples leads (LeadCampaign) y a múltiples mensajes (Message).
+model AccountCampaignTemplate {
+  id                   String   @id @default(uuid())
+
+  accountId            String
+  campaignDefinitionId String
+
+  account              Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  campaignDefinition   CampaignDefinition @relation(fields: [campaignDefinitionId], references: [id], onDelete: Cascade)
+
+  officialTemplateId   String?
+  wabaId               String
+  name                 String
+  language             String
+
+  category             String?
+  qualityRating        String?
+  status               AccountCampaignTemplateStatus @default(DRAFT)
+  statusDetail         String?
+
+  ycloudCreateTime     DateTime?
+  ycloudUpdateTime     DateTime?
+  lastSyncedAt         DateTime?
+
+  payloadSnapshot      Json?
+  lastWebhookPayload   Json?
+  lastError            String?
+
+  isActive             Boolean @default(true)
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  leadCampaigns        LeadCampaign[]
+
+  @@unique([accountId, campaignDefinitionId])
+  @@unique([accountId, officialTemplateId])
+  @@index([accountId, status])
+  @@index([campaignDefinitionId, status])
+  @@index([wabaId])
+}
+
+model LeadCampaign {
+  id                        String   @id @default(uuid())
+
+  leadId                    String
+  accountId                 String
+  externalId                String? @unique
+
+  type                      LeadCampaignType
+  status                    LeadCampaignStatus @default(PENDING)
+
+  businessWindowKey         String
+
+  sourceTemplateName        String?
+  targetTemplateName        String?
+
+  accountCampaignTemplateId String?
+  messageId                 String?
+
+  skipReason                String?
+  attempts                  Int      @default(0)
+  lastError                 String?
+
+  scheduledFor              DateTime?
+  enqueuedAt                DateTime?
+  processedAt               DateTime?
+  sentAt                    DateTime?
+
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  lead                      Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  account                   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountCampaignTemplate   AccountCampaignTemplate? @relation(fields: [accountCampaignTemplateId], references: [id], onDelete: SetNull)
+  message                   Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@unique([leadId, type, businessWindowKey])
+  @@index([accountId, type, status, createdAt])
+  @@index([accountCampaignTemplateId])
+  @@index([messageId])
+}
+
+enum ProviderType {
+  YCLOUD
+}
+
+model AccountProviderCredential {
+  id                String   @id @default(uuid())
+  accountId         String
+  account           Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  provider          ProviderType
+  apiKeyEncrypted   String
+  apiKeyHint        String?
+  isActive          Boolean  @default(true)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([accountId, provider])
+  @@index([provider, isActive])
 }
