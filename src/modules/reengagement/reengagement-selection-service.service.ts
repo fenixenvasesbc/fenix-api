@@ -10,7 +10,6 @@ export class ReengagementSelectionService {
       where: {
         status: 'NEW',
         accountId: { not: null },
-        preferredLanguage: { not: null },
         firstOutboundAt: {
           gte: start,
           lte: end,

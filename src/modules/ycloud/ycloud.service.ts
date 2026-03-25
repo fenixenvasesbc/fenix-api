@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ProviderCredentialService } from '../credentials/provider-credential.service';
 import {
@@ -10,6 +6,18 @@ import {
   YcloudSendTemplateResponse,
 } from 'src/common/types/ycloud-types';
 import { firstValueFrom } from 'rxjs';
+
+export class YcloudRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly retryable: boolean,
+    public readonly statusCode?: number,
+    public readonly providerMessage?: string,
+  ) {
+    super(message);
+    this.name = 'YcloudRequestError';
+  }
+}
 
 @Injectable()
 export class YcloudService {
@@ -40,6 +48,7 @@ export class YcloudService {
           code: input.languageCode,
         },
       },
+      externalId: input.externalId,
     };
 
     try {
@@ -60,6 +69,7 @@ export class YcloudService {
           2,
         ),
       );
+
       const response = await firstValueFrom(
         this.httpService.post(
           `${this.baseUrl}/whatsapp/messages/sendDirectly`,
@@ -73,23 +83,57 @@ export class YcloudService {
           },
         ),
       );
+
       this.logger.log(`YCLOUD response status=${response.status}`);
       this.logger.debug(JSON.stringify(response.data, null, 2));
+
       return response.data as YcloudSendTemplateResponse;
     } catch (error: any) {
-      this.logger.error(`YCLOUD request failed: ${error.message}`);
+      const statusCode =
+        typeof error?.response?.status === 'number'
+          ? error.response.status
+          : undefined;
 
-      if (error.response) {
+      const providerMessage =
+        typeof error?.response?.data?.message === 'string'
+          ? error.response.data.message
+          : typeof error?.response?.data?.error?.message === 'string'
+            ? error.response.data.error.message
+            : typeof error?.message === 'string'
+              ? error.message
+              : 'Unknown YCloud error';
+
+      const retryable =
+        error?.code === 'ECONNABORTED' ||
+        error?.code === 'ETIMEDOUT' ||
+        error?.code === 'ECONNRESET' ||
+        error?.code === 'ENOTFOUND' ||
+        error?.code === 'EAI_AGAIN' ||
+        !statusCode ||
+        statusCode === 429 ||
+        statusCode === 500 ||
+        statusCode === 502 ||
+        statusCode === 503 ||
+        statusCode === 504;
+
+      this.logger.error(
+        `YCLOUD request failed retryable=${retryable} status=${statusCode ?? 'n/a'} message=${providerMessage}`,
+      );
+
+      if (error?.response) {
         this.logger.error(`YCLOUD response status=${error.response.status}`);
         this.logger.error(JSON.stringify(error.response.data, null, 2));
-      } else if (error.request) {
+      } else if (error?.request) {
         this.logger.error('YCLOUD request was sent but no response received');
       } else {
         this.logger.error('YCLOUD request could not be created');
       }
 
-      throw new InternalServerErrorException(
-        `YCLOUD sendTemplateMessage failed: ${error.message}`,
+      throw new YcloudRequestError(
+        `YCLOUD sendTemplateMessage failed: ${providerMessage}`,
+        retryable,
+        statusCode,
+        providerMessage,
       );
     }
   }

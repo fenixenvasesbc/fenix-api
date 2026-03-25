@@ -4,9 +4,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 
 import { resolveReengagementWindow } from './reengagement-window';
-// Ajusta este import a tu implementación real
-
-import { REENGAGEMENT_EXCHANGE, REENGAGEMENT_ROUTING_KEY } from './constant';
 import { ReengagementSelectionService } from './reengagement-selection-service.service';
 import { RabbitmqService } from '../rabbitmq/rabbitmq.service';
 
@@ -19,14 +16,15 @@ export class ReengagementSchedulerService {
     private readonly selectionService: ReengagementSelectionService,
     private readonly rabbitPublisher: RabbitmqService,
   ) {}
-  //@Cron('0 9 * * 1-5', { timeZone: 'Europe/Madrid' })
 
-  @Cron('0 9 * * 1-5', { timeZone: 'Europe/Madrid' })
+  @Cron('7 00 * * 1-5', { timeZone: 'Europe/Madrid' })
   async run(): Promise<void> {
-    const window = resolveReengagementWindow(new Date());
+    const window = resolveReengagementWindow(new Date('2026-03-26'));
+
     this.logger.log(
       'Bussiness window for reengagement: ' + window?.businessWindowKey,
     );
+
     if (!window) {
       this.logger.log('No business window today, skipping reengagement job');
       return;
@@ -43,7 +41,7 @@ export class ReengagementSchedulerService {
 
     for (const lead of leads) {
       try {
-        const leadCampaign = await this.prisma.leadCampaign.upsert({
+        const existingLeadCampaign = await this.prisma.leadCampaign.findUnique({
           where: {
             leadId_type_businessWindowKey: {
               leadId: lead.id,
@@ -51,10 +49,25 @@ export class ReengagementSchedulerService {
               businessWindowKey: window.businessWindowKey,
             },
           },
-          update: {},
-          create: {
+          select: {
+            id: true,
+            status: true,
+          },
+        });
+
+        if (existingLeadCampaign) {
+          this.logger.log(
+            `LeadCampaign already exists leadId=${lead.id} leadCampaignId=${existingLeadCampaign.id} status=${existingLeadCampaign.status} window=${window.businessWindowKey}`,
+          );
+          continue;
+        }
+        const externalId = `reengagement:week1:${lead.id}:${window.businessWindowKey}`;
+
+        const leadCampaign = await this.prisma.leadCampaign.create({
+          data: {
             leadId: lead.id,
             accountId: lead.accountId!,
+            externalId: externalId,
             type: 'WEEK1_REENGAGEMENT',
             status: 'ENQUEUED',
             businessWindowKey: window.businessWindowKey,
@@ -71,9 +84,14 @@ export class ReengagementSchedulerService {
           process.env.RABBITMQ_RK_REENGAGEMENT!,
           { leadCampaignId: leadCampaign.id },
         );
+
+        this.logger.log(
+          `Reengagement enqueued leadId=${lead.id} leadCampaignId=${leadCampaign.id} window=${window.businessWindowKey}`,
+        );
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Unknown scheduler error';
+
         this.logger.error(
           `Failed to enqueue reengagement for leadId=${lead.id}: ${message}`,
         );

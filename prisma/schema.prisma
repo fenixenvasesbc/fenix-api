@@ -191,9 +191,9 @@ model Message {
 
   createdAt DateTime @default(now())
 
-  externalId      String?
+  externalId      String?  @unique 
   respondedAt     DateTime?
-  responseToId    String?
+  responseToId    String?   
   responseTo      Message?  @relation("MessageReplies", fields: [responseToId], references: [id], onDelete: SetNull)
   responses       Message[] @relation("MessageReplies")
   campaignKey     String?
@@ -214,6 +214,7 @@ model Message {
   @@index([accountId, wamid])
   @@index([leadId, createdAt])
   @@index([templateName, createdAt])
+  @@index([externalId])
 }
 
 // Para manejar webhooks de YCloud u otros proveedores, y tener un historial de eventos
@@ -301,6 +302,7 @@ enum LeadCampaignType {
 }
 
 enum LeadCampaignStatus {
+  UNKNOWN
   PENDING
   ENQUEUED
   PROCESSING
@@ -376,6 +378,7 @@ model LeadCampaign {
 
   leadId                    String
   accountId                 String
+  externalId                String? @unique
 
   type                      LeadCampaignType
   status                    LeadCampaignStatus @default(PENDING)

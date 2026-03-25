@@ -6,7 +6,7 @@ import type {
   YCloudUpdatedWhatsappMessageDto,
   WhatsappMessageStatus,
 } from '../../common/types/ycloud-message-updated.dto';
-import { Prisma } from '@prisma/client';
+import { Prisma, MessageDirection, MessageType } from '@prisma/client';
 
 @Injectable()
 export class MessageStatusService {
@@ -30,30 +30,6 @@ export class MessageStatusService {
       return;
     }
 
-    const message = await this.findMessage(whatsappMessage);
-
-    if (!message) {
-      this.logger.warn(
-        `Message not found providerEventId=${job.providerEventId} ycloudMessageId=${whatsappMessage.id} wamid=${whatsappMessage.wamid ?? '-'} externalId=${whatsappMessage.externalId ?? '-'}`,
-      );
-      return;
-    }
-
-    if (!this.shouldUpdate(message.status, nextStatus)) {
-      this.logger.log(
-        `Ignoring non-forward transition messageId=${message.id} current=${message.status} next=${nextStatus}`,
-      );
-      await this.prisma.webhookEvent.updateMany({
-        where: { providerEventId: job.providerEventId },
-        data: {
-          status: 'PROCESSED',
-          processedAt: new Date(),
-          lastError: null,
-        },
-      });
-      return;
-    }
-
     const providerUpdateTime = this.resolveProviderUpdateTime(
       event,
       whatsappMessage,
@@ -62,17 +38,51 @@ export class MessageStatusService {
 
     const errorPayload = this.buildErrorPayload(whatsappMessage);
 
-    await this.prisma.$transaction([
-      this.prisma.message.update({
+    const message = await this.findMessage(whatsappMessage);
+
+    if (!message) {
+      await this.reconcileUnknownWithoutMessage({
+        job,
+        whatsappMessage,
+        nextStatus,
+        providerUpdateTime,
+        errorPayload,
+      });
+      return;
+    }
+
+    if (!this.shouldUpdate(message.status, nextStatus)) {
+      this.logger.log(
+        `Ignoring non-forward transition messageId=${message.id} current=${message.status} next=${nextStatus}`,
+      );
+
+      await this.prisma.webhookEvent.updateMany({
+        where: { providerEventId: job.providerEventId },
+        data: {
+          status: 'PROCESSED',
+          processedAt: new Date(),
+          lastError: null,
+        },
+      });
+
+      return;
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.message.update({
         where: { id: message.id },
         data: {
           status: nextStatus,
           providerUpdateTime,
           errors: errorPayload ?? undefined,
           rawPayload: job.payload as Prisma.InputJsonValue,
+          ycloudMessageId: whatsappMessage.id ?? message.ycloudMessageId,
+          wamid: whatsappMessage.wamid ?? message.wamid,
+          externalId: whatsappMessage.externalId ?? message.externalId,
         },
-      }),
-      this.prisma.messageStatusHistory.create({
+      });
+
+      await tx.messageStatusHistory.create({
         data: {
           messageId: message.id,
           fromStatus: message.status,
@@ -81,16 +91,42 @@ export class MessageStatusService {
           providerTime: providerUpdateTime,
           payload: job.payload as Prisma.InputJsonValue,
         },
-      }),
-      this.prisma.webhookEvent.updateMany({
+      });
+
+      const leadCampaign = await tx.leadCampaign.findFirst({
+        where: { messageId: message.id },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
+
+      if (leadCampaign?.status === 'UNKNOWN') {
+        await tx.leadCampaign.update({
+          where: { id: leadCampaign.id },
+          data:
+            nextStatus === 'FAILED'
+              ? {
+                  status: 'FAILED',
+                  lastError: this.resolveFailureReason(whatsappMessage),
+                }
+              : {
+                  status: 'SENT',
+                  sentAt: providerUpdateTime,
+                  lastError: null,
+                },
+        });
+      }
+
+      await tx.webhookEvent.updateMany({
         where: { providerEventId: job.providerEventId },
         data: {
           status: 'PROCESSED',
           processedAt: new Date(),
           lastError: null,
         },
-      }),
-    ]);
+      });
+    });
   }
 
   private parseEvent(payload: unknown): YCloudMessageUpdatedEventDto {
@@ -153,6 +189,124 @@ export class MessageStatusService {
     }
 
     return null;
+  }
+
+  private async reconcileUnknownWithoutMessage(params: {
+    job: WebhookInboxJob;
+    whatsappMessage: YCloudUpdatedWhatsappMessageDto;
+    nextStatus: WhatsappMessageStatus;
+    providerUpdateTime: Date;
+    errorPayload?: Prisma.InputJsonValue;
+  }): Promise<void> {
+    const {
+      job,
+      whatsappMessage,
+      nextStatus,
+      providerUpdateTime,
+      errorPayload,
+    } = params;
+
+    if (!whatsappMessage.externalId) {
+      this.logger.warn(
+        `Message not found and externalId missing providerEventId=${job.providerEventId} ycloudMessageId=${whatsappMessage.id} wamid=${whatsappMessage.wamid ?? '-'}`,
+      );
+      return;
+    }
+
+    const leadCampaign = await this.prisma.leadCampaign.findFirst({
+      where: {
+        externalId: whatsappMessage.externalId,
+      },
+      include: {
+        lead: true,
+      },
+    });
+
+    if (!leadCampaign) {
+      this.logger.warn(
+        `LeadCampaign not found by externalId providerEventId=${job.providerEventId} externalId=${whatsappMessage.externalId}`,
+      );
+      return;
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const createdMessage = await tx.message.upsert({
+        where: {
+          externalId: whatsappMessage.externalId!,
+        },
+        update: {
+          status: nextStatus,
+          providerUpdateTime,
+          errors: errorPayload ?? undefined,
+          rawPayload: job.payload as Prisma.InputJsonValue,
+          ycloudMessageId: whatsappMessage.id ?? undefined,
+          wamid: whatsappMessage.wamid ?? undefined,
+        },
+        create: {
+          accountId: leadCampaign.accountId,
+          leadId: leadCampaign.leadId,
+          direction: MessageDirection.OUTBOUND,
+          type: MessageType.TEMPLATE,
+          templateName:
+            leadCampaign.targetTemplateName ?? leadCampaign.sourceTemplateName,
+          templateLang: leadCampaign.lead.preferredLanguage ?? null,
+          status: nextStatus,
+          ycloudMessageId: whatsappMessage.id ?? null,
+          wamid: whatsappMessage.wamid ?? null,
+          externalId: whatsappMessage.externalId!,
+          providerCreateTime: whatsappMessage.createTime
+            ? new Date(whatsappMessage.createTime)
+            : null,
+          providerUpdateTime,
+          errors: errorPayload ?? undefined,
+          rawPayload: job.payload as Prisma.InputJsonValue,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      await tx.messageStatusHistory.create({
+        data: {
+          messageId: createdMessage.id,
+          fromStatus: null,
+          toStatus: nextStatus,
+          providerEventId: job.providerEventId,
+          providerTime: providerUpdateTime,
+          payload: job.payload as Prisma.InputJsonValue,
+        },
+      });
+
+      await tx.leadCampaign.update({
+        where: { id: leadCampaign.id },
+        data:
+          nextStatus === 'FAILED'
+            ? {
+                status: 'FAILED',
+                messageId: createdMessage.id,
+                lastError: this.resolveFailureReason(whatsappMessage),
+              }
+            : {
+                status: 'SENT',
+                messageId: createdMessage.id,
+                sentAt: providerUpdateTime,
+                lastError: null,
+              },
+      });
+
+      await tx.webhookEvent.updateMany({
+        where: { providerEventId: job.providerEventId },
+        data: {
+          status: 'PROCESSED',
+          processedAt: new Date(),
+          lastError: null,
+        },
+      });
+    });
+
+    this.logger.log(
+      `Reconciled UNKNOWN leadCampaignId=${leadCampaign.id} externalId=${whatsappMessage.externalId} nextStatus=${nextStatus}`,
+    );
   }
 
   private normalizeStatus(
@@ -248,5 +402,17 @@ export class MessageStatusService {
       errorMessage: whatsappMessage.errorMessage ?? null,
       whatsappApiError,
     } as Prisma.InputJsonValue;
+  }
+
+  private resolveFailureReason(
+    whatsappMessage: YCloudUpdatedWhatsappMessageDto,
+  ): string {
+    return (
+      whatsappMessage.errorMessage ||
+      whatsappMessage.whatsappApiError?.message ||
+      (typeof whatsappMessage.errorCode !== 'undefined'
+        ? `Provider error code ${whatsappMessage.errorCode}`
+        : 'Provider reported FAILED status')
+    );
   }
 }

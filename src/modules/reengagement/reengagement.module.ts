@@ -7,6 +7,7 @@ import { CampaignTemplateResolverService } from './campaign-template-resolver-se
 import { ReengagementSelectionService } from './reengagement-selection-service.service';
 import { YcloudModule } from '../ycloud/ycloud.module';
 import { PrismaModule } from 'src/prisma/prisma.module';
+import { LeadLanguageResolverService } from 'src/common/utils/lead-language-resolver.service';
 
 @Module({
   imports: [ScheduleModule.forRoot(), PrismaModule, YcloudModule],
@@ -16,6 +17,7 @@ import { PrismaModule } from 'src/prisma/prisma.module';
     ReengagementDispatchService,
     ReengagementSchedulerService,
     ReengagementWorker,
+    LeadLanguageResolverService,
   ],
   exports: [
     ReengagementDispatchService,

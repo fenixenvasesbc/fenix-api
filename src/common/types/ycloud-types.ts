@@ -4,6 +4,7 @@ export interface SendYcloudTemplateMessageInput {
   from: string;
   templateName: string;
   languageCode: string;
+  externalId?: string;
 }
 
 export interface YcloudSendTemplateResponse {
