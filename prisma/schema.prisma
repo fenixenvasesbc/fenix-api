@@ -93,6 +93,10 @@ model Lead {
   phoneE164                 String
   email                     String?
   status                    LeadStatus @default(NEW)
+  // Identificadres nuevos para correlación con YCloud/WhatsApp 29/30/2026
+  whatsappUserId       String?
+  whatsappParentUserId String?
+  whatsappUsername     String?
 
   firstOutboundAt           DateTime? // se setea cuando aceptan el 1er envío
   firstInboundAt            DateTime? // se setea cuando llega el 1er inbound
@@ -160,6 +164,18 @@ model Message {
   ycloudMessageId String? // outbound: response.id, inbound: whatsappInboundMessage.id
   wamid           String? // wamid.HBg...
   contextWamid    String? // inbound.context.id (si viene)
+
+  // 🔥 NUEVO (INBOUND)
+  senderWhatsAppUserId    String?
+  senderParentUserId      String?
+
+  // 🔥 NUEVO (OUTBOUND / UPDATED)
+  recipientWhatsAppUserId String?
+  recipientParentUserId   String?
+
+  // 🔥 NUEVO (perfil)
+  customerUsername        String?
+  customerDisplayName     String?
 
   // Campaña/plantilla para métrica #1
   templateName    String? // outbound.template.name

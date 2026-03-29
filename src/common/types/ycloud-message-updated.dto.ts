@@ -19,11 +19,22 @@ export interface YCloudWhatsappApiError {
 export interface YCloudUpdatedTextPayload {
   body?: string;
 }
+export interface YCloudCustomerProfileDto {
+  name?: string;
+  username?: string;
+}
 
 export interface YCloudUpdatedWhatsappMessageDto {
   id: string;
   wamid?: string;
   status: WhatsappMessageStatus;
+  from?: string;
+  to?: string;
+
+  recipientUserId?: string;
+  parentRecipientUserId?: string;
+
+  customerProfile?: YCloudCustomerProfileDto | null;
 
   pricingModel?: string;
   pricingType?: string;

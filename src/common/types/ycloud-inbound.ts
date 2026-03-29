@@ -1,5 +1,10 @@
 import { MessageType, Prisma } from '@prisma/client';
 
+type YCloudCustomerProfile = {
+  name?: string | null;
+  username?: string | null;
+};
+
 export type YCloudInboundPayload = {
   id: string;
   type: 'whatsapp.inbound_message.received';
@@ -10,12 +15,12 @@ export type YCloudInboundPayload = {
     wamid?: string;
     wabaId?: string;
     from?: string;
+    fromUserId?: string | null;
+    fromParentUserId?: string | null;
     to?: string;
     sendTime?: string;
     type?: string;
-    customerProfile?: {
-      name?: string;
-    };
+    customerProfile?: YCloudCustomerProfile | null;
     context?: {
       from?: string;
       id?: string;
@@ -106,7 +111,13 @@ export type NormalizedInbound = {
   wabaId: string;
   from: string;
   to: string;
+
   senderName: string | null;
+  senderUsername: string | null;
+
+  fromUserId: string | null;
+  fromParentUserId: string | null;
+
   providerCreateTime: Date | null;
   providerSendTime: Date | null;
   type: MessageType;

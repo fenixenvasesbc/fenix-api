@@ -17,9 +17,9 @@ export class ReengagementSchedulerService {
     private readonly rabbitPublisher: RabbitmqService,
   ) {}
 
-  @Cron('7 00 * * 1-5', { timeZone: 'Europe/Madrid' })
+  @Cron('0 9 * * 1-5', { timeZone: 'Europe/Madrid' })
   async run(): Promise<void> {
-    const window = resolveReengagementWindow(new Date('2026-03-26'));
+    const window = resolveReengagementWindow(new Date());
 
     this.logger.log(
       'Bussiness window for reengagement: ' + window?.businessWindowKey,

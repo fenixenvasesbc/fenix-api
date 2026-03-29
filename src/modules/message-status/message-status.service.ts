@@ -74,6 +74,17 @@ export class MessageStatusService {
         data: {
           status: nextStatus,
           providerUpdateTime,
+          recipientWhatsAppUserId:
+            whatsappMessage.recipientUserId ?? undefined,
+
+          recipientParentUserId:
+            whatsappMessage.parentRecipientUserId ?? undefined,
+
+          customerUsername:
+            whatsappMessage.customerProfile?.username ?? undefined,
+
+          customerDisplayName:
+            whatsappMessage.customerProfile?.name ?? undefined,
           errors: errorPayload ?? undefined,
           rawPayload: job.payload as Prisma.InputJsonValue,
           ycloudMessageId: whatsappMessage.id ?? message.ycloudMessageId,
@@ -247,6 +258,14 @@ export class MessageStatusService {
           leadId: leadCampaign.leadId,
           direction: MessageDirection.OUTBOUND,
           type: MessageType.TEMPLATE,
+          recipientWhatsAppUserId:
+            whatsappMessage.recipientUserId ?? null,
+          recipientParentUserId:
+            whatsappMessage.parentRecipientUserId ?? null,
+          customerUsername:
+            whatsappMessage.customerProfile?.username ?? null,
+          customerDisplayName:
+            whatsappMessage.customerProfile?.name ?? null,
           templateName:
             leadCampaign.targetTemplateName ?? leadCampaign.sourceTemplateName,
           templateLang: leadCampaign.lead.preferredLanguage ?? null,

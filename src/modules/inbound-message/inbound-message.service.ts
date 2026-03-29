@@ -64,6 +64,9 @@ export class InboundMessageService {
         accountId: account.id,
         phoneE164: inbound.from,
         name: inbound.senderName ?? undefined,
+        whatsappUserId: inbound.fromUserId ?? undefined,
+        whatsappParentUserId: inbound.fromParentUserId ?? undefined,
+        whatsappUsername: inbound.senderUsername ?? undefined,
         status: LeadStatus.RESPONDED,
         firstInboundAt:
           inbound.providerSendTime ?? inbound.providerCreateTime ?? new Date(),
@@ -77,6 +80,10 @@ export class InboundMessageService {
       },
       update: {
         status: LeadStatus.RESPONDED,
+        name: inbound.senderName ?? undefined,
+        whatsappUserId: inbound.fromUserId ?? undefined,
+        whatsappParentUserId: inbound.fromParentUserId ?? undefined,
+        whatsappUsername: inbound.senderUsername ?? undefined,
         firstInboundAt: undefined,
         lastInboundAt:
           inbound.providerSendTime ?? inbound.providerCreateTime ?? new Date(),
@@ -149,6 +156,11 @@ export class InboundMessageService {
         direction: MessageDirection.INBOUND,
         type: inbound.type,
         status: MessageStatus.UNKNOWN,
+        senderWhatsAppUserId: inbound.fromUserId ?? null,
+        senderParentUserId: inbound.fromParentUserId ?? null,
+
+        customerUsername: inbound.senderUsername ?? null,
+        customerDisplayName: inbound.senderName ?? null,
         ycloudMessageId: inbound.ycloudMessageId,
         wamid: inbound.wamid,
         contextWamid: inbound.contextWamid,
@@ -179,6 +191,11 @@ export class InboundMessageService {
         mimeType: inbound.mimeType,
         caption: inbound.caption,
         fileName: inbound.fileName,
+        senderWhatsAppUserId: inbound.fromUserId ?? undefined,
+        senderParentUserId: inbound.fromParentUserId ?? undefined,
+
+        customerUsername: inbound.senderUsername ?? undefined,
+        customerDisplayName: inbound.senderName ?? undefined,
         rawPayload: inbound.rawPayload as Prisma.InputJsonValue,
         responseToId: responseTo?.id ?? undefined,
         ...(interactivePayloadInput !== undefined && {
@@ -232,11 +249,18 @@ export class InboundMessageService {
       wabaId: msg.wabaId,
       from: msg.from,
       to: msg.to,
+
       senderName: msg.customerProfile?.name ?? null,
+      senderUsername: msg.customerProfile?.username ?? null,
+
+      fromUserId: msg.fromUserId ?? null,
+      fromParentUserId: msg.fromParentUserId ?? null,
+
       providerCreateTime: payload.createTime
         ? new Date(payload.createTime)
         : null,
       providerSendTime: msg.sendTime ? new Date(msg.sendTime) : null,
+
       type: normalizedType,
       textBody,
       mediaUrl: media.link,
