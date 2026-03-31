@@ -16,6 +16,15 @@ export class ReengagementSelectionService {
         },
         firstOutboundTemplateName: { not: null },
         firstInboundAt: null,
+        account: {
+          is: {
+            user: {
+              is: {
+                isActive: true,
+              },
+            },
+          },
+        },
       },
       select: {
         id: true,
