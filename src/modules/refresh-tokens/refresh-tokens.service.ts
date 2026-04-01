@@ -39,4 +39,10 @@ export class RefreshTokensService {
       orderBy: { createdAt: 'desc' },
     });
   }
+
+  findByTokenHash(tokenHash: string) {
+    return this.prisma.refreshToken.findUnique({
+      where: { tokenHash },
+    });
+  }
 }

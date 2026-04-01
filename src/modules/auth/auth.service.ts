@@ -71,6 +71,47 @@ export class AuthService {
     return { message: 'Logged out' };
   }
 
+  async refresh(refreshToken: string) {
+    if (!refreshToken) {
+      throw new BadRequestException('Missing refresh token');
+    }
+
+    const tokenHash = this.hashToken(refreshToken);
+
+    const storedToken = await this.refreshTokens.findByTokenHash(tokenHash);
+    if (!storedToken) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    // 🔥 MEJORA PRO AQUÍ
+    if (storedToken.revokedAt) {
+      // posible robo o reuse → invalidar toda la sesión
+      await this.refreshTokens.revokeAllForUser(storedToken.userId);
+
+      throw new UnauthorizedException('Refresh token reuse detected');
+    }
+
+    if (storedToken.expiresAt < new Date()) {
+      throw new UnauthorizedException('Refresh token expired');
+    }
+
+    const user = await this.users.findById(storedToken.userId);
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('User inactive or not found');
+    }
+
+    // 🔁 rotación normal
+    await this.refreshTokens.revokeByTokenHash(tokenHash);
+
+    const accessToken = this.signAccessToken(user);
+    const newRefreshToken = await this.mintRefreshToken(user.id);
+
+    return {
+      accessToken,
+      refreshToken: newRefreshToken,
+    };
+  }
+
   async createAdmin(email: string, password: string) {
     const existing = await this.users.findByEmail(email);
     if (existing) throw new BadRequestException('Email already registered');

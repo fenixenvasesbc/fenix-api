@@ -23,6 +23,11 @@ export class AuthController {
     return this.auth.logout(body.refreshToken);
   }
 
+  @Post('refresh')
+  refresh(@Body() body: { refreshToken: string }) {
+    return this.auth.refresh(body.refreshToken);
+  }
+
   // Protegido: SOLO ADMIN puede crear ADMIN
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)
