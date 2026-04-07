@@ -48,7 +48,9 @@ export class ReengagementDispatchService {
     });
 
     if (!leadCampaign) {
-      this.logger.warn(`LeadCampaign not found after claim id=${leadCampaignId}`);
+      this.logger.warn(
+        `LeadCampaign not found after claim id=${leadCampaignId}`,
+      );
       return;
     }
 
@@ -74,7 +76,8 @@ export class ReengagementDispatchService {
       );
     }
     const language =
-      lead.preferredLanguage ?? this.leadLanguageResolverService.resolveFromPhone(from.phoneE164);
+      lead.preferredLanguage ??
+      this.leadLanguageResolverService.resolveFromPhone(lead.phoneE164);
 
     if (!language) {
       this.logger.warn(`Lead language could not be resolved leadId=${lead.id}`);
@@ -161,8 +164,7 @@ export class ReengagementDispatchService {
           templateName: resolved.accountTemplate.name,
           templateLang: resolved.accountTemplate.language,
           status: MessageStatus.ACCEPTED,
-          ycloudMessageId:
-            typeof response.id === 'string' ? response.id : null,
+          ycloudMessageId: typeof response.id === 'string' ? response.id : null,
           wamid: typeof response.wamid === 'string' ? response.wamid : null,
           pricingCategory:
             typeof response.pricingCategory === 'string'
