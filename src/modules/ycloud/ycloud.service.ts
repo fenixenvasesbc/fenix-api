@@ -137,4 +137,78 @@ export class YcloudService {
       );
     }
   }
+
+  async sendTextMessage(input: {
+    accountId: string;
+    to: string;
+    from: string;
+    text: string;
+    externalId: string;
+  }) {
+    const apiKey = await this.credentialService.getYcloudApiKey(
+      input.accountId,
+    );
+
+    const body = {
+      to: input.to,
+      from: input.from,
+      type: 'text',
+      text: {
+        body: input.text,
+      },
+      externalId: input.externalId,
+    };
+
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post(
+          `${this.baseUrl}/whatsapp/messages/sendDirectly`,
+          body,
+          {
+            headers: {
+              'X-API-Key': apiKey,
+              'Content-Type': 'application/json',
+            },
+            timeout: 20000,
+          },
+        ),
+      );
+
+      return response.data;
+    } catch (error: any) {
+      const statusCode =
+        typeof error?.response?.status === 'number'
+          ? error.response.status
+          : undefined;
+
+      const providerMessage =
+        typeof error?.response?.data?.message === 'string'
+          ? error.response.data.message
+          : typeof error?.response?.data?.error?.message === 'string'
+            ? error.response.data.error.message
+            : typeof error?.message === 'string'
+              ? error.message
+              : 'Unknown YCloud error';
+
+      const retryable =
+        error?.code === 'ECONNABORTED' ||
+        error?.code === 'ETIMEDOUT' ||
+        error?.code === 'ECONNRESET' ||
+        error?.code === 'ENOTFOUND' ||
+        error?.code === 'EAI_AGAIN' ||
+        !statusCode ||
+        statusCode === 429 ||
+        statusCode === 500 ||
+        statusCode === 502 ||
+        statusCode === 503 ||
+        statusCode === 504;
+
+      throw new YcloudRequestError(
+        `YCLOUD sendTextMessage failed: ${providerMessage}`,
+        retryable,
+        statusCode,
+        providerMessage,
+      );
+    }
+  }
 }

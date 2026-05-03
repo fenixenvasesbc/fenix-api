@@ -20,13 +20,22 @@ import { WebhookController } from './modules/webhook/webhook.controller';
 import { WebhookModule } from './modules/webhook/webhook.module';
 import { WebhookInboxService } from './modules/webhook-inbox/webhook-inbox.service';
 import { WebhookInboxModule } from './modules/webhook-inbox/webhook-inbox.module';
-import { InboundMessageService } from './modules/inbound-message/inbound-message.service';
 import { InboundMessageModule } from './modules/inbound-message/inbound-message.module';
 import { MessageStatusService } from './modules/message-status/message-status.service';
 import { MessageStatusModule } from './modules/message-status/message-status.module';
 import { ReengagementModule } from './modules/reengagement/reengagement.module';
 import { CredentialsModule } from './modules/credentials/credentials.module';
 import { YcloudModule } from './modules/ycloud/ycloud.module';
+import { MessageModule } from './modules/message/message.module';
+import { MessageController } from './modules/message/message.controller';
+import { MessageService } from './modules/message/message.service';
+import { ConversationService } from './modules/conversation/conversation.service';
+import { ConversationModule } from './modules/conversation/conversation.module';
+import { OutboundService } from './modules/outbound/outbound.service';
+import { OutboundController } from './modules/outbound/outbound.controller';
+
+import { ChatPolicyService } from './modules/outbound/chat-policy.service';
+import { OutboundModule } from './modules/outbound/outbound.module';
 
 @Module({
   imports: [
@@ -47,12 +56,17 @@ import { YcloudModule } from './modules/ycloud/ycloud.module';
     ReengagementModule,
     CredentialsModule,
     YcloudModule,
+    MessageModule,
+    ConversationModule,
+    OutboundModule,
   ],
   controllers: [
     AppController,
     EventsController,
     DashboardController,
     WebhookController,
+    MessageController,
+    OutboundController,
   ],
   providers: [
     AppService,
@@ -61,6 +75,10 @@ import { YcloudModule } from './modules/ycloud/ycloud.module';
     WebhookService,
     WebhookInboxService,
     MessageStatusService,
+    MessageService,
+    ConversationService,
+    OutboundService,
+    ChatPolicyService,
   ],
 })
 export class AppModule {}
