@@ -216,6 +216,139 @@ export class OutboundService {
     }
   }
 
+  async sendMediaMessage(input: {
+    accountId: string;
+    leadId: string;
+    type: 'image' | 'document';
+    mediaUrl: string;
+    caption?: string | null;
+    fileName?: string | null;
+  }) {
+    const { accountId, leadId, type, mediaUrl, caption, fileName } = input;
+
+    if (!mediaUrl?.trim()) {
+      throw new BadRequestException('mediaUrl is required');
+    }
+
+    if (type !== 'image' && type !== 'document') {
+      throw new BadRequestException('Unsupported media type');
+    }
+
+    if (type === 'document' && !fileName?.trim()) {
+      throw new BadRequestException(
+        'fileName is required for document messages',
+      );
+    }
+
+    await this.chatPolicyService.assertCanSendText({
+      accountId,
+      leadId,
+    });
+
+    const lead = await this.getLead(accountId, leadId);
+    const account = await this.getAccount(accountId);
+
+    const externalId = randomUUID();
+    const outboundAt = new Date();
+
+    const messageType =
+      type === 'image' ? MessageType.IMAGE : MessageType.DOCUMENT;
+
+    const finalCaption = caption?.trim() || null;
+    const finalMediaUrl = mediaUrl.trim();
+    const finalFileName = fileName?.trim() || null;
+
+    const message = await this.prisma.message.create({
+      data: {
+        accountId,
+        leadId,
+        direction: MessageDirection.OUTBOUND,
+        type: messageType,
+        status: MessageStatus.UNKNOWN,
+        externalId,
+        mediaUrl: finalMediaUrl,
+        caption: finalCaption,
+        fileName: type === 'document' ? finalFileName : null,
+        mimeType: type === 'image' ? 'image/jpeg' : 'application/pdf',
+        providerCreateTime: outboundAt,
+        rawPayload: {
+          source: 'outbound-message-service',
+          type: `${type}.send.requested`,
+          mediaUrl: finalMediaUrl,
+          caption: finalCaption,
+          fileName: finalFileName,
+          externalId,
+          requestedAt: outboundAt.toISOString(),
+        } as Prisma.InputJsonValue,
+      },
+      select: {
+        id: true,
+        createdAt: true,
+      },
+    });
+
+    try {
+      const response =
+        type === 'image'
+          ? await this.ycloudService.sendImageMessage({
+              accountId,
+              to: lead.phoneE164,
+              from: account.phoneE164,
+              imageUrl: finalMediaUrl,
+              caption: finalCaption,
+              externalId,
+            })
+          : await this.ycloudService.sendDocumentMessage({
+              accountId,
+              to: lead.phoneE164,
+              from: account.phoneE164,
+              documentUrl: finalMediaUrl,
+              fileName: finalFileName!,
+              caption: finalCaption,
+              externalId,
+            });
+
+      const providerCreateTime = this.parseProviderDate(
+        response.createTime,
+        outboundAt,
+      );
+
+      const updated = await this.prisma.message.update({
+        where: { id: message.id },
+        data: {
+          status: MessageStatus.ACCEPTED,
+          ycloudMessageId: response.id ?? undefined,
+          wamid: response.wamid ?? undefined,
+          providerCreateTime,
+          rawPayload: response as Prisma.InputJsonValue,
+        },
+        select: {
+          id: true,
+          createdAt: true,
+          providerCreateTime: true,
+        },
+      });
+
+      await this.conversationService.touchOutbound({
+        accountId,
+        leadId,
+        messageId: updated.id,
+        outboundAt: updated.providerCreateTime ?? updated.createdAt,
+      });
+
+      return {
+        success: true,
+        messageId: updated.id,
+        externalId,
+        status: MessageStatus.ACCEPTED,
+        type: messageType,
+      };
+    } catch (error: any) {
+      await this.handleError(message.id, error);
+      throw error;
+    }
+  }
+
   // =========================
   // HELPERS
   // =========================

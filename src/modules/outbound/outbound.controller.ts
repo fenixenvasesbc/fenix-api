@@ -31,6 +31,15 @@ type SendTextDto = {
   text: string;
 };
 
+type SendMediaDto = {
+  accountId?: string;
+  leadId: string;
+  type: 'image' | 'document';
+  mediaUrl: string;
+  caption?: string | null;
+  fileName?: string | null;
+};
+
 @Controller('outbound')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class OutboundController {
@@ -38,10 +47,7 @@ export class OutboundController {
 
   @Roles(Role.ADMIN, Role.SALES)
   @Post('template')
-  sendTemplate(
-    @Body() body: SendTemplateDto,
-    @Req() req: { user: AuthUser },
-  ) {
+  sendTemplate(@Body() body: SendTemplateDto, @Req() req: { user: AuthUser }) {
     const accountId = this.resolveAccountId(req.user, body.accountId);
 
     return this.outboundMessageService.sendTemplateMessage({
@@ -61,6 +67,20 @@ export class OutboundController {
       accountId,
       leadId: body.leadId,
       text: body.text,
+    });
+  }
+  @Roles(Role.ADMIN, Role.SALES)
+  @Post('media')
+  sendMedia(@Body() body: SendMediaDto, @Req() req: { user: AuthUser }) {
+    const accountId = this.resolveAccountId(req.user, body.accountId);
+
+    return this.outboundMessageService.sendMediaMessage({
+      accountId,
+      leadId: body.leadId,
+      type: body.type,
+      mediaUrl: body.mediaUrl,
+      caption: body.caption ?? null,
+      fileName: body.fileName ?? null,
     });
   }
 
