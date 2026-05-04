@@ -6,6 +6,7 @@ import {
   YcloudSendTemplateResponse,
 } from 'src/common/types/ycloud-types';
 import { firstValueFrom } from 'rxjs';
+import FormData from 'form-data';
 
 export class YcloudRequestError extends Error {
   constructor(
@@ -177,6 +178,67 @@ export class YcloudService {
       operation: 'sendDocumentMessage',
       body,
     });
+  }
+
+  async uploadMedia(input: {
+    accountId: string;
+    phoneNumber: string;
+    file: Express.Multer.File;
+  }) {
+    const apiKey = await this.credentialService.getYcloudApiKey(
+      input.accountId,
+    );
+
+    const form = new FormData();
+
+    form.append('file', input.file.buffer, {
+      filename: input.file.originalname,
+      contentType: input.file.mimetype,
+    });
+
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post(
+          `${this.baseUrl}/whatsapp/media/${encodeURIComponent(
+            input.phoneNumber,
+          )}/upload`,
+          form,
+          {
+            headers: {
+              'X-API-Key': apiKey,
+              Accept: 'application/json',
+              ...form.getHeaders(),
+            },
+            timeout: 30000,
+            maxBodyLength: Infinity,
+            maxContentLength: Infinity,
+          },
+        ),
+      );
+
+      return response.data;
+    } catch (error: any) {
+      const statusCode =
+        typeof error?.response?.status === 'number'
+          ? error.response.status
+          : undefined;
+
+      const providerMessage =
+        typeof error?.response?.data?.message === 'string'
+          ? error.response.data.message
+          : typeof error?.response?.data?.error?.message === 'string'
+            ? error.response.data.error.message
+            : typeof error?.message === 'string'
+              ? error.message
+              : 'Unknown YCloud error';
+
+      throw new YcloudRequestError(
+        `YCLOUD uploadMedia failed: ${providerMessage}`,
+        !statusCode || statusCode >= 500 || statusCode === 429,
+        statusCode,
+        providerMessage,
+      );
+    }
   }
 
   private async postToYcloud<T>(params: {

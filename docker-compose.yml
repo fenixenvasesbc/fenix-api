@@ -7,9 +7,11 @@ services:
     env_file:
       - .env
     environment:
-      NODE_ENV: ${NODE_ENV}
+      NODE_ENV: development
       PORT: ${PORT}
       DATABASE_URL: ${DATABASE_URL}
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped
@@ -18,6 +20,10 @@ services:
       - rabbitmq
     ports:
       - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: ["pnpm", "start:dev"]
 
   worker:
     build:
@@ -27,15 +33,20 @@ services:
     env_file:
       - .env
     environment:
-      NODE_ENV: ${NODE_ENV}
+      NODE_ENV: development
       DATABASE_URL: ${DATABASE_URL}
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped
-    command: ["node", "dist/src/worker.main.js"]
     depends_on:
       - db
       - rabbitmq
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: ["pnpm", "start:worker:dev"]
 
   db:
     image: postgres:16

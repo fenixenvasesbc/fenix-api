@@ -36,6 +36,9 @@ import { OutboundController } from './modules/outbound/outbound.controller';
 
 import { ChatPolicyService } from './modules/outbound/chat-policy.service';
 import { OutboundModule } from './modules/outbound/outbound.module';
+import { MediaUploadService } from './modules/media-upload/media-upload.service';
+import { MediaUploadController } from './modules/media-upload/media-upload.controller';
+import { MediaUploadModule } from './modules/media-upload/media-upload.module';
 
 @Module({
   imports: [
@@ -59,6 +62,7 @@ import { OutboundModule } from './modules/outbound/outbound.module';
     MessageModule,
     ConversationModule,
     OutboundModule,
+    MediaUploadModule,
   ],
   controllers: [
     AppController,
@@ -67,6 +71,7 @@ import { OutboundModule } from './modules/outbound/outbound.module';
     WebhookController,
     MessageController,
     OutboundController,
+    MediaUploadController,
   ],
   providers: [
     AppService,
@@ -79,6 +84,7 @@ import { OutboundModule } from './modules/outbound/outbound.module';
     ConversationService,
     OutboundService,
     ChatPolicyService,
+    MediaUploadService,
   ],
 })
 export class AppModule {}
