@@ -13,9 +13,12 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped
-    networks:
-      - nginx-proxy-manager-zr1y_default
-      - rabbitmq-543o_default
+    depends_on:
+      - db
+      - rabbitmq
+    ports:
+      - "3000:3000"
+
   worker:
     build:
       context: .
@@ -29,11 +32,34 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped
-    command: ["node", "dist/worker.main.js"]
-    networks:
-      - rabbitmq-543o_default
-networks:
-  nginx-proxy-manager-zr1y_default:
-    external: true
-  rabbitmq-543o_default:
-    external: true
+    command: ["node", "dist/src/worker.main.js"]
+    depends_on:
+      - db
+      - rabbitmq
+
+  db:
+    image: postgres:16
+    container_name: fenix_db
+    environment:
+      POSTGRES_DB: fenix
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: fenix_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: fenix
+      RABBITMQ_DEFAULT_PASS: fenix
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    restart: unless-stopped
+
+volumes:
+  pgdata:

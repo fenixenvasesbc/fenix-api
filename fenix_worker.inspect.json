@@ -1,0 +1,283 @@
+[
+    {
+        "Id": "b510525cea1c7fc88e67b70421147ad5f694805e1a48a51a06be13eb83d67010",
+        "Created": "2026-03-16T14:25:43.40373469Z",
+        "Path": "docker-entrypoint.sh",
+        "Args": [
+            "pnpm",
+            "start:worker:dev"
+        ],
+        "State": {
+            "Status": "running",
+            "Running": true,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 170962,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-05-03T19:57:38.151173366Z",
+            "FinishedAt": "2026-05-03T19:21:03.677316163Z"
+        },
+        "Image": "sha256:4b027443413bc86bb6f922fdee7dffda9e5a0576df42af2f3a0d4651fb1a5d9c",
+        "ResolvConfPath": "/var/lib/docker/containers/b510525cea1c7fc88e67b70421147ad5f694805e1a48a51a06be13eb83d67010/resolv.conf",
+        "HostnamePath": "/var/lib/docker/containers/b510525cea1c7fc88e67b70421147ad5f694805e1a48a51a06be13eb83d67010/hostname",
+        "HostsPath": "/var/lib/docker/containers/b510525cea1c7fc88e67b70421147ad5f694805e1a48a51a06be13eb83d67010/hosts",
+        "LogPath": "/var/lib/docker/containers/b510525cea1c7fc88e67b70421147ad5f694805e1a48a51a06be13eb83d67010/b510525cea1c7fc88e67b70421147ad5f694805e1a48a51a06be13eb83d67010-json.log",
+        "Name": "/fenix_worker",
+        "RestartCount": 0,
+        "Driver": "overlayfs",
+        "Platform": "linux",
+        "MountLabel": "",
+        "ProcessLabel": "",
+        "AppArmorProfile": "",
+        "ExecIDs": null,
+        "HostConfig": {
+            "Binds": [
+                "D:\\Andres\\Trabajo\\FenixProject\\fenix_crm\\fenix-api:/app:rw"
+            ],
+            "ContainerIDFile": "",
+            "LogConfig": {
+                "Type": "json-file",
+                "Config": {}
+            },
+            "NetworkMode": "fenix-api_default",
+            "PortBindings": {},
+            "RestartPolicy": {
+                "Name": "no",
+                "MaximumRetryCount": 0
+            },
+            "AutoRemove": false,
+            "VolumeDriver": "",
+            "VolumesFrom": null,
+            "ConsoleSize": [
+                0,
+                0
+            ],
+            "CapAdd": null,
+            "CapDrop": null,
+            "CgroupnsMode": "private",
+            "Dns": [],
+            "DnsOptions": [],
+            "DnsSearch": [],
+            "ExtraHosts": [],
+            "GroupAdd": null,
+            "IpcMode": "private",
+            "Cgroup": "",
+            "Links": null,
+            "OomScoreAdj": 0,
+            "PidMode": "",
+            "Privileged": false,
+            "PublishAllPorts": false,
+            "ReadonlyRootfs": false,
+            "SecurityOpt": null,
+            "UTSMode": "",
+            "UsernsMode": "",
+            "ShmSize": 67108864,
+            "Runtime": "runc",
+            "Isolation": "",
+            "CpuShares": 0,
+            "Memory": 0,
+            "NanoCpus": 0,
+            "CgroupParent": "",
+            "BlkioWeight": 0,
+            "BlkioWeightDevice": null,
+            "BlkioDeviceReadBps": null,
+            "BlkioDeviceWriteBps": null,
+            "BlkioDeviceReadIOps": null,
+            "BlkioDeviceWriteIOps": null,
+            "CpuPeriod": 0,
+            "CpuQuota": 0,
+            "CpuRealtimePeriod": 0,
+            "CpuRealtimeRuntime": 0,
+            "CpusetCpus": "",
+            "CpusetMems": "",
+            "Devices": null,
+            "DeviceCgroupRules": null,
+            "DeviceRequests": null,
+            "MemoryReservation": 0,
+            "MemorySwap": 0,
+            "MemorySwappiness": null,
+            "OomKillDisable": null,
+            "PidsLimit": null,
+            "Ulimits": null,
+            "CpuCount": 0,
+            "CpuPercent": 0,
+            "IOMaximumIOps": 0,
+            "IOMaximumBandwidth": 0,
+            "Mounts": [
+                {
+                    "Type": "volume",
+                    "Target": "/app/node_modules",
+                    "VolumeOptions": {}
+                }
+            ],
+            "MaskedPaths": [
+                "/proc/acpi",
+                "/proc/asound",
+                "/proc/interrupts",
+                "/proc/kcore",
+                "/proc/keys",
+                "/proc/latency_stats",
+                "/proc/sched_debug",
+                "/proc/scsi",
+                "/proc/timer_list",
+                "/proc/timer_stats",
+                "/sys/devices/virtual/powercap",
+                "/sys/firmware"
+            ],
+            "ReadonlyPaths": [
+                "/proc/bus",
+                "/proc/fs",
+                "/proc/irq",
+                "/proc/sys",
+                "/proc/sysrq-trigger"
+            ]
+        },
+        "Storage": {
+            "RootFS": {
+                "Snapshot": {
+                    "Name": "overlayfs"
+                }
+            }
+        },
+        "Mounts": [
+            {
+                "Type": "bind",
+                "Source": "D:\\Andres\\Trabajo\\FenixProject\\fenix_crm\\fenix-api",
+                "Destination": "/app",
+                "Mode": "rw",
+                "RW": true,
+                "Propagation": "rprivate"
+            },
+            {
+                "Type": "volume",
+                "Name": "b21043820f76fd4da6b737c7fb3abeb9f8a43712f3aa05ee05478c0b08161b2a",
+                "Source": "/var/lib/docker/volumes/b21043820f76fd4da6b737c7fb3abeb9f8a43712f3aa05ee05478c0b08161b2a/_data",
+                "Destination": "/app/node_modules",
+                "Driver": "local",
+                "Mode": "z",
+                "RW": true,
+                "Propagation": ""
+            }
+        ],
+        "Config": {
+            "Hostname": "b510525cea1c",
+            "Domainname": "",
+            "User": "",
+            "AttachStdin": false,
+            "AttachStdout": true,
+            "AttachStderr": true,
+            "ExposedPorts": {
+                "3000/tcp": {}
+            },
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "RABBITMQ_RK_PROCESS=webhook.process",
+                "RABBITMQ_QUEUE_INBOUND=q_webhook_inbound",
+                "RABBITMQ_RK_INBOUND=webhook.inbound",
+                "RABBITMQ_QUEUE_DEAD=q_webhook_dead",
+                "RABBITMQ_RK_RETRY_1M=webhook.retry.1m",
+                "JWT_ACCESS_SECRET=416863432571417053fc39fc790dab4f9e9fcbeed72578d3cebcc2e91f7b825c134b58ab1b3aca85cc047d595b31994763461e7b65acd1f7ff5fd87b35440c79",
+                "RABBITMQ_RK_DEAD=webhook.dead",
+                "RABBITMQ_RK_RETRY_10S=webhook.retry.10s",
+                "YCLOUD_BASE_URL=https://api.ycloud.com/v2",
+                "RABBITMQ_RK_REENGAGEMENT=lead.reengagement.week1",
+                "CREDENTIAL_ENCRYPTION_KEY=dsaqrfagdfasfgsdf",
+                "RABBITMQ_QUEUE_REENGAGEMENT=fenix.reengagement.q",
+                "RABBITMQ_QUEUE_RETRY_1M=q_retry_1m",
+                "JWT_REFRESH_TTL=30d",
+                "NODE_ENV=development",
+                "CORS_ORIGIN=http://localhost:5173",
+                "RABBITMQ_PREFETCH=15",
+                "RABBITMQ_QUEUE_MESSAGE_UPDATED=q_webhook_message_updated",
+                "LOG_LEVEL=debug",
+                "RABBITMQ_URL=amqp://fenix:fenix@rabbitmq:5672/%2F",
+                "RABBITMQ_QUEUE_RETRY_10M=q_retry_10m",
+                "RABBITMQ_RK_MESSAGE_UPDATED=webhook.message.updated",
+                "RABBITMQ_RK_RETRY_10M=webhook.retry.10m",
+                "BCRYPT_SALT_ROUNDS=10",
+                "RABBITMQ_EXCHANGE=ycloud.events",
+                "DATABASE_URL=postgresql://app:app@db:5432/fenix?schema=public",
+                "RABBITMQ_DLX_EXCHANGE=ycloud.dlx",
+                "N8N_API_KEY=4KeJWaXfb/Kkanxomh9tE/GdwUT2K+vh",
+                "RABBITMQ_QUEUE_RETRY_10S=q_retry_10s",
+                "JWT_REFRESH_SECRET=881d53357a8a423ef9d1dd69eb938d02e1d236652fbde0c1214b2dccec71b24beb01c17f6dd8c50098714de6a8449119e04073fb1abcc96e2e775d9df6dd47a0",
+                "RABBITMQ_QUEUE_MAIN=q_webhook_main",
+                "PORT=3000",
+                "JWT_ACCESS_TTL=900",
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "NODE_VERSION=20.20.0",
+                "YARN_VERSION=1.22.22"
+            ],
+            "Cmd": [
+                "pnpm",
+                "start:worker:dev"
+            ],
+            "Image": "fenix-api-worker",
+            "Volumes": null,
+            "WorkingDir": "/app",
+            "Entrypoint": [
+                "docker-entrypoint.sh"
+            ],
+            "Labels": {
+                "com.docker.compose.config-hash": "00cc76f253c2f1220a0f42b44c9344340abda5302efb0da209c5bb9d21be3bc5",
+                "com.docker.compose.container-number": "1",
+                "com.docker.compose.depends_on": "rabbitmq:service_started:false,db:service_started:false",
+                "com.docker.compose.image": "sha256:4b027443413bc86bb6f922fdee7dffda9e5a0576df42af2f3a0d4651fb1a5d9c",
+                "com.docker.compose.oneoff": "False",
+                "com.docker.compose.project": "fenix-api",
+                "com.docker.compose.project.config_files": "D:\\Andres\\Trabajo\\FenixProject\\fenix_crm\\fenix-api\\docker-compose.yml",
+                "com.docker.compose.project.working_dir": "D:\\Andres\\Trabajo\\FenixProject\\fenix_crm\\fenix-api",
+                "com.docker.compose.service": "worker",
+                "com.docker.compose.version": "5.0.2"
+            },
+            "StopTimeout": 1
+        },
+        "NetworkSettings": {
+            "SandboxID": "3135d119d98729805d700c4e1433f9dddde573cd6639d3a4b2286782810ed5f0",
+            "SandboxKey": "/var/run/docker/netns/3135d119d987",
+            "Ports": {
+                "3000/tcp": null
+            },
+            "Networks": {
+                "fenix-api_default": {
+                    "IPAMConfig": null,
+                    "Links": null,
+                    "Aliases": [
+                        "fenix_worker",
+                        "worker"
+                    ],
+                    "DriverOpts": null,
+                    "GwPriority": 0,
+                    "NetworkID": "7c186f0c82295208aaa668d13289a20e4f490fbfeeacbd4e67cc25c0d8e5cbfa",
+                    "EndpointID": "94f31995e43e179209086b3a65e95e583248688e696deecdc1ff62c32bd9c548",
+                    "Gateway": "172.18.0.1",
+                    "IPAddress": "172.18.0.5",
+                    "MacAddress": "0a:d4:c0:0c:78:30",
+                    "IPPrefixLen": 16,
+                    "IPv6Gateway": "",
+                    "GlobalIPv6Address": "",
+                    "GlobalIPv6PrefixLen": 0,
+                    "DNSNames": [
+                        "fenix_worker",
+                        "worker",
+                        "b510525cea1c"
+                    ]
+                }
+            }
+        },
+        "ImageManifestDescriptor": {
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "digest": "sha256:92c6b701617aecd74e64a507e36a1f34a5e8a4eaee1c52318047b4cbdda5cd57",
+            "size": 2196,
+            "platform": {
+                "architecture": "amd64",
+                "os": "linux"
+            }
+        }
+    }
+]
