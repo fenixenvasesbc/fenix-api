@@ -41,6 +41,7 @@
     "class-validator": "^0.14.3",
     "dotenv": "^17.3.1",
     "form-data": "^4.0.5",
+    "multer": "2.0.2",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.18.0",
