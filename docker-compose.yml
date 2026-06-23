@@ -29,7 +29,7 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped
-    command: ["node", "dist/worker.main.js"]
+    command: ["node", "dist/src/worker.main.js"]
     networks:
       - rabbitmq-543o_default
 networks:
