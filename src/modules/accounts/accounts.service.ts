@@ -321,6 +321,10 @@ export class AccountsService {
         phoneE164: true,
         email: true,
         status: true,
+        currentLabel: true,
+        currentLabelChangedAt: true,
+        repetitionReminderDays: true,
+        nextRepetitionReminderAt: true,
         createdAt: true,
         updatedAt: true,
         lastInboundAt: true,
@@ -331,7 +335,10 @@ export class AccountsService {
   }
 
   async getMyProfile(userId: string) {
-    Logger.debug(`Fetching profile for user ID: ${userId}`, 'AccountsService.getMyProfile');
+    Logger.debug(
+      `Fetching profile for user ID: ${userId}`,
+      'AccountsService.getMyProfile',
+    );
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -376,7 +383,10 @@ export class AccountsService {
   }
 
   async getMyLeads(userId: string) {
-    Logger.debug(`Fetching leads for user ID: ${userId}`, 'AccountsService.getMyLeads');
+    Logger.debug(
+      `Fetching leads for user ID: ${userId}`,
+      'AccountsService.getMyLeads',
+    );
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -418,6 +428,10 @@ export class AccountsService {
         phoneE164: true,
         email: true,
         status: true,
+        currentLabel: true,
+        currentLabelChangedAt: true,
+        repetitionReminderDays: true,
+        nextRepetitionReminderAt: true,
         createdAt: true,
         updatedAt: true,
         lastInboundAt: true,

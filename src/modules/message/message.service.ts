@@ -6,6 +6,7 @@ type GetLeadMessagesInput = {
   accountId: string;
   leadId: string;
   limit: number;
+  beforeMessageId?: string | null;
 };
 
 type GetConversationsInput = {
@@ -19,7 +20,7 @@ export class MessageService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getLeadMessages(input: GetLeadMessagesInput) {
-    const { accountId, leadId, limit } = input;
+    const { accountId, leadId, limit, beforeMessageId } = input;
 
     const lead = await this.prisma.lead.findFirst({
       where: {
@@ -85,17 +86,48 @@ export class MessageService {
       },
     });
 
+    const beforeMessage = beforeMessageId
+      ? await this.prisma.message.findFirst({
+          where: {
+            id: beforeMessageId,
+            accountId,
+            leadId,
+          },
+          select: {
+            id: true,
+            createdAt: true,
+          },
+        })
+      : null;
+
+    if (beforeMessageId && !beforeMessage) {
+      throw new NotFoundException('Cursor message not found for this lead');
+    }
+
     const messages = await this.prisma.message.findMany({
       where: {
         accountId,
         leadId,
+        ...(beforeMessage
+          ? {
+              OR: [
+                {
+                  createdAt: {
+                    lt: beforeMessage.createdAt,
+                  },
+                },
+                {
+                  createdAt: beforeMessage.createdAt,
+                  id: {
+                    lt: beforeMessage.id,
+                  },
+                },
+              ],
+            }
+          : {}),
       },
-      orderBy: [
-        { providerSendTime: 'desc' },
-        { providerCreateTime: 'desc' },
-        { createdAt: 'desc' },
-      ],
-      take: limit,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
       select: {
         id: true,
         accountId: true,
@@ -138,7 +170,10 @@ export class MessageService {
       },
     });
 
-    const orderedMessages = [...messages].reverse();
+    const hasMore = messages.length > limit;
+    const pageMessages = hasMore ? messages.slice(0, limit) : messages;
+    const orderedMessages = [...pageMessages].reverse();
+    const oldestMessage = orderedMessages[0] ?? null;
 
     return {
       lead,
@@ -166,6 +201,10 @@ export class MessageService {
           }
         : this.buildFallbackConversationFromLead(lead),
       messages: orderedMessages,
+      pageInfo: {
+        hasMore,
+        nextBefore: hasMore ? (oldestMessage?.id ?? null) : null,
+      },
     };
   }
 

@@ -17,6 +17,15 @@ enum LeadStatus {
   // luego: WAITING_SKETCH, IN_PRODUCTION, CLOSED_WON, etc.
 }
 
+enum LeadLabel {
+  PRODUCCION
+  BOCETO_EN_PROCESO
+  PENDIENTE_DE_PAGO
+  MUESTRAS
+  REPETICIONES
+  BOCETOS_ATRASADOS
+}
+
 enum MessageDirection {
   OUTBOUND
   INBOUND
@@ -78,6 +87,8 @@ model Account {
 
   leadCampaigns     LeadCampaign[]
   campaignTemplates AccountCampaignTemplate[]
+  leadLabelHistory  LeadLabelHistory[]
+  repetitionReminders LeadRepetitionReminder[]
 
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -111,6 +122,11 @@ model Lead {
   lastMessageAt      DateTime? // se actualiza con el timestamp de cada mensaje (inbound o outbound)
   sourceTemplateName String? // se setea con el template del primer mensaje (inbound o outbound) para métrica #2
 
+  currentLabel             LeadLabel?
+  currentLabelChangedAt    DateTime?
+  repetitionReminderDays   Int?
+  nextRepetitionReminderAt DateTime?
+
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   reengagementSentAt DateTime? // se setea cuando se envía un mensaje de reengagement (ejemplo: plantilla de "te seguimos esperando")
@@ -123,6 +139,8 @@ model Lead {
   webhookEvents WebhookEvent[]
   leadCampaigns LeadCampaign[]
   conversations Conversation[]
+  labelHistory LeadLabelHistory[]
+  repetitionReminders LeadRepetitionReminder[]
 
   @@unique([accountId, phoneE164])
   @@index([accountId])
@@ -134,6 +152,49 @@ model Lead {
   @@index([accountId, status, createdAt])
   @@index([accountId, lastInboundAt])
   @@index([accountId, lastOutboundAt])
+  @@index([accountId, currentLabel, updatedAt])
+  @@index([accountId, nextRepetitionReminderAt])
+}
+
+model LeadLabelHistory {
+  id              String     @id @default(uuid())
+  leadId          String
+  accountId       String
+  fromLabel       LeadLabel?
+  toLabel         LeadLabel
+  changedAt       DateTime   @default(now())
+  changedByUserId String?
+
+  lead    Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, toLabel, changedAt])
+  @@index([leadId, changedAt])
+}
+
+model LeadRepetitionReminder {
+  id             String    @id @default(uuid())
+  leadId         String
+  accountId      String
+  labelHistoryId String?
+
+  markedAt     DateTime
+  dueAt        DateTime
+  reminderDays Int
+
+  sentAt     DateTime?
+  canceledAt DateTime?
+  lastError  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lead    Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, dueAt, sentAt, canceledAt])
+  @@index([leadId, markedAt])
+  @@index([labelHistoryId])
 }
 
 model RefreshToken {

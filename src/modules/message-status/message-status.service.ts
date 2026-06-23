@@ -7,12 +7,16 @@ import type {
   WhatsappMessageStatus,
 } from '../../common/types/ycloud-message-updated.dto';
 import { Prisma, MessageDirection, MessageType } from '@prisma/client';
+import { ChatEventsService } from '../chat-events/chat-events.service';
 
 @Injectable()
 export class MessageStatusService {
   private readonly logger = new Logger(MessageStatusService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly chatEvents: ChatEventsService,
+  ) {}
 
   async process(job: WebhookInboxJob): Promise<void> {
     const event: YCloudMessageUpdatedEventDto = this.parseEvent(job.payload);
@@ -74,8 +78,7 @@ export class MessageStatusService {
         data: {
           status: nextStatus,
           providerUpdateTime,
-          recipientWhatsAppUserId:
-            whatsappMessage.recipientUserId ?? undefined,
+          recipientWhatsAppUserId: whatsappMessage.recipientUserId ?? undefined,
 
           recipientParentUserId:
             whatsappMessage.parentRecipientUserId ?? undefined,
@@ -137,6 +140,17 @@ export class MessageStatusService {
           lastError: null,
         },
       });
+    });
+
+    await this.chatEvents.publish({
+      type: 'message.status.updated',
+      accountId: message.accountId,
+      leadId: message.leadId,
+      messageId: message.id,
+      payload: {
+        status: nextStatus,
+        providerUpdateTime: providerUpdateTime.toISOString(),
+      },
     });
   }
 
@@ -258,14 +272,10 @@ export class MessageStatusService {
           leadId: leadCampaign.leadId,
           direction: MessageDirection.OUTBOUND,
           type: MessageType.TEMPLATE,
-          recipientWhatsAppUserId:
-            whatsappMessage.recipientUserId ?? null,
-          recipientParentUserId:
-            whatsappMessage.parentRecipientUserId ?? null,
-          customerUsername:
-            whatsappMessage.customerProfile?.username ?? null,
-          customerDisplayName:
-            whatsappMessage.customerProfile?.name ?? null,
+          recipientWhatsAppUserId: whatsappMessage.recipientUserId ?? null,
+          recipientParentUserId: whatsappMessage.parentRecipientUserId ?? null,
+          customerUsername: whatsappMessage.customerProfile?.username ?? null,
+          customerDisplayName: whatsappMessage.customerProfile?.name ?? null,
           templateName:
             leadCampaign.targetTemplateName ?? leadCampaign.sourceTemplateName,
           templateLang: leadCampaign.lead.preferredLanguage ?? null,

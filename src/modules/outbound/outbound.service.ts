@@ -14,6 +14,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { ConversationService } from '../conversation/conversation.service';
 import { YcloudService } from '../ycloud/ycloud.service';
 import { ChatPolicyService } from './chat-policy.service';
+import { ChatEventsService } from '../chat-events/chat-events.service';
 
 @Injectable()
 export class OutboundService {
@@ -22,6 +23,7 @@ export class OutboundService {
     private readonly ycloudService: YcloudService,
     private readonly conversationService: ConversationService,
     private readonly chatPolicyService: ChatPolicyService,
+    private readonly chatEvents: ChatEventsService,
   ) {}
 
   // =========================
@@ -102,11 +104,19 @@ export class OutboundService {
         },
       });
 
-      await this.conversationService.touchOutbound({
+      const conversation = await this.conversationService.touchOutbound({
         accountId,
         leadId,
         messageId: updated.id,
         outboundAt: updated.providerCreateTime ?? updated.createdAt,
+      });
+
+      await this.publishOutboundAcceptedEvent({
+        accountId,
+        leadId,
+        messageId: updated.id,
+        conversationId: conversation.id,
+        type: MessageType.TEMPLATE,
       });
 
       return {
@@ -197,11 +207,19 @@ export class OutboundService {
         },
       });
 
-      await this.conversationService.touchOutbound({
+      const conversation = await this.conversationService.touchOutbound({
         accountId,
         leadId,
         messageId: updated.id,
         outboundAt: updated.providerCreateTime ?? updated.createdAt,
+      });
+
+      await this.publishOutboundAcceptedEvent({
+        accountId,
+        leadId,
+        messageId: updated.id,
+        conversationId: conversation.id,
+        type: MessageType.TEXT,
       });
 
       return {
@@ -329,11 +347,19 @@ export class OutboundService {
         },
       });
 
-      await this.conversationService.touchOutbound({
+      const conversation = await this.conversationService.touchOutbound({
         accountId,
         leadId,
         messageId: updated.id,
         outboundAt: updated.providerCreateTime ?? updated.createdAt,
+      });
+
+      await this.publishOutboundAcceptedEvent({
+        accountId,
+        leadId,
+        messageId: updated.id,
+        conversationId: conversation.id,
+        type: messageType,
       });
 
       return {
@@ -417,6 +443,38 @@ export class OutboundService {
           retryable: error?.retryable ?? false,
           statusCode: error?.statusCode ?? null,
         } as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  private async publishOutboundAcceptedEvent(input: {
+    accountId: string;
+    leadId: string;
+    messageId: string;
+    conversationId: string;
+    type: MessageType;
+  }) {
+    await this.chatEvents.publish({
+      type: 'message.created',
+      accountId: input.accountId,
+      leadId: input.leadId,
+      conversationId: input.conversationId,
+      messageId: input.messageId,
+      payload: {
+        direction: MessageDirection.OUTBOUND,
+        messageType: input.type,
+        status: MessageStatus.ACCEPTED,
+      },
+    });
+
+    await this.chatEvents.publish({
+      type: 'conversation.updated',
+      accountId: input.accountId,
+      leadId: input.leadId,
+      conversationId: input.conversationId,
+      messageId: input.messageId,
+      payload: {
+        reason: 'outbound_message',
       },
     });
   }

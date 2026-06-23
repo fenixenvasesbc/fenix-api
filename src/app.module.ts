@@ -14,7 +14,6 @@ import { DashboardController } from './modules/dashboard/dashboard.controller';
 import { DashboardService } from './modules/dashboard/dashboard.service';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { RabbitmqModule } from './modules/rabbitmq/rabbitmq.module';
-import { WorkerModule } from './modules/worker/worker.module';
 import { WebhookService } from './modules/webhook/webhook.service';
 import { WebhookController } from './modules/webhook/webhook.controller';
 import { WebhookModule } from './modules/webhook/webhook.module';
@@ -23,13 +22,13 @@ import { WebhookInboxModule } from './modules/webhook-inbox/webhook-inbox.module
 import { InboundMessageModule } from './modules/inbound-message/inbound-message.module';
 import { MessageStatusService } from './modules/message-status/message-status.service';
 import { MessageStatusModule } from './modules/message-status/message-status.module';
-import { ReengagementModule } from './modules/reengagement/reengagement.module';
 import { CredentialsModule } from './modules/credentials/credentials.module';
 import { YcloudModule } from './modules/ycloud/ycloud.module';
 import { MessageModule } from './modules/message/message.module';
 import { MessageController } from './modules/message/message.controller';
 import { MessageService } from './modules/message/message.service';
 import { ConversationService } from './modules/conversation/conversation.service';
+import { ConversationController } from './modules/conversation/conversation.controller';
 import { ConversationModule } from './modules/conversation/conversation.module';
 import { OutboundService } from './modules/outbound/outbound.service';
 import { OutboundController } from './modules/outbound/outbound.controller';
@@ -39,6 +38,10 @@ import { OutboundModule } from './modules/outbound/outbound.module';
 import { MediaUploadService } from './modules/media-upload/media-upload.service';
 import { MediaUploadController } from './modules/media-upload/media-upload.controller';
 import { MediaUploadModule } from './modules/media-upload/media-upload.module';
+import { ChatEventsModule } from './modules/chat-events/chat-events.module';
+import { ChatEventsController } from './modules/chat-events/chat-events.controller';
+import { ChatEventsBridge } from './modules/chat-events/chat-events.bridge';
+import { LeadsModule } from './modules/leads/leads.module';
 
 @Module({
   imports: [
@@ -51,18 +54,18 @@ import { MediaUploadModule } from './modules/media-upload/media-upload.module';
     EventsModule,
     DashboardModule,
     RabbitmqModule,
-    WorkerModule,
     WebhookModule,
     WebhookInboxModule,
     InboundMessageModule,
     MessageStatusModule,
-    ReengagementModule,
     CredentialsModule,
     YcloudModule,
     MessageModule,
     ConversationModule,
     OutboundModule,
     MediaUploadModule,
+    ChatEventsModule,
+    LeadsModule,
   ],
   controllers: [
     AppController,
@@ -70,8 +73,10 @@ import { MediaUploadModule } from './modules/media-upload/media-upload.module';
     DashboardController,
     WebhookController,
     MessageController,
+    ConversationController,
     OutboundController,
     MediaUploadController,
+    ChatEventsController,
   ],
   providers: [
     AppService,
@@ -85,6 +90,7 @@ import { MediaUploadModule } from './modules/media-upload/media-upload.module';
     OutboundService,
     ChatPolicyService,
     MediaUploadService,
+    ChatEventsBridge,
   ],
 })
 export class AppModule {}

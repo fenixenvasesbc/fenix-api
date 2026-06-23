@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import * as amqplib from 'amqplib';
 import type { ConfirmChannel, ConsumeMessage, Options } from 'amqplib';
 
@@ -92,6 +97,8 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     const qDead = process.env.RABBITMQ_QUEUE_DEAD;
     const qInbound = process.env.RABBITMQ_QUEUE_INBOUND;
     const qMessageUpdated = process.env.RABBITMQ_QUEUE_MESSAGE_UPDATED;
+    const qChatEvents =
+      process.env.RABBITMQ_QUEUE_CHAT_EVENTS ?? 'chat.events.api';
     const qReengagement = process.env.RABBITMQ_QUEUE_REENGAGEMENT;
     const qReengagementRetry10s =
       process.env.RABBITMQ_QUEUE_REENGAGEMENT_RETRY_10S;
@@ -102,11 +109,11 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
 
     const rkInbound = process.env.RABBITMQ_RK_INBOUND;
     const rkMessageUpdated = process.env.RABBITMQ_RK_MESSAGE_UPDATED;
+    const rkChatEvents = process.env.RABBITMQ_RK_CHAT_EVENTS ?? 'chat.events';
     const rkReengagement = process.env.RABBITMQ_RK_REENGAGEMENT;
     const rkReengagementRetry10s =
       process.env.RABBITMQ_RK_REENGAGEMENT_RETRY_10S;
-    const rkReengagementRetry1m =
-      process.env.RABBITMQ_RK_REENGAGEMENT_RETRY_1M;
+    const rkReengagementRetry1m = process.env.RABBITMQ_RK_REENGAGEMENT_RETRY_1M;
     const rkReengagementRetry10m =
       process.env.RABBITMQ_RK_REENGAGEMENT_RETRY_10M;
 
@@ -144,7 +151,9 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     ].filter(([, v]) => !v);
 
     if (missing.length) {
-      throw new Error(`Missing env vars: ${missing.map(([k]) => k).join(', ')}`);
+      throw new Error(
+        `Missing env vars: ${missing.map(([k]) => k).join(', ')}`,
+      );
     }
 
     await this.ch!.assertExchange(exchange!, 'topic', { durable: true });
@@ -161,6 +170,9 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
 
     await this.ch!.assertQueue(qMessageUpdated!, { durable: true });
     await this.ch!.bindQueue(qMessageUpdated!, exchange!, rkMessageUpdated!);
+
+    await this.ch!.assertQueue(qChatEvents, { durable: true });
+    await this.ch!.bindQueue(qChatEvents, exchange!, rkChatEvents);
 
     await this.ch!.assertQueue(qReengagement!, { durable: true });
     await this.ch!.bindQueue(qReengagement!, exchange!, rkReengagement!);
@@ -324,7 +336,9 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
 
         this.ch!.ack(msg);
       } catch (err) {
-        this.logger.error(`Unhandled consumer error. Sending to dead. ${String(err)}`);
+        this.logger.error(
+          `Unhandled consumer error. Sending to dead. ${String(err)}`,
+        );
 
         try {
           const rkDead = process.env.RABBITMQ_RK_DEAD;
@@ -333,7 +347,9 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
           await this.publishToDLX(rkDead, msg);
           this.ch!.ack(msg);
         } catch (publishErr) {
-          this.logger.error(`Failed to publish to DLX dead queue. ${String(publishErr)}`);
+          this.logger.error(
+            `Failed to publish to DLX dead queue. ${String(publishErr)}`,
+          );
           this.ch!.nack(msg, false, false);
         }
       }

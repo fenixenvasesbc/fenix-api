@@ -5,6 +5,7 @@ import {
   MessageStatus,
   MessageType,
   Prisma,
+  WebhookEventStatus,
 } from '@prisma/client';
 import { WebhookInboxJob } from 'src/common/types/webhook-inbox-job';
 import {
@@ -14,6 +15,7 @@ import {
 import { LeadLanguageResolverService } from 'src/common/utils/lead-language-resolver.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ConversationService } from '../conversation/conversation.service';
+import { ChatEventsService } from '../chat-events/chat-events.service';
 
 @Injectable()
 export class InboundMessageService {
@@ -23,12 +25,15 @@ export class InboundMessageService {
     private readonly prisma: PrismaService,
     private readonly leadLanguageResolverService: LeadLanguageResolverService,
     private readonly conversationService: ConversationService,
+    private readonly chatEvents: ChatEventsService,
   ) {}
 
   async process(job: WebhookInboxJob) {
     this.logger.log(
       `Processing inbound message job id=${job.providerEventId} type=${job.eventType}`,
     );
+
+    await this.markProcessing(job);
 
     const payload = job.payload as YCloudInboundPayload;
     const inbound = this.normalizeInbound(payload);
@@ -216,7 +221,7 @@ export class InboundMessageService {
         },
       });
 
-      await this.conversationService.touchInboundTx(tx, {
+      const conversation = await this.conversationService.touchInboundTx(tx, {
         accountId: account.id,
         leadId: lead.id,
         messageId: message.id,
@@ -227,9 +232,22 @@ export class InboundMessageService {
         incrementUnread: isNewMessage,
       });
 
+      await tx.webhookEvent.updateMany({
+        where: { providerEventId: job.providerEventId },
+        data: {
+          status: WebhookEventStatus.PROCESSED,
+          accountId: account.id,
+          leadId: lead.id,
+          messageId: message.id,
+          processedAt: new Date(),
+          lastError: null,
+        },
+      });
+
       return {
         leadId: lead.id,
         messageId: message.id,
+        conversationId: conversation.id,
         isNewMessage,
       };
     });
@@ -237,6 +255,65 @@ export class InboundMessageService {
     this.logger.log(
       `Inbound processed providerEventId=${inbound.providerEventId} accountId=${account.id} leadId=${result.leadId} messageId=${result.messageId} isNew=${result.isNewMessage} type=${inbound.type}`,
     );
+
+    await this.chatEvents.publish({
+      type: 'message.created',
+      accountId: account.id,
+      leadId: result.leadId,
+      conversationId: result.conversationId,
+      messageId: result.messageId,
+      payload: {
+        direction: MessageDirection.INBOUND,
+        isNewMessage: result.isNewMessage,
+      },
+    });
+
+    await this.chatEvents.publish({
+      type: 'conversation.updated',
+      accountId: account.id,
+      leadId: result.leadId,
+      conversationId: result.conversationId,
+      messageId: result.messageId,
+      payload: {
+        reason: 'inbound_message',
+      },
+    });
+  }
+
+  async markFailed(job: WebhookInboxJob, error: unknown, dead = false) {
+    const message = this.formatError(error);
+    const now = new Date();
+
+    await this.prisma.webhookEvent.updateMany({
+      where: { providerEventId: job.providerEventId },
+      data: {
+        status: dead ? WebhookEventStatus.DEAD : WebhookEventStatus.FAILED,
+        lastAttemptAt: now,
+        deadAt: dead ? now : undefined,
+        lastError: message,
+      },
+    });
+  }
+
+  private async markProcessing(job: WebhookInboxJob) {
+    await this.prisma.webhookEvent.updateMany({
+      where: { providerEventId: job.providerEventId },
+      data: {
+        status: WebhookEventStatus.PROCESSING,
+        attempts: {
+          increment: 1,
+        },
+        lastAttemptAt: new Date(),
+      },
+    });
+  }
+
+  private formatError(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    return String(error);
   }
 
   private normalizeInbound(payload: YCloudInboundPayload): NormalizedInbound {

@@ -26,19 +26,28 @@ export class InboundMessageWorker implements OnModuleInit {
   private async handleMessage(msg: ConsumeMessage): Promise<ConsumeDecision> {
     const payload = this.safeJson(msg);
     const deaths = this.rabbit.getDeathCount(msg);
+    let job: WebhookInboxJob | null = null;
 
     try {
       if (!payload) {
         throw new Error('Invalid JSON payload');
       }
 
-      const job = this.validateJob(payload);
+      job = this.validateJob(payload);
       await this.inboundMessageService.process(job);
 
       return { action: 'ack' };
     } catch (err) {
       const decision = this.routeRetry(deaths);
       const target = 'routingKey' in decision ? decision.routingKey : '-';
+
+      if (job) {
+        await this.inboundMessageService.markFailed(
+          job,
+          err,
+          decision.action === 'dead',
+        );
+      }
 
       this.logger.error(
         `Inbound worker failed. deaths=${deaths}. action=${decision.action}:${target}. err=${String(err)}`,

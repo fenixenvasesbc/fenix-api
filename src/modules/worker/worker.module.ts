@@ -6,6 +6,11 @@ import { PrismaModule } from 'src/prisma/prisma.module';
 import { ConfigModule } from '@nestjs/config';
 import { InboundMessageModule } from '../inbound-message/inbound-message.module';
 import { MessageStatusModule } from '../message-status/message-status.module';
+import { InboundMessageWorker } from './inbound-message.worker';
+import { MessageStatusWorker } from './message-status.worker';
+import { ReengagementModule } from '../reengagement/reengagement.module';
+import { ReengagementWorker } from './ReengagementWorker';
+import { ChatEventsModule } from '../chat-events/chat-events.module';
 
 @Module({
   imports: [
@@ -15,7 +20,14 @@ import { MessageStatusModule } from '../message-status/message-status.module';
     PrismaModule,
     InboundMessageModule,
     MessageStatusModule,
+    ReengagementModule,
+    ChatEventsModule,
   ],
-  providers: [WebhookWorker],
+  providers: [
+    WebhookWorker,
+    InboundMessageWorker,
+    MessageStatusWorker,
+    ReengagementWorker,
+  ],
 })
 export class WorkerModule {}

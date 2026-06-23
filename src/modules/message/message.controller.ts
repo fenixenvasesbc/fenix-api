@@ -14,6 +14,10 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UseGuards } from '@nestjs/common';
 import { Roles } from '../auth/decorators/roles.decorator';
+import {
+  MessageConversationsQueryDto,
+  MessageHistoryQueryDto,
+} from './dto/message-query.dto';
 
 type AuthUser = {
   userId: string;
@@ -30,35 +34,31 @@ export class MessageController {
   @Get('lead/:leadId')
   getLeadMessages(
     @Param('leadId', new ParseUUIDPipe()) leadId: string,
-    @Query('accountId') accountIdFromQuery: string | undefined,
-    @Query('limit') limit: string | undefined,
+    @Query() query: MessageHistoryQueryDto,
     @Req() req: { user: AuthUser },
   ) {
-    const accountId = this.resolveAccountId(req.user, accountIdFromQuery);
-    const parsedLimit = this.parseLimit(limit);
+    const accountId = this.resolveAccountId(req.user, query.accountId);
 
     return this.messageService.getLeadMessages({
       accountId,
       leadId,
-      limit: parsedLimit,
+      limit: query.limit ?? 50,
+      beforeMessageId: query.before ?? null,
     });
   }
 
   @Roles(Role.ADMIN, Role.SALES)
   @Get('conversations')
   getConversations(
-    @Query('accountId') accountIdFromQuery: string | undefined,
-    @Query('limit') limit: string | undefined,
-    @Query('search') search: string | undefined,
+    @Query() query: MessageConversationsQueryDto,
     @Req() req: { user: AuthUser },
   ) {
-    const accountId = this.resolveAccountId(req.user, accountIdFromQuery);
-    const parsedLimit = this.parseLimit(limit);
+    const accountId = this.resolveAccountId(req.user, query.accountId);
 
     return this.messageService.getConversations({
       accountId,
-      limit: parsedLimit,
-      search: search?.trim() || null,
+      limit: query.limit ?? 50,
+      search: query.search?.trim() || null,
     });
   }
 
@@ -89,17 +89,5 @@ export class MessageController {
     }
 
     throw new ForbiddenException('Invalid role');
-  }
-
-  private parseLimit(limit?: string): number {
-    if (!limit) return 50;
-
-    const parsed = Number(limit);
-
-    if (!Number.isInteger(parsed) || parsed <= 0) {
-      throw new ForbiddenException('limit must be a positive integer');
-    }
-
-    return Math.min(parsed, 100);
   }
 }

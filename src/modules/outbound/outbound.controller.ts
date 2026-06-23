@@ -11,33 +11,16 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { OutboundService } from './outbound.service';
+import {
+  SendMediaDto,
+  SendTemplateDto,
+  SendTextDto,
+} from './dto/outbound-message.dto';
 
 type AuthUser = {
   userId: string;
   role: Role;
   accountId?: string | null;
-};
-
-type SendTemplateDto = {
-  accountId?: string;
-  leadId: string;
-  templateName: string;
-  languageCode?: string | null;
-};
-
-type SendTextDto = {
-  accountId?: string;
-  leadId: string;
-  text: string;
-};
-
-type SendMediaDto = {
-  accountId?: string;
-  leadId: string;
-  type: 'image' | 'document';
-  mediaUrl: string;
-  caption?: string | null;
-  fileName?: string | null;
 };
 
 @Controller('outbound')
