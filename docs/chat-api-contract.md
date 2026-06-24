@@ -18,6 +18,31 @@ Contrato operativo para el frontend y el equipo que integra el chat de Fenix CRM
 
 Lista conversaciones de una cuenta para construir la bandeja principal del chat.
 
+### Historical Conversation Backfill
+
+Los mensajes anteriores a la creacion del modelo `Conversation` se recuperan con un backfill idempotente. El comando no modifica conversaciones existentes y crea historicos con `unreadCount = 0` y `requiresAttention = false`.
+
+Previsualizacion, sin escrituras:
+
+```bash
+node dist/src/scripts/backfill-conversations.js
+```
+
+Aplicar para todas las cuentas:
+
+```bash
+node dist/src/scripts/backfill-conversations.js --apply
+```
+
+Limitar a una cuenta:
+
+```bash
+node dist/src/scripts/backfill-conversations.js --account=<accountId>
+node dist/src/scripts/backfill-conversations.js --apply --account=<accountId>
+```
+
+El comando se puede repetir: la restriccion unica `accountId + leadId + channel` y `skipDuplicates` evitan duplicados.
+
 ```http
 GET /conversations?accountId=<accountId>&limit=50&before=<conversationId>&search=&onlyOpen=false&onlyPending=false
 ```
