@@ -27,6 +27,9 @@ export class SendTemplateDto {
   @IsUUID()
   leadId: string;
 
+  @IsUUID()
+  clientRequestId: string;
+
   @Transform(({ value }) => trimString(value))
   @IsString()
   @IsNotEmpty()
@@ -49,6 +52,9 @@ export class SendTextDto {
   @IsUUID()
   leadId: string;
 
+  @IsUUID()
+  clientRequestId: string;
+
   @Transform(({ value }) => trimString(value))
   @IsString()
   @IsNotEmpty()
@@ -64,6 +70,9 @@ export class SendMediaDto {
 
   @IsUUID()
   leadId: string;
+
+  @IsUUID()
+  clientRequestId: string;
 
   @IsIn(['image', 'document'])
   type: 'image' | 'document';

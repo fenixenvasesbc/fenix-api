@@ -4,7 +4,7 @@ import {
   ConversationStatus,
   Prisma,
 } from '@prisma/client';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 
 type TouchInboundConversationInput = {
   accountId: string;
@@ -327,6 +327,7 @@ export class ConversationService {
   async listByAccount(params: {
     accountId: string;
     limit: number;
+    beforeConversationId?: string | null;
     search?: string | null;
     onlyOpen?: boolean;
     onlyPending?: boolean;
@@ -334,12 +335,24 @@ export class ConversationService {
     const {
       accountId,
       limit,
+      beforeConversationId,
       search,
       onlyOpen = false,
       onlyPending = false,
     } = params;
 
-    return this.prisma.conversation.findMany({
+    const beforeConversation = beforeConversationId
+      ? await this.prisma.conversation.findFirst({
+          where: { id: beforeConversationId, accountId },
+          select: { id: true, lastMessageAt: true },
+        })
+      : null;
+
+    if (beforeConversationId && !beforeConversation) {
+      throw new NotFoundException('Conversation cursor not found');
+    }
+
+    const conversations = await this.prisma.conversation.findMany({
       where: {
         accountId,
         ...(onlyOpen ? { status: ConversationStatus.OPEN } : {}),
@@ -361,14 +374,44 @@ export class ConversationService {
               },
             }
           : {}),
+        ...(beforeConversation
+          ? beforeConversation.lastMessageAt
+            ? {
+                OR: [
+                  { lastMessageAt: { lt: beforeConversation.lastMessageAt } },
+                  {
+                    lastMessageAt: beforeConversation.lastMessageAt,
+                    id: { lt: beforeConversation.id },
+                  },
+                ],
+              }
+            : {
+                lastMessageAt: null,
+                id: { lt: beforeConversation.id },
+              }
+          : {}),
       },
-      orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
-      take: limit,
+      orderBy: [
+        { lastMessageAt: { sort: 'desc', nulls: 'last' } },
+        { id: 'desc' },
+      ],
+      take: limit + 1,
       include: {
         lead: true,
         lastMessage: true,
       },
     });
+
+    const hasMore = conversations.length > limit;
+    const data = hasMore ? conversations.slice(0, limit) : conversations;
+
+    return {
+      data,
+      pageInfo: {
+        hasMore,
+        nextBefore: hasMore ? (data.at(-1)?.id ?? null) : null,
+      },
+    };
   }
 
   async refreshWindowState(accountId: string, leadId: string) {

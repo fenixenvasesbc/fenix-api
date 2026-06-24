@@ -1,18 +1,61 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
 import { ConversationService } from './conversation.service';
 
-describe('ConversationService', () => {
-  let service: ConversationService;
+describe('ConversationService pagination', () => {
+  const prisma = {
+    conversation: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+    },
+  };
+  const service = new ConversationService(prisma as never);
 
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [ConversationService],
-    }).compile();
+  beforeEach(() => jest.clearAllMocks());
 
-    service = module.get<ConversationService>(ConversationService);
+  it('returns a stable cursor and removes the extra row', async () => {
+    const cursorDate = new Date('2026-06-24T10:00:00.000Z');
+    prisma.conversation.findFirst.mockResolvedValue({
+      id: '33333333-3333-4333-8333-333333333333',
+      lastMessageAt: cursorDate,
+    });
+    prisma.conversation.findMany.mockResolvedValue([
+      { id: 'conversation-1' },
+      { id: 'conversation-2' },
+      { id: 'conversation-3' },
+    ]);
+
+    const result = await service.listByAccount({
+      accountId: '11111111-1111-4111-8111-111111111111',
+      limit: 2,
+      beforeConversationId: '33333333-3333-4333-8333-333333333333',
+    });
+
+    expect(result).toEqual({
+      data: [{ id: 'conversation-1' }, { id: 'conversation-2' }],
+      pageInfo: { hasMore: true, nextBefore: 'conversation-2' },
+    });
+    expect(prisma.conversation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 3,
+        orderBy: [
+          { lastMessageAt: { sort: 'desc', nulls: 'last' } },
+          { id: 'desc' },
+        ],
+      }),
+    );
   });
 
-  it('should be defined', () => {
-    expect(service).toBeDefined();
+  it('rejects a cursor that does not belong to the account', async () => {
+    prisma.conversation.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.listByAccount({
+        accountId: '11111111-1111-4111-8111-111111111111',
+        limit: 50,
+        beforeConversationId: '33333333-3333-4333-8333-333333333333',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(prisma.conversation.findMany).not.toHaveBeenCalled();
   });
 });

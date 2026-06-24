@@ -35,6 +35,11 @@ export class ConversationListQueryDto {
   limit?: number = 50;
 
   @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(value))
+  @IsUUID()
+  before?: string;
+
+  @IsOptional()
   @Transform(({ value }) =>
     typeof value === 'string' && value.trim() === '' ? undefined : value,
   )

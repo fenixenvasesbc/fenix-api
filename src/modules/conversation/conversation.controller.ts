@@ -46,12 +46,13 @@ export class ConversationController {
     const conversations = await this.conversationService.listByAccount({
       accountId,
       limit: query.limit ?? 50,
+      beforeConversationId: query.before ?? null,
       search: query.search?.trim() || null,
       onlyOpen: query.onlyOpen ?? false,
       onlyPending: query.onlyPending ?? false,
     });
 
-    return { data: conversations };
+    return conversations;
   }
 
   @Roles(Role.ADMIN, Role.SALES)

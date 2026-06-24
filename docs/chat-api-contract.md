@@ -19,7 +19,7 @@ Contrato operativo para el frontend y el equipo que integra el chat de Fenix CRM
 Lista conversaciones de una cuenta para construir la bandeja principal del chat.
 
 ```http
-GET /conversations?accountId=<accountId>&limit=50&search=&onlyOpen=false&onlyPending=false
+GET /conversations?accountId=<accountId>&limit=50&before=<conversationId>&search=&onlyOpen=false&onlyPending=false
 ```
 
 Query params:
@@ -28,6 +28,7 @@ Query params:
 | ------------- | ------- | ------------ | --------------------------------------------------------- |
 | `accountId`   | UUID    | Solo `ADMIN` | `SALES` lo toma del token.                                |
 | `limit`       | number  | No           | Default `50`, max `100`.                                  |
+| `before`      | UUID    | No           | Cursor para cargar conversaciones mas antiguas.           |
 | `search`      | string  | No           | Busca por nombre, telefono, email o username de WhatsApp. |
 | `onlyOpen`    | boolean | No           | `true`, `false`, `1` o `0`.                               |
 | `onlyPending` | boolean | No           | Filtra conversaciones con `requiresAttention = true`.     |
@@ -61,9 +62,21 @@ Response:
       "lead": {},
       "lastMessage": {}
     }
-  ]
+  ],
+  "pageInfo": {
+    "hasMore": true,
+    "nextBefore": "oldest-conversation-id-in-this-page"
+  }
 }
 ```
+
+Paginacion:
+
+- Primera carga: llamar sin `before`.
+- Pagina siguiente: usar `before = pageInfo.nextBefore` con los mismos filtros.
+- El orden es estable por `lastMessageAt` e `id`, ambos descendentes.
+- Al cambiar cuenta, busqueda o filtros, reiniciar el cursor.
+- Un cursor que no pertenece a la cuenta responde `404`.
 
 ## Conversation Detail
 
@@ -262,14 +275,14 @@ GET /leads?accountId=<accountId>&label=PRODUCCION&labelChangedOrder=desc&search=
 
 Query params:
 
-| Param       | Tipo      | Requerido    | Notas                                         |
-| ----------- | --------- | ------------ | --------------------------------------------- |
-| `accountId` | UUID      | Solo `ADMIN` | `SALES` lo toma del token.                    |
-| `label`     | LeadLabel | No           | Filtra por label actual.                      |
-| `search`    | string    | No           | Busca por nombre, telefono, email o username. |
-| `limit`     | number    | No           | Default `50`, max `200`.                      |
-| `before`    | UUID      | No           | Cursor para cargar la pagina siguiente.       |
-| `labelChangedOrder` | `asc` o `desc` | No | Orden por fecha de cambio cuando se filtra por label. Default `desc`. |
+| Param               | Tipo           | Requerido    | Notas                                                                 |
+| ------------------- | -------------- | ------------ | --------------------------------------------------------------------- |
+| `accountId`         | UUID           | Solo `ADMIN` | `SALES` lo toma del token.                                            |
+| `label`             | LeadLabel      | No           | Filtra por label actual.                                              |
+| `search`            | string         | No           | Busca por nombre, telefono, email o username.                         |
+| `limit`             | number         | No           | Default `50`, max `200`.                                              |
+| `before`            | UUID           | No           | Cursor para cargar la pagina siguiente.                               |
+| `labelChangedOrder` | `asc` o `desc` | No           | Orden por fecha de cambio cuando se filtra por label. Default `desc`. |
 
 Response:
 
@@ -390,6 +403,7 @@ Body:
 {
   "accountId": "account-id",
   "leadId": "lead-id",
+  "clientRequestId": "uuid-generado-por-el-cliente",
   "text": "Mensaje"
 }
 ```
@@ -397,6 +411,7 @@ Body:
 Validaciones:
 
 - `leadId`: UUID.
+- `clientRequestId`: UUID obligatorio y unico por accion de envio.
 - `accountId`: UUID opcional; requerido para `ADMIN`.
 - `text`: string no vacio, maximo 4096 caracteres.
 
@@ -407,9 +422,17 @@ Response:
   "success": true,
   "messageId": "message-id",
   "externalId": "external-id",
-  "status": "ACCEPTED"
+  "status": "ACCEPTED",
+  "idempotentReplay": false
 }
 ```
+
+Idempotencia:
+
+- La SPA genera un UUID antes del primer intento y conserva el mismo valor en todos sus reintentos.
+- Si la API ya proceso ese UUID para el mismo mensaje, devuelve el registro existente con `idempotentReplay: true` sin volver a llamar a YCloud.
+- Reutilizar el UUID con otro lead, tipo o contenido responde `409`.
+- Para una accion nueva siempre se debe generar un UUID nuevo.
 
 Errores:
 
@@ -432,6 +455,7 @@ Body:
 {
   "accountId": "account-id",
   "leadId": "lead-id",
+  "clientRequestId": "uuid-generado-por-el-cliente",
   "templateName": "template_name",
   "languageCode": "es_ES"
 }
@@ -442,6 +466,7 @@ Body:
 Validaciones:
 
 - `leadId`: UUID.
+- `clientRequestId`: UUID obligatorio; aplica el mismo contrato de idempotencia del envio de texto.
 - `accountId`: UUID opcional; requerido para `ADMIN`.
 - `templateName`: string no vacio, maximo 512 caracteres.
 - `languageCode`: string opcional, maximo 20 caracteres.
@@ -478,6 +503,7 @@ Body imagen:
 {
   "accountId": "account-id",
   "leadId": "lead-id",
+  "clientRequestId": "uuid-generado-por-el-cliente",
   "type": "image",
   "mediaUrl": "https://...",
   "caption": "Opcional"
@@ -490,6 +516,7 @@ Body documento:
 {
   "accountId": "account-id",
   "leadId": "lead-id",
+  "clientRequestId": "uuid-generado-por-el-cliente",
   "type": "document",
   "mediaUrl": "https://...",
   "fileName": "archivo.pdf",
@@ -500,6 +527,7 @@ Body documento:
 Validaciones:
 
 - `leadId`: UUID.
+- `clientRequestId`: UUID obligatorio; aplica el mismo contrato de idempotencia del envio de texto.
 - `accountId`: UUID opcional; requerido para `ADMIN`.
 - `type`: `image` o `document`.
 - `mediaUrl`: URL absoluta con protocolo, maximo 2048 caracteres.

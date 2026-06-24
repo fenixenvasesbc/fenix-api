@@ -36,6 +36,7 @@ export class OutboundController {
     return this.outboundMessageService.sendTemplateMessage({
       accountId,
       leadId: body.leadId,
+      clientRequestId: body.clientRequestId,
       templateName: body.templateName,
       languageCode: body.languageCode ?? null,
     });
@@ -49,6 +50,7 @@ export class OutboundController {
     return this.outboundMessageService.sendTextMessage({
       accountId,
       leadId: body.leadId,
+      clientRequestId: body.clientRequestId,
       text: body.text,
     });
   }
@@ -60,6 +62,7 @@ export class OutboundController {
     return this.outboundMessageService.sendMediaMessage({
       accountId,
       leadId: body.leadId,
+      clientRequestId: body.clientRequestId,
       type: body.type,
       mediaUrl: body.mediaUrl,
       caption: body.caption ?? null,

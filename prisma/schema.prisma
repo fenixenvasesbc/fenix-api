@@ -272,6 +272,7 @@ model Message {
   createdAt DateTime @default(now())
 
   externalId      String?   @unique
+  clientRequestId String?
   respondedAt     DateTime?
   responseToId    String?
   responseTo      Message?  @relation("MessageReplies", fields: [responseToId], references: [id], onDelete: SetNull)
@@ -288,6 +289,7 @@ model Message {
   
 
   @@unique([accountId, ycloudMessageId])
+  @@unique([accountId, clientRequestId])
   @@index([accountId, leadId, direction, createdAt])
   @@index([accountId, direction, type, providerCreateTime])
   @@index([accountId, templateName, providerCreateTime])
