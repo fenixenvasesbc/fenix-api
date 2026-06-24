@@ -1,5 +1,6 @@
 export type ChatEventType =
   | 'message.created'
+  | 'message.deleted'
   | 'message.status.updated'
   | 'conversation.updated'
   | 'conversation.read'

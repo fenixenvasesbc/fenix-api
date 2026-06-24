@@ -72,17 +72,6 @@ export class ConversationController {
       throw new NotFoundException('Conversation not found');
     }
 
-    await this.chatEvents.publish({
-      type: 'conversation.read',
-      accountId,
-      leadId,
-      conversationId: conversation.id,
-      payload: {
-        unreadCount: conversation.unreadCount,
-        requiresAttention: conversation.requiresAttention,
-      },
-    });
-
     return { data: conversation };
   }
 
@@ -102,6 +91,17 @@ export class ConversationController {
     if (!conversation) {
       throw new NotFoundException('Conversation not found');
     }
+
+    await this.chatEvents.publish({
+      type: 'conversation.read',
+      accountId,
+      leadId,
+      conversationId: conversation.id,
+      payload: {
+        unreadCount: conversation.unreadCount,
+        requiresAttention: conversation.requiresAttention,
+      },
+    });
 
     return { data: conversation };
   }

@@ -85,9 +85,9 @@ model Account {
   webhookEvents       WebhookEvent[]
   providerCredentials AccountProviderCredential[]
 
-  leadCampaigns     LeadCampaign[]
-  campaignTemplates AccountCampaignTemplate[]
-  leadLabelHistory  LeadLabelHistory[]
+  leadCampaigns       LeadCampaign[]
+  campaignTemplates   AccountCampaignTemplate[]
+  leadLabelHistory    LeadLabelHistory[]
   repetitionReminders LeadRepetitionReminder[]
 
   createdAt     DateTime       @default(now())
@@ -136,10 +136,10 @@ model Lead {
   account   Account?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
   messages  Message[]
 
-  webhookEvents WebhookEvent[]
-  leadCampaigns LeadCampaign[]
-  conversations Conversation[]
-  labelHistory LeadLabelHistory[]
+  webhookEvents       WebhookEvent[]
+  leadCampaigns       LeadCampaign[]
+  conversations       Conversation[]
+  labelHistory        LeadLabelHistory[]
   repetitionReminders LeadRepetitionReminder[]
 
   @@unique([accountId, phoneE164])
@@ -173,7 +173,7 @@ model LeadLabelHistory {
 }
 
 model LeadRepetitionReminder {
-  id             String    @id @default(uuid())
+  id             String  @id @default(uuid())
   leadId         String
   accountId      String
   labelHistoryId String?
@@ -271,22 +271,23 @@ model Message {
 
   createdAt DateTime @default(now())
 
-  externalId      String?   @unique
-  clientRequestId String?
-  respondedAt     DateTime?
-  responseToId    String?
-  responseTo      Message?  @relation("MessageReplies", fields: [responseToId], references: [id], onDelete: SetNull)
-  responses       Message[] @relation("MessageReplies")
-  campaignKey     String?
-  referralPayload Json? // para guardar el referral payload de inbounds que vienen con referral (ejemplo: click en un anuncio)
+  externalId               String?   @unique
+  clientRequestId          String?
+  deletedAt                DateTime?
+  deletedByProviderEventId String?
+  respondedAt              DateTime?
+  responseToId             String?
+  responseTo               Message?  @relation("MessageReplies", fields: [responseToId], references: [id], onDelete: SetNull)
+  responses                Message[] @relation("MessageReplies")
+  campaignKey              String?
+  referralPayload          Json? // para guardar el referral payload de inbounds que vienen con referral (ejemplo: click en un anuncio)
 
-  webhookEvents WebhookEvent[]
-  statusHistory MessageStatusHistory[]
-  leadCampaigns LeadCampaign[]
-  conversationsAsLastMessage         Conversation[] @relation("ConversationLastMessage")
-  conversationsAsLastInboundMessage  Conversation[] @relation("ConversationLastInboundMessage")
-  conversationsAsLastOutboundMessage Conversation[] @relation("ConversationLastOutboundMessage")
-  
+  webhookEvents                      WebhookEvent[]
+  statusHistory                      MessageStatusHistory[]
+  leadCampaigns                      LeadCampaign[]
+  conversationsAsLastMessage         Conversation[]         @relation("ConversationLastMessage")
+  conversationsAsLastInboundMessage  Conversation[]         @relation("ConversationLastInboundMessage")
+  conversationsAsLastOutboundMessage Conversation[]         @relation("ConversationLastOutboundMessage")
 
   @@unique([accountId, ycloudMessageId])
   @@unique([accountId, clientRequestId])
@@ -298,6 +299,7 @@ model Message {
   @@index([accountId, externalId])
   @@index([accountId, wamid])
   @@index([leadId, createdAt])
+  @@index([accountId, leadId, deletedAt])
   @@index([templateName, createdAt])
   @@index([externalId])
 }

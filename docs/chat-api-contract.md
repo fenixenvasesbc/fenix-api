@@ -578,15 +578,16 @@ Notas de autenticacion:
 
 Eventos emitidos:
 
-| Event                    | Cuando ocurre                                        |
-| ------------------------ | ---------------------------------------------------- |
-| `message.created`        | Entra un inbound o se acepta un outbound.            |
-| `message.status.updated` | Cambia estado provider del mensaje saliente.         |
-| `conversation.updated`   | Cambia resumen de conversacion por inbound/outbound. |
-| `conversation.read`      | Se marca como leida.                                 |
-| `conversation.closed`    | Se cierra.                                           |
-| `conversation.reopened`  | Se reabre.                                           |
-| `heartbeat`              | Keep-alive cada 25 segundos.                         |
+| Event                    | Cuando ocurre                                                                              |
+| ------------------------ | ------------------------------------------------------------------------------------------ |
+| `message.created`        | Entra un inbound o se acepta un outbound.                                                  |
+| `message.deleted`        | WhatsApp/YCloud notifica un revoke y se asocia con un unico mensaje en una ventana segura. |
+| `message.status.updated` | Cambia estado provider del mensaje saliente.                                               |
+| `conversation.updated`   | Cambia resumen de conversacion por inbound/outbound.                                       |
+| `conversation.read`      | Se marca como leida.                                                                       |
+| `conversation.closed`    | Se cierra.                                                                                 |
+| `conversation.reopened`  | Se reabre.                                                                                 |
+| `heartbeat`              | Keep-alive cada 25 segundos.                                                               |
 
 Formato de evento:
 
@@ -608,6 +609,7 @@ Formato de evento:
 Contrato frontend recomendado:
 
 - Al recibir `message.created`, refrescar `GET /message/lead/:leadId` si la conversacion esta abierta, o actualizar la bandeja si no lo esta.
+- Al recibir `message.deleted`, actualizar en memoria el mensaje por `messageId` marcandolo como eliminado; si era el ultimo mensaje, refrescar/parchear la fila de `GET /conversations`.
 - Al recibir `message.status.updated`, actualizar el estado del mensaje si esta en memoria.
 - Al recibir cualquier evento `conversation.*`, refrescar o parchear la fila de `GET /conversations`.
 - Reconectar automaticamente si el stream se corta.

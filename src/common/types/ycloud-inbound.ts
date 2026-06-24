@@ -120,6 +120,8 @@ export type NormalizedInbound = {
 
   providerCreateTime: Date | null;
   providerSendTime: Date | null;
+  providerMessageType: string | null;
+  isRevoke: boolean;
   type: MessageType;
   textBody: string | null;
   mediaUrl: string | null;

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   LeadStatus,
+  ConversationChannel,
   MessageDirection,
   MessageStatus,
   MessageType,
@@ -20,6 +21,7 @@ import { ChatEventsService } from '../chat-events/chat-events.service';
 @Injectable()
 export class InboundMessageService {
   private readonly logger = new Logger(InboundMessageService.name);
+  private static readonly REVOKE_MATCH_WINDOW_MS = 30 * 1000;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -107,6 +109,20 @@ export class InboundMessageService {
             respondedAt: lead.respondedAt ?? inboundAt,
           },
         });
+      }
+
+      if (inbound.isRevoke) {
+        const revokeResult = await this.tryApplyRevokeTx(tx, {
+          accountId: account.id,
+          leadId: lead.id,
+          inbound,
+          inboundAt,
+          providerEventId: job.providerEventId,
+        });
+
+        if (revokeResult) {
+          return revokeResult;
+        }
       }
 
       const responseTo = inbound.contextWamid
@@ -245,6 +261,7 @@ export class InboundMessageService {
       });
 
       return {
+        kind: 'created' as const,
         leadId: lead.id,
         messageId: message.id,
         conversationId: conversation.id,
@@ -253,20 +270,35 @@ export class InboundMessageService {
     });
 
     this.logger.log(
-      `Inbound processed providerEventId=${inbound.providerEventId} accountId=${account.id} leadId=${result.leadId} messageId=${result.messageId} isNew=${result.isNewMessage} type=${inbound.type}`,
+      `Inbound processed providerEventId=${inbound.providerEventId} accountId=${account.id} leadId=${result.leadId} messageId=${result.messageId} kind=${result.kind} type=${inbound.type}`,
     );
 
-    await this.chatEvents.publish({
-      type: 'message.created',
-      accountId: account.id,
-      leadId: result.leadId,
-      conversationId: result.conversationId,
-      messageId: result.messageId,
-      payload: {
-        direction: MessageDirection.INBOUND,
-        isNewMessage: result.isNewMessage,
-      },
-    });
+    if (result.kind === 'deleted') {
+      await this.chatEvents.publish({
+        type: 'message.deleted',
+        accountId: account.id,
+        leadId: result.leadId,
+        conversationId: result.conversationId,
+        messageId: result.messageId,
+        payload: {
+          deletedAt: result.deletedAt.toISOString(),
+          providerEventId: inbound.providerEventId,
+          strategy: 'single_inbound_candidate_within_30_seconds',
+        },
+      });
+    } else {
+      await this.chatEvents.publish({
+        type: 'message.created',
+        accountId: account.id,
+        leadId: result.leadId,
+        conversationId: result.conversationId,
+        messageId: result.messageId,
+        payload: {
+          direction: MessageDirection.INBOUND,
+          isNewMessage: result.isNewMessage,
+        },
+      });
+    }
 
     await this.chatEvents.publish({
       type: 'conversation.updated',
@@ -275,9 +307,111 @@ export class InboundMessageService {
       conversationId: result.conversationId,
       messageId: result.messageId,
       payload: {
-        reason: 'inbound_message',
+        reason:
+          result.kind === 'deleted' ? 'message_deleted' : 'inbound_message',
       },
     });
+  }
+
+  private async tryApplyRevokeTx(
+    tx: Prisma.TransactionClient,
+    input: {
+      accountId: string;
+      leadId: string;
+      inbound: NormalizedInbound;
+      inboundAt: Date;
+      providerEventId: string;
+    },
+  ) {
+    const { accountId, leadId, inbound, inboundAt, providerEventId } = input;
+    const windowStart = new Date(
+      inboundAt.getTime() - InboundMessageService.REVOKE_MATCH_WINDOW_MS,
+    );
+
+    const candidates = await tx.message.findMany({
+      where: {
+        accountId,
+        leadId,
+        direction: MessageDirection.INBOUND,
+        deletedAt: null,
+        type: {
+          not: MessageType.UNKNOWN,
+        },
+        OR: [
+          {
+            providerSendTime: {
+              gte: windowStart,
+              lte: inboundAt,
+            },
+          },
+          {
+            providerSendTime: null,
+            createdAt: {
+              gte: windowStart,
+              lte: inboundAt,
+            },
+          },
+        ],
+      },
+      orderBy: [{ providerSendTime: 'desc' }, { createdAt: 'desc' }],
+      take: 2,
+      select: {
+        id: true,
+      },
+    });
+
+    if (candidates.length !== 1) {
+      this.logger.warn(
+        `Revoke not matched safely providerEventId=${inbound.providerEventId} accountId=${accountId} leadId=${leadId} candidates=${candidates.length}`,
+      );
+
+      return null;
+    }
+
+    const deletedAt =
+      inbound.providerSendTime ?? inbound.providerCreateTime ?? new Date();
+    const messageId = candidates[0].id;
+
+    await tx.message.update({
+      where: { id: messageId },
+      data: {
+        deletedAt,
+        deletedByProviderEventId: inbound.providerEventId,
+      },
+    });
+
+    const conversation = await tx.conversation.findUnique({
+      where: {
+        accountId_leadId_channel: {
+          accountId,
+          leadId,
+          channel: ConversationChannel.WHATSAPP,
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    await tx.webhookEvent.updateMany({
+      where: { providerEventId },
+      data: {
+        status: WebhookEventStatus.PROCESSED,
+        accountId,
+        leadId,
+        messageId,
+        processedAt: new Date(),
+        lastError: null,
+      },
+    });
+
+    return {
+      kind: 'deleted' as const,
+      leadId,
+      messageId,
+      conversationId: conversation?.id ?? null,
+      deletedAt,
+    };
   }
 
   async markFailed(job: WebhookInboxJob, error: unknown, dead = false) {
@@ -355,6 +489,8 @@ export class InboundMessageService {
         ? new Date(payload.createTime)
         : null,
       providerSendTime: msg.sendTime ? new Date(msg.sendTime) : null,
+      providerMessageType: msg.type ?? null,
+      isRevoke: msg.type === 'revoke',
       type: normalizedType,
       textBody,
       mediaUrl: media.link,
@@ -388,6 +524,7 @@ export class InboundMessageService {
   private extractTextBody(
     msg: NonNullable<YCloudInboundPayload['whatsappInboundMessage']>,
   ): string | null {
+    if (msg.type === 'revoke') return 'El cliente elimino un mensaje';
     if (msg.type === 'text') return msg.text?.body ?? null;
     if (msg.type === 'button')
       return msg.button?.text ?? msg.button?.payload ?? null;

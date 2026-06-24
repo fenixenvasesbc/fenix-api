@@ -162,6 +162,8 @@ export class MessageService {
         rawPayload: true,
         externalId: true,
         respondedAt: true,
+        deletedAt: true,
+        deletedByProviderEventId: true,
         responseToId: true,
         campaignKey: true,
         referralPayload: true,
@@ -309,6 +311,8 @@ export class MessageService {
             providerCreateTime: true,
             providerUpdateTime: true,
             providerSendTime: true,
+            deletedAt: true,
+            deletedByProviderEventId: true,
             createdAt: true,
           },
         },
@@ -397,6 +401,7 @@ export class MessageService {
 
   private buildMessagePreview(message: {
     direction: MessageDirection;
+    deletedAt?: Date | null;
     textBody: string | null;
     caption: string | null;
     templateName: string | null;
@@ -404,6 +409,7 @@ export class MessageService {
     fileName: string | null;
     mimeType: string | null;
   }) {
+    if (message.deletedAt) return 'Mensaje eliminado';
     if (message.textBody) return message.textBody;
     if (message.caption) return message.caption;
     if (message.templateName) return `Template: ${message.templateName}`;
