@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   ConversationChannel,
   ConversationStatus,
+  LeadLabel,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -331,6 +332,7 @@ export class ConversationService {
     search?: string | null;
     onlyOpen?: boolean;
     onlyPending?: boolean;
+    label?: LeadLabel | null;
   }) {
     const {
       accountId,
@@ -339,6 +341,7 @@ export class ConversationService {
       search,
       onlyOpen = false,
       onlyPending = false,
+      label,
     } = params;
 
     const beforeConversation = beforeConversationId
@@ -357,20 +360,27 @@ export class ConversationService {
         accountId,
         ...(onlyOpen ? { status: ConversationStatus.OPEN } : {}),
         ...(onlyPending ? { requiresAttention: true } : {}),
-        ...(search
+        ...(search || label
           ? {
               lead: {
-                OR: [
-                  { name: { contains: search, mode: 'insensitive' } },
-                  { phoneE164: { contains: search, mode: 'insensitive' } },
-                  { email: { contains: search, mode: 'insensitive' } },
-                  {
-                    whatsappUsername: {
-                      contains: search,
-                      mode: 'insensitive',
-                    },
-                  },
-                ],
+                ...(label ? { currentLabel: label } : {}),
+                ...(search
+                  ? {
+                      OR: [
+                        { name: { contains: search, mode: 'insensitive' } },
+                        {
+                          phoneE164: { contains: search, mode: 'insensitive' },
+                        },
+                        { email: { contains: search, mode: 'insensitive' } },
+                        {
+                          whatsappUsername: {
+                            contains: search,
+                            mode: 'insensitive',
+                          },
+                        },
+                      ],
+                    }
+                  : {}),
               },
             }
           : {}),

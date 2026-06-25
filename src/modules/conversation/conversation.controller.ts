@@ -50,6 +50,7 @@ export class ConversationController {
       search: query.search?.trim() || null,
       onlyOpen: query.onlyOpen ?? false,
       onlyPending: query.onlyPending ?? false,
+      label: query.label ?? null,
     });
 
     return conversations;

@@ -1,6 +1,7 @@
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -9,6 +10,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { LeadLabel } from '@prisma/client';
 
 function emptyToUndefined(value: unknown) {
   return value === '' ? undefined : value;
@@ -56,6 +58,11 @@ export class ConversationListQueryDto {
   @Transform(({ value }) => queryBoolean(value))
   @IsBoolean()
   onlyPending?: boolean = false;
+
+  @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(value))
+  @IsEnum(LeadLabel)
+  label?: LeadLabel;
 }
 
 export class ConversationAccountQueryDto {

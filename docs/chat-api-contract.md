@@ -44,7 +44,7 @@ node dist/src/scripts/backfill-conversations.js --apply --account=<accountId>
 El comando se puede repetir: la restriccion unica `accountId + leadId + channel` y `skipDuplicates` evitan duplicados.
 
 ```http
-GET /conversations?accountId=<accountId>&limit=50&before=<conversationId>&search=&onlyOpen=false&onlyPending=false
+GET /conversations?accountId=<accountId>&limit=50&before=<conversationId>&search=&onlyOpen=false&onlyPending=false&label=PRODUCCION
 ```
 
 Query params:
@@ -57,6 +57,7 @@ Query params:
 | `search`      | string  | No           | Busca por nombre, telefono, email o username de WhatsApp. |
 | `onlyOpen`    | boolean | No           | `true`, `false`, `1` o `0`.                               |
 | `onlyPending` | boolean | No           | Filtra conversaciones con `requiresAttention = true`.     |
+| `label`       | enum    | No           | Filtra por label comercial del lead.                      |
 
 Response:
 
