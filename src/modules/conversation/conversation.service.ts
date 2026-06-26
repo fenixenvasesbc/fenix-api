@@ -129,6 +129,13 @@ export class ConversationService {
   }
 
   async touchOutbound(input: TouchOutboundConversationInput) {
+    return this.prisma.$transaction((tx) => this.touchOutboundTx(tx, input));
+  }
+
+  async touchOutboundTx(
+    tx: Prisma.TransactionClient,
+    input: TouchOutboundConversationInput,
+  ) {
     const {
       accountId,
       leadId,
@@ -137,79 +144,77 @@ export class ConversationService {
       clearUnread = true,
     } = input;
 
-    return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.conversation.findUnique({
-        where: {
-          accountId_leadId_channel: {
-            accountId,
-            leadId,
-            channel: ConversationChannel.WHATSAPP,
-          },
+    const existing = await tx.conversation.findUnique({
+      where: {
+        accountId_leadId_channel: {
+          accountId,
+          leadId,
+          channel: ConversationChannel.WHATSAPP,
         },
-        select: {
-          id: true,
-          lastMessageAt: true,
-          customerWindowExpiresAt: true,
-        },
-      });
-
-      let conversation;
-
-      if (!existing) {
-        conversation = await tx.conversation.create({
-          data: {
-            accountId,
-            leadId,
-            channel: ConversationChannel.WHATSAPP,
-            status: ConversationStatus.OPEN,
-            lastMessageId: messageId,
-            lastOutboundMessageId: messageId,
-            lastMessageAt: outboundAt,
-            lastOutboundAt: outboundAt,
-            isCustomerWindowOpen: false,
-            requiresAttention: false,
-            unreadCount: 0,
-          },
-        });
-      } else {
-        const shouldReplaceLastMessage =
-          !existing.lastMessageAt ||
-          outboundAt.getTime() >= existing.lastMessageAt.getTime();
-
-        const isCustomerWindowOpen = existing.customerWindowExpiresAt
-          ? existing.customerWindowExpiresAt.getTime() > Date.now()
-          : false;
-
-        conversation = await tx.conversation.update({
-          where: { id: existing.id },
-          data: {
-            status: ConversationStatus.OPEN,
-            closedAt: null,
-            lastOutboundMessageId: messageId,
-            lastOutboundAt: outboundAt,
-            isCustomerWindowOpen,
-            requiresAttention: false,
-            ...(clearUnread && {
-              unreadCount: 0,
-            }),
-            ...(shouldReplaceLastMessage && {
-              lastMessageId: messageId,
-              lastMessageAt: outboundAt,
-            }),
-          },
-        });
-      }
-
-      await tx.lead.update({
-        where: { id: leadId },
-        data: {
-          lastOutboundAt: outboundAt,
-          lastMessageAt: outboundAt,
-        },
-      });
-
-      return conversation;
+      },
+      select: {
+        id: true,
+        lastMessageAt: true,
+        customerWindowExpiresAt: true,
+      },
     });
+
+    let conversation;
+
+    if (!existing) {
+      conversation = await tx.conversation.create({
+        data: {
+          accountId,
+          leadId,
+          channel: ConversationChannel.WHATSAPP,
+          status: ConversationStatus.OPEN,
+          lastMessageId: messageId,
+          lastOutboundMessageId: messageId,
+          lastMessageAt: outboundAt,
+          lastOutboundAt: outboundAt,
+          isCustomerWindowOpen: false,
+          requiresAttention: false,
+          unreadCount: 0,
+        },
+      });
+    } else {
+      const shouldReplaceLastMessage =
+        !existing.lastMessageAt ||
+        outboundAt.getTime() >= existing.lastMessageAt.getTime();
+
+      const isCustomerWindowOpen = existing.customerWindowExpiresAt
+        ? existing.customerWindowExpiresAt.getTime() > Date.now()
+        : false;
+
+      conversation = await tx.conversation.update({
+        where: { id: existing.id },
+        data: {
+          status: ConversationStatus.OPEN,
+          closedAt: null,
+          lastOutboundMessageId: messageId,
+          lastOutboundAt: outboundAt,
+          isCustomerWindowOpen,
+          requiresAttention: false,
+          ...(clearUnread && {
+            unreadCount: 0,
+          }),
+          ...(shouldReplaceLastMessage && {
+            lastMessageId: messageId,
+            lastMessageAt: outboundAt,
+          }),
+        },
+      });
+    }
+
+    await tx.lead.update({
+      where: { id: leadId },
+      data: {
+        lastOutboundAt: outboundAt,
+        lastMessageAt: outboundAt,
+      },
+    });
+
+    return conversation;
   }
 
   async markAsRead(input: MarkConversationAsReadInput) {

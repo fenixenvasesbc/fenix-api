@@ -3,6 +3,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterAdminDto } from './dto/register-admin.dto';
 import { RegisterSalesDto } from './dto/register-sales.dto';
+import { RegisterFactoryDto } from './dto/register-factory.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { Roles } from './decorators/roles.decorator';
@@ -41,6 +42,13 @@ export class AuthController {
   @Post('sales')
   createSales(@Body() dto: RegisterSalesDto) {
     return this.auth.createSales(dto.email, dto.password);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Post('factory')
+  createFactory(@Body() dto: RegisterFactoryDto) {
+    return this.auth.createFactory(dto.email, dto.password);
   }
 
   // Protegido: útil para validar token

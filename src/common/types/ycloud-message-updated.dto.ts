@@ -19,6 +19,14 @@ export interface YCloudWhatsappApiError {
 export interface YCloudUpdatedTextPayload {
   body?: string;
 }
+
+export interface YCloudUpdatedMediaPayload {
+  link?: string;
+  caption?: string;
+  filename?: string;
+  mime_type?: string;
+}
+
 export interface YCloudCustomerProfileDto {
   name?: string;
   username?: string;
@@ -30,6 +38,7 @@ export interface YCloudUpdatedWhatsappMessageDto {
   status: WhatsappMessageStatus;
   from?: string;
   to?: string;
+  wabaId?: string;
 
   recipientUserId?: string;
   parentRecipientUserId?: string;
@@ -50,6 +59,10 @@ export interface YCloudUpdatedWhatsappMessageDto {
   bizType?: string;
   type?: string;
   text?: YCloudUpdatedTextPayload;
+  image?: YCloudUpdatedMediaPayload;
+  audio?: YCloudUpdatedMediaPayload;
+  video?: YCloudUpdatedMediaPayload;
+  document?: YCloudUpdatedMediaPayload;
 
   externalId?: string;
 

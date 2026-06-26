@@ -9,6 +9,17 @@ datasource db {
 enum Role {
   ADMIN
   SALES
+  FACTORY
+}
+
+enum ClicheCategory {
+  ENVIO
+  COMBO
+  HAMBURGUESA
+  PIZZA
+  LONCHEADO
+  SOBRES
+  BOLSAS
 }
 
 enum LeadStatus {
@@ -64,6 +75,22 @@ model User {
 
   @@index([role])
   @@index([isActive])
+}
+
+model Cliche {
+  id       String         @id @default(uuid())
+  name     String
+  category ClicheCategory
+  letter   String
+  year     Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category, year])
+  @@index([name])
+  @@index([letter])
+  @@index([createdAt])
 }
 
 model Account {

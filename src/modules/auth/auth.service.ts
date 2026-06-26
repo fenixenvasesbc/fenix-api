@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { RefreshTokensService } from '../refresh-tokens/refresh-tokens.service';
 import { JwtService } from '@nestjs/jwt';
@@ -42,17 +46,27 @@ export class AuthService {
   }
 
   private async hashPassword(password: string): Promise<string> {
-    const rounds = Number(this.config.get<string>('BCRYPT_SALT_ROUNDS') ?? '10');
+    const rounds = Number(
+      this.config.get<string>('BCRYPT_SALT_ROUNDS') ?? '10',
+    );
     return bcrypt.hash(password, rounds);
   }
 
-  private signAccessToken(user: { id: string; role: Role, accountId?: string | null }) {
-    return this.jwt.sign({ role: user.role, accountId: user.accountId ?? null }, { subject: user.id });
+  private signAccessToken(user: {
+    id: string;
+    role: Role;
+    accountId?: string | null;
+  }) {
+    return this.jwt.sign(
+      { role: user.role, accountId: user.accountId ?? null },
+      { subject: user.id },
+    );
   }
 
   async login(email: string, password: string) {
     const user = await this.users.findByEmail(email);
-    if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
+    if (!user || !user.isActive)
+      throw new UnauthorizedException('Invalid credentials');
 
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
@@ -117,7 +131,11 @@ export class AuthService {
     if (existing) throw new BadRequestException('Email already registered');
 
     const passwordHash = await this.hashPassword(password);
-    const user = await this.users.createUser({ email, passwordHash, role: Role.ADMIN });
+    const user = await this.users.createUser({
+      email,
+      passwordHash,
+      role: Role.ADMIN,
+    });
 
     return { id: user.id, email: user.email, role: user.role };
   }
@@ -127,7 +145,25 @@ export class AuthService {
     if (existing) throw new BadRequestException('Email already registered');
 
     const passwordHash = await this.hashPassword(password);
-    const user = await this.users.createUser({ email, passwordHash, role: Role.SALES });
+    const user = await this.users.createUser({
+      email,
+      passwordHash,
+      role: Role.SALES,
+    });
+
+    return { id: user.id, email: user.email, role: user.role };
+  }
+
+  async createFactory(email: string, password: string) {
+    const existing = await this.users.findByEmail(email);
+    if (existing) throw new BadRequestException('Email already registered');
+
+    const passwordHash = await this.hashPassword(password);
+    const user = await this.users.createUser({
+      email,
+      passwordHash,
+      role: Role.FACTORY,
+    });
 
     return { id: user.id, email: user.email, role: user.role };
   }

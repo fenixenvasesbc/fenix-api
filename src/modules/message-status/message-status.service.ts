@@ -6,8 +6,15 @@ import type {
   YCloudUpdatedWhatsappMessageDto,
   WhatsappMessageStatus,
 } from '../../common/types/ycloud-message-updated.dto';
-import { Prisma, MessageDirection, MessageType } from '@prisma/client';
+import {
+  LeadStatus,
+  MessageDirection,
+  MessageStatus,
+  MessageType,
+  Prisma,
+} from '@prisma/client';
 import { ChatEventsService } from '../chat-events/chat-events.service';
+import { ConversationService } from '../conversation/conversation.service';
 
 @Injectable()
 export class MessageStatusService {
@@ -16,6 +23,7 @@ export class MessageStatusService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly chatEvents: ChatEventsService,
+    private readonly conversationService: ConversationService,
   ) {}
 
   async process(job: WebhookInboxJob): Promise<void> {
@@ -45,6 +53,19 @@ export class MessageStatusService {
     const message = await this.findMessage(whatsappMessage);
 
     if (!message) {
+      const manualMessage = await this.createManualOutboundIfPossible({
+        job,
+        whatsappMessage,
+        nextStatus,
+        providerUpdateTime,
+        errorPayload,
+      });
+
+      if (manualMessage) {
+        await this.publishManualOutboundCreated(manualMessage, nextStatus);
+        return;
+      }
+
       await this.reconcileUnknownWithoutMessage({
         job,
         whatsappMessage,
@@ -216,6 +237,262 @@ export class MessageStatusService {
     return null;
   }
 
+  private async createManualOutboundIfPossible(params: {
+    job: WebhookInboxJob;
+    whatsappMessage: YCloudUpdatedWhatsappMessageDto;
+    nextStatus: WhatsappMessageStatus;
+    providerUpdateTime: Date;
+    errorPayload?: Prisma.InputJsonValue;
+  }): Promise<{
+    accountId: string;
+    leadId: string;
+    messageId: string;
+    conversationId: string;
+    messageType: MessageType;
+  } | null> {
+    const {
+      job,
+      whatsappMessage,
+      nextStatus,
+      providerUpdateTime,
+      errorPayload,
+    } = params;
+
+    const wabaId = this.nonEmpty(whatsappMessage.wabaId);
+    const from = this.nonEmpty(whatsappMessage.from);
+    const to = this.nonEmpty(whatsappMessage.to);
+    const ycloudMessageId = this.nonEmpty(whatsappMessage.id);
+
+    if (!wabaId || !from || !to || !ycloudMessageId) {
+      return null;
+    }
+
+    const messageType = this.mapManualOutboundType(whatsappMessage.type);
+    if (!messageType) {
+      return null;
+    }
+
+    const content = this.extractManualOutboundContent(
+      whatsappMessage,
+      messageType,
+    );
+    if (!content) {
+      return null;
+    }
+
+    const account = await this.prisma.account.findUnique({
+      where: {
+        wabaId_phoneE164: {
+          wabaId,
+          phoneE164: from,
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!account) {
+      this.logger.warn(
+        `Manual outbound ignored. Account not found providerEventId=${job.providerEventId} wabaId=${wabaId} from=${from}`,
+      );
+      return null;
+    }
+
+    const externalId = this.nonEmpty(whatsappMessage.externalId);
+    const wamid = this.nonEmpty(whatsappMessage.wamid);
+    const providerCreateTime = whatsappMessage.createTime
+      ? new Date(whatsappMessage.createTime)
+      : null;
+    const providerSendTime = whatsappMessage.sendTime
+      ? new Date(whatsappMessage.sendTime)
+      : providerCreateTime;
+    const outboundAt =
+      providerSendTime ?? providerCreateTime ?? providerUpdateTime;
+
+    return this.prisma.$transaction(async (tx) => {
+      const lead = await tx.lead.upsert({
+        where: {
+          accountId_phoneE164: {
+            accountId: account.id,
+            phoneE164: to,
+          },
+        },
+        create: {
+          accountId: account.id,
+          phoneE164: to,
+          name: whatsappMessage.customerProfile?.name ?? undefined,
+          whatsappUserId: whatsappMessage.recipientUserId ?? undefined,
+          whatsappParentUserId:
+            whatsappMessage.parentRecipientUserId ?? undefined,
+          whatsappUsername:
+            whatsappMessage.customerProfile?.username ?? undefined,
+          status: LeadStatus.NEW,
+          firstOutboundAt: outboundAt,
+          lastOutboundAt: outboundAt,
+          lastMessageAt: outboundAt,
+        },
+        update: {
+          name: whatsappMessage.customerProfile?.name ?? undefined,
+          whatsappUserId: whatsappMessage.recipientUserId ?? undefined,
+          whatsappParentUserId:
+            whatsappMessage.parentRecipientUserId ?? undefined,
+          whatsappUsername:
+            whatsappMessage.customerProfile?.username ?? undefined,
+          lastOutboundAt: outboundAt,
+          lastMessageAt: outboundAt,
+        },
+        select: {
+          id: true,
+          firstOutboundAt: true,
+        },
+      });
+
+      if (!lead.firstOutboundAt) {
+        await tx.lead.update({
+          where: { id: lead.id },
+          data: { firstOutboundAt: outboundAt },
+        });
+      }
+
+      const message = await tx.message.upsert({
+        where: {
+          accountId_ycloudMessageId: {
+            accountId: account.id,
+            ycloudMessageId,
+          },
+        },
+        update: {
+          status: nextStatus as MessageStatus,
+          providerUpdateTime,
+          providerCreateTime: providerCreateTime ?? undefined,
+          providerSendTime: providerSendTime ?? undefined,
+          wamid: wamid ?? undefined,
+          externalId: externalId ?? undefined,
+          recipientWhatsAppUserId: whatsappMessage.recipientUserId ?? undefined,
+          recipientParentUserId:
+            whatsappMessage.parentRecipientUserId ?? undefined,
+          customerUsername:
+            whatsappMessage.customerProfile?.username ?? undefined,
+          customerDisplayName:
+            whatsappMessage.customerProfile?.name ?? undefined,
+          pricingCategory: whatsappMessage.pricingCategory ?? undefined,
+          totalPrice:
+            typeof whatsappMessage.totalPrice === 'number'
+              ? whatsappMessage.totalPrice
+              : undefined,
+          currency: whatsappMessage.currency ?? undefined,
+          errors: errorPayload ?? undefined,
+          rawPayload: job.payload as Prisma.InputJsonValue,
+          ...content,
+        },
+        create: {
+          accountId: account.id,
+          leadId: lead.id,
+          direction: MessageDirection.OUTBOUND,
+          type: messageType,
+          status: nextStatus as MessageStatus,
+          ycloudMessageId,
+          wamid,
+          externalId,
+          recipientWhatsAppUserId: whatsappMessage.recipientUserId ?? null,
+          recipientParentUserId: whatsappMessage.parentRecipientUserId ?? null,
+          customerUsername: whatsappMessage.customerProfile?.username ?? null,
+          customerDisplayName: whatsappMessage.customerProfile?.name ?? null,
+          pricingCategory: whatsappMessage.pricingCategory ?? null,
+          totalPrice:
+            typeof whatsappMessage.totalPrice === 'number'
+              ? whatsappMessage.totalPrice
+              : null,
+          currency: whatsappMessage.currency ?? null,
+          providerCreateTime,
+          providerSendTime,
+          providerUpdateTime,
+          errors: errorPayload ?? undefined,
+          rawPayload: job.payload as Prisma.InputJsonValue,
+          ...content,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      await tx.messageStatusHistory.create({
+        data: {
+          messageId: message.id,
+          fromStatus: null,
+          toStatus: nextStatus,
+          providerEventId: job.providerEventId,
+          providerTime: providerUpdateTime,
+          payload: job.payload as Prisma.InputJsonValue,
+        },
+      });
+
+      const conversation = await this.conversationService.touchOutboundTx(tx, {
+        accountId: account.id,
+        leadId: lead.id,
+        messageId: message.id,
+        outboundAt,
+      });
+
+      await tx.webhookEvent.updateMany({
+        where: { providerEventId: job.providerEventId },
+        data: {
+          status: 'PROCESSED',
+          accountId: account.id,
+          leadId: lead.id,
+          messageId: message.id,
+          processedAt: new Date(),
+          lastError: null,
+        },
+      });
+
+      return {
+        accountId: account.id,
+        leadId: lead.id,
+        messageId: message.id,
+        conversationId: conversation.id,
+        messageType,
+      };
+    });
+  }
+
+  private async publishManualOutboundCreated(
+    message: {
+      accountId: string;
+      leadId: string;
+      messageId: string;
+      conversationId: string;
+      messageType: MessageType;
+    },
+    status: WhatsappMessageStatus,
+  ) {
+    await this.chatEvents.publish({
+      type: 'message.created',
+      accountId: message.accountId,
+      leadId: message.leadId,
+      conversationId: message.conversationId,
+      messageId: message.messageId,
+      payload: {
+        direction: MessageDirection.OUTBOUND,
+        messageType: message.messageType,
+        status,
+        source: 'manual_whatsapp',
+      },
+    });
+
+    await this.chatEvents.publish({
+      type: 'conversation.updated',
+      accountId: message.accountId,
+      leadId: message.leadId,
+      conversationId: message.conversationId,
+      messageId: message.messageId,
+      payload: {
+        reason: 'manual_outbound_message',
+      },
+    });
+  }
+
   private async reconcileUnknownWithoutMessage(params: {
     job: WebhookInboxJob;
     whatsappMessage: YCloudUpdatedWhatsappMessageDto;
@@ -336,6 +613,76 @@ export class MessageStatusService {
     this.logger.log(
       `Reconciled UNKNOWN leadCampaignId=${leadCampaign.id} externalId=${whatsappMessage.externalId} nextStatus=${nextStatus}`,
     );
+  }
+
+  private mapManualOutboundType(type?: string): MessageType | null {
+    switch (type) {
+      case 'text':
+        return MessageType.TEXT;
+      case 'image':
+        return MessageType.IMAGE;
+      case 'audio':
+        return MessageType.AUDIO;
+      case 'video':
+        return MessageType.VIDEO;
+      case 'document':
+        return MessageType.DOCUMENT;
+      default:
+        return null;
+    }
+  }
+
+  private extractManualOutboundContent(
+    whatsappMessage: YCloudUpdatedWhatsappMessageDto,
+    messageType: MessageType,
+  ): Pick<
+    Prisma.MessageUncheckedCreateInput,
+    'textBody' | 'mediaUrl' | 'caption' | 'mimeType' | 'fileName'
+  > | null {
+    if (messageType === MessageType.TEXT) {
+      const textBody = this.nonEmpty(whatsappMessage.text?.body);
+      return textBody ? { textBody } : null;
+    }
+
+    if (messageType === MessageType.IMAGE) {
+      return {
+        mediaUrl: this.nonEmpty(whatsappMessage.image?.link),
+        caption: this.nonEmpty(whatsappMessage.image?.caption),
+        mimeType: this.nonEmpty(whatsappMessage.image?.mime_type),
+      };
+    }
+
+    if (messageType === MessageType.AUDIO) {
+      return {
+        mediaUrl: this.nonEmpty(whatsappMessage.audio?.link),
+        mimeType: this.nonEmpty(whatsappMessage.audio?.mime_type),
+      };
+    }
+
+    if (messageType === MessageType.VIDEO) {
+      return {
+        mediaUrl: this.nonEmpty(whatsappMessage.video?.link),
+        caption: this.nonEmpty(whatsappMessage.video?.caption),
+        mimeType: this.nonEmpty(whatsappMessage.video?.mime_type),
+      };
+    }
+
+    if (messageType === MessageType.DOCUMENT) {
+      return {
+        mediaUrl: this.nonEmpty(whatsappMessage.document?.link),
+        caption: this.nonEmpty(whatsappMessage.document?.caption),
+        fileName: this.nonEmpty(whatsappMessage.document?.filename),
+        mimeType: this.nonEmpty(whatsappMessage.document?.mime_type),
+      };
+    }
+
+    return null;
+  }
+
+  private nonEmpty(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
   }
 
   private normalizeStatus(

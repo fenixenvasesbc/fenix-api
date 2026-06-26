@@ -42,6 +42,7 @@ import { ChatEventsModule } from './modules/chat-events/chat-events.module';
 import { ChatEventsController } from './modules/chat-events/chat-events.controller';
 import { ChatEventsBridge } from './modules/chat-events/chat-events.bridge';
 import { LeadsModule } from './modules/leads/leads.module';
+import { ClichesModule } from './modules/cliches/cliches.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { LeadsModule } from './modules/leads/leads.module';
     MediaUploadModule,
     ChatEventsModule,
     LeadsModule,
+    ClichesModule,
   ],
   controllers: [
     AppController,
