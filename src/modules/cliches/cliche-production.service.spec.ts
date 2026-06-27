@@ -5,11 +5,17 @@ import { ClicheProductionService } from './cliche-production.service';
 describe('ClicheProductionService', () => {
   const prisma = { cliche: { findMany: jest.fn() } };
   const parser = { parse: jest.fn() };
+  const annotator = { annotate: jest.fn() };
   let service: ClicheProductionService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new ClicheProductionService(prisma as never, parser as never);
+    annotator.annotate.mockResolvedValue(Buffer.from('%PDF-annotated'));
+    service = new ClicheProductionService(
+      prisma as never,
+      parser as never,
+      annotator as never,
+    );
   });
 
   it('returns every location matching the client name', async () => {
@@ -53,6 +59,10 @@ describe('ClicheProductionService', () => {
       matchedEntries: 1,
       unmatchedEntries: 0,
     });
+    expect(result.document.annotatedFileName).toBe('plan-ubicaciones.pdf');
+    expect(result.document.annotatedPdfBase64).toBe(
+      Buffer.from('%PDF-annotated').toString('base64'),
+    );
   });
 
   it('rejects files without a PDF signature', async () => {

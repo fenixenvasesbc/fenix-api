@@ -8,12 +8,14 @@ import {
   ClicheLocationMatch,
   ProductionPlanEntry,
 } from './production-pdf.types';
+import { ProductionPdfAnnotatorService } from './production-pdf-annotator.service';
 
 @Injectable()
 export class ClicheProductionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly parser: ProductionPdfParserService,
+    private readonly annotator: ProductionPdfAnnotatorService,
   ) {}
 
   async importPdf(file?: Express.Multer.File) {
@@ -53,10 +55,17 @@ export class ClicheProductionService {
     const matchedEntries = entries.filter(
       (entry) => entry.matches.length > 0,
     ).length;
+    const annotatedPdf = await this.annotator.annotate(
+      file!.buffer,
+      matchesByName,
+    );
+    const fileName = this.normalizeFileName(file!.originalname);
 
     return {
       document: {
-        fileName: this.normalizeFileName(file!.originalname),
+        fileName,
+        annotatedFileName: this.createAnnotatedFileName(fileName),
+        annotatedPdfBase64: annotatedPdf.toString('base64'),
         pageCount: parsed.pageCount,
       },
       summary: {
@@ -82,5 +91,10 @@ export class ClicheProductionService {
 
     const decoded = Buffer.from(fileName, 'latin1').toString('utf8');
     return decoded.includes('\uFFFD') ? fileName : decoded;
+  }
+
+  private createAnnotatedFileName(fileName: string) {
+    const baseName = fileName.replace(/\.pdf$/i, '');
+    return `${baseName}-ubicaciones.pdf`;
   }
 }

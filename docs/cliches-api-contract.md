@@ -158,7 +158,9 @@ Respuesta `200 OK`:
 ## Localizar cliches desde un plan de produccion
 
 Procesa un PDF de fabricacion y cruza el nombre de cada cliente con todos los
-cliches que tengan el mismo nombre normalizado. No almacena el archivo.
+cliches que tengan el mismo nombre normalizado. Devuelve tambien una copia del
+PDF original con la ubicacion escrita debajo de cada cliente. No almacena el
+archivo.
 
 ```http
 POST /cliches/production-plan
@@ -182,6 +184,8 @@ Respuesta `201 Created`:
 {
   "document": {
     "fileName": "fabricacion.pdf",
+    "annotatedFileName": "fabricacion-ubicaciones.pdf",
+    "annotatedPdfBase64": "JVBERi0xLjcK...",
     "pageCount": 8
   },
   "summary": {
@@ -209,3 +213,8 @@ Respuesta `201 Created`:
   ]
 }
 ```
+
+`annotatedPdfBase64` contiene un PDF completo codificado en Base64. Conserva
+las paginas y el formato del documento recibido. Cada ubicacion se escribe en
+una sola linea como `Categoria, Año, Letra | Categoria, Año, Letra`; cuando no
+hay coincidencias se escribe `No encontrado`.

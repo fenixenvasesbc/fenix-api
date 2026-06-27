@@ -3,6 +3,7 @@ import { ClichesController } from './cliches.controller';
 import { ClichesService } from './cliches.service';
 import { ClicheProductionService } from './cliche-production.service';
 import { ProductionPdfParserService } from './production-pdf-parser.service';
+import { ProductionPdfAnnotatorService } from './production-pdf-annotator.service';
 
 @Module({
   controllers: [ClichesController],
@@ -10,6 +11,7 @@ import { ProductionPdfParserService } from './production-pdf-parser.service';
     ClichesService,
     ClicheProductionService,
     ProductionPdfParserService,
+    ProductionPdfAnnotatorService,
   ],
   exports: [ClichesService],
 })
