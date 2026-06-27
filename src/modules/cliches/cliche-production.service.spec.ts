@@ -63,4 +63,16 @@ describe('ClicheProductionService', () => {
       } as Express.Multer.File),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it('repairs UTF-8 file names decoded as latin1 by multipart parsers', async () => {
+    parser.parse.mockResolvedValue({ pageCount: 1, entries: [] });
+    prisma.cliche.findMany.mockResolvedValue([]);
+
+    const result = await service.importPdf({
+      originalname: 'FabricaciÃ³n.pdf',
+      buffer: Buffer.from('%PDF-test'),
+    } as Express.Multer.File);
+
+    expect(result.document.fileName).toBe('Fabricación.pdf');
+  });
 });

@@ -56,7 +56,7 @@ export class ClicheProductionService {
 
     return {
       document: {
-        fileName: file!.originalname,
+        fileName: this.normalizeFileName(file!.originalname),
         pageCount: parsed.pageCount,
       },
       summary: {
@@ -75,5 +75,12 @@ export class ClicheProductionService {
     if (!file.buffer.subarray(0, 5).equals(Buffer.from('%PDF-'))) {
       throw new BadRequestException('The uploaded file is not a valid PDF');
     }
+  }
+
+  private normalizeFileName(fileName: string) {
+    if (!/[ÃÂ]/.test(fileName)) return fileName;
+
+    const decoded = Buffer.from(fileName, 'latin1').toString('utf8');
+    return decoded.includes('\uFFFD') ? fileName : decoded;
   }
 }

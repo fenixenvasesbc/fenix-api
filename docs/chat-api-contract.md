@@ -602,14 +602,29 @@ Formato de evento:
   "messageId": "message-id",
   "createdAt": "2026-06-19T10:00:00.000Z",
   "payload": {
-    "direction": "INBOUND"
+    "direction": "INBOUND",
+    "message": {
+      "id": "message-id",
+      "leadId": "lead-id",
+      "direction": "INBOUND",
+      "type": "TEXT",
+      "textBody": "Hola"
+    },
+    "conversation": {
+      "id": "conversation-id",
+      "leadId": "lead-id",
+      "lastMessageAt": "2026-06-19T10:00:00.000Z",
+      "lead": {}
+    }
   }
 }
 ```
 
 Contrato frontend recomendado:
 
-- Al recibir `message.created`, refrescar `GET /message/lead/:leadId` si la conversacion esta abierta, o actualizar la bandeja si no lo esta.
+- Al recibir `message.created`, insertar `payload.message` en la conversacion abierta y aplicar `payload.conversation` a la bandeja.
+- Al recibir `conversation.updated`, aplicar `payload.conversation` y reordenar la bandeja por `lastMessageAt`.
+- Si un evento antiguo no incluye snapshots, usar `GET /message/lead/:leadId` y `GET /conversations/:leadId` como fallback dirigido.
 - Al recibir `message.deleted`, actualizar en memoria el mensaje por `messageId` marcandolo como eliminado; si era el ultimo mensaje, refrescar/parchear la fila de `GET /conversations`.
 - Al recibir `message.status.updated`, actualizar el estado del mensaje si esta en memoria.
 - Al recibir cualquier evento `conversation.*`, refrescar o parchear la fila de `GET /conversations`.
