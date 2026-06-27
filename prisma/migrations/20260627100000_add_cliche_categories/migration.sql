@@ -1,0 +1,2 @@
+ALTER TYPE "ClicheCategory" ADD VALUE 'VASOS';
+ALTER TYPE "ClicheCategory" ADD VALUE 'TARTAS';

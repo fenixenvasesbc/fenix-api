@@ -20,6 +20,8 @@ enum ClicheCategory {
   LONCHEADO
   SOBRES
   BOLSAS
+  VASOS
+  TARTAS
 }
 
 enum LeadStatus {

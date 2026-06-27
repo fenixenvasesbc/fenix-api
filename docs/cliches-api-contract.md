@@ -41,7 +41,7 @@ Authorization: Bearer <admin_access_token>
 ```
 
 - `name`: obligatorio, maximo 160 caracteres. Se guarda recortado y en mayusculas. Puede repetirse.
-- `category`: uno de `ENVIO`, `COMBO`, `HAMBURGUESA`, `PIZZA`, `LONCHEADO`, `SOBRES`, `BOLSAS`.
+- `category`: uno de `ENVIO`, `COMBO`, `HAMBURGUESA`, `PIZZA`, `LONCHEADO`, `SOBRES`, `BOLSAS`, `VASOS`, `TARTAS`.
 - `letter`: ubicacion fisica alfanumerica como `D1` o `F3`. Se guarda en mayusculas.
 - `year`: entero entre `1900` y `9999`.
 
@@ -142,5 +142,70 @@ GET /cliches/categories
 Respuesta `200 OK`:
 
 ```json
-["ENVIO", "COMBO", "HAMBURGUESA", "PIZZA", "LONCHEADO", "SOBRES", "BOLSAS"]
+[
+  "ENVIO",
+  "COMBO",
+  "HAMBURGUESA",
+  "PIZZA",
+  "LONCHEADO",
+  "SOBRES",
+  "BOLSAS",
+  "VASOS",
+  "TARTAS"
+]
+```
+
+## Localizar cliches desde un plan de produccion
+
+Procesa un PDF de fabricacion y cruza el nombre de cada cliente con todos los
+cliches que tengan el mismo nombre normalizado. No almacena el archivo.
+
+```http
+POST /cliches/production-plan
+Authorization: Bearer <access_token>
+Content-Type: multipart/form-data
+
+file=<production-plan.pdf>
+```
+
+Restricciones:
+
+- Roles permitidos: `ADMIN` y `FACTORY`.
+- Tamano maximo: 10 MB.
+- El contenido debe tener firma PDF valida.
+- Las filas repetidas para el mismo cliente, maquina y fecha se devuelven una sola vez.
+- Las paginas sin numero de maquina se devuelven como `SIN_MAQUINA`.
+
+Respuesta `201 Created`:
+
+```json
+{
+  "document": {
+    "fileName": "fabricacion.pdf",
+    "pageCount": 8
+  },
+  "summary": {
+    "totalEntries": 82,
+    "matchedEntries": 60,
+    "unmatchedEntries": 22
+  },
+  "entries": [
+    {
+      "machineNumber": 1,
+      "machineLabel": "MAQUINA_1",
+      "date": "2026-06-15",
+      "dayOfWeek": "lunes",
+      "clientName": "MINJI",
+      "matches": [
+        {
+          "id": "e312d42f-7960-4cd0-b609-f56502823137",
+          "name": "MINJI",
+          "category": "TARTAS",
+          "year": 2025,
+          "letter": "D1"
+        }
+      ]
+    }
+  ]
+}
 ```

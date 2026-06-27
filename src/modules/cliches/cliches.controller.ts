@@ -9,13 +9,18 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Role } from '@prisma/client';
+import { memoryStorage } from 'multer';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ClichesService } from './cliches.service';
+import { ClicheProductionService } from './cliche-production.service';
 import {
   ClicheIdParamDto,
   CreateClicheDto,
@@ -27,11 +32,25 @@ import {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.ADMIN, Role.FACTORY)
 export class ClichesController {
-  constructor(private readonly cliches: ClichesService) {}
+  constructor(
+    private readonly cliches: ClichesService,
+    private readonly production: ClicheProductionService,
+  ) {}
 
   @Post()
   create(@Body() dto: CreateClicheDto) {
     return this.cliches.create(dto);
+  }
+
+  @Post('production-plan')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  importProductionPlan(@UploadedFile() file?: Express.Multer.File) {
+    return this.production.importPdf(file);
   }
 
   @Get('categories')

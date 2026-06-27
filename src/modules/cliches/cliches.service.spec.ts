@@ -102,4 +102,10 @@ describe('ClichesService', () => {
       deleted: true,
     });
   });
+
+  it('exposes every supported manufacturing category', () => {
+    expect(service.getCategories()).toEqual(
+      expect.arrayContaining([ClicheCategory.VASOS, ClicheCategory.TARTAS]),
+    );
+  });
 });
