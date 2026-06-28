@@ -16,6 +16,11 @@ type AnnotatorInternals = {
     y: number;
   }>;
   formatLocation(matches: ClicheLocationMatch[]): string;
+  findDailyInsertions(items: TextItem[]): Array<{
+    splitY: number;
+    dayLabel: string;
+    clients: string[];
+  }>;
 };
 
 function item(str: string, x: number, y: number): TextItem {
@@ -68,5 +73,26 @@ describe('ProductionPdfAnnotatorService', () => {
       'Pizza, 2025, D1 | Vasos, 2026, F3',
     );
     expect(service.formatLocation([])).toBe('No encontrado');
+  });
+
+  it('places the daily table after the material summary without adding quantities to clients', () => {
+    const insertions = service.findDailyInsertions([
+      item('lunes 15 de junio de 2026', 235, 760),
+      item('CAJA PIZZA', 26, 731.5),
+      item('CLIENTE UNO', 352.5, 731.5),
+      item('1.000', 559.5, 731.5),
+      item('RESUMEN', 232, 600),
+      item('DE MATERIALES', 288.5, 600),
+      item('CAJA PIZZA', 102, 570),
+      item('1.000', 479, 570),
+    ]);
+
+    expect(insertions).toEqual([
+      {
+        splitY: 561.5,
+        dayLabel: 'lunes 15 de junio de 2026',
+        clients: ['CLIENTE UNO'],
+      },
+    ]);
   });
 });
