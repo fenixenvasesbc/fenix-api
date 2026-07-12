@@ -4,6 +4,7 @@ import { Observable, Subject } from 'rxjs';
 import { RabbitmqService } from '../rabbitmq/rabbitmq.service';
 import type { ChatEvent, PublishChatEventInput } from './chat-event.types';
 import { PrismaService } from '../../prisma/prisma.service';
+import { withLeadDisplayName } from '../../common/utils/lead-name';
 
 @Injectable()
 export class ChatEventsService {
@@ -101,7 +102,12 @@ export class ChatEventsService {
       ]);
 
       if (message) payload.message = message;
-      if (conversation) payload.conversation = conversation;
+      if (conversation) {
+        payload.conversation = {
+          ...conversation,
+          lead: withLeadDisplayName(conversation.lead),
+        };
+      }
     } catch (error) {
       this.logger.warn(
         `Could not enrich chat event type=${input.type} accountId=${input.accountId} error=${String(error)}`,

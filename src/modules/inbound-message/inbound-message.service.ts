@@ -14,6 +14,7 @@ import {
   YCloudInboundPayload,
 } from 'src/common/types/ycloud-inbound';
 import { LeadLanguageResolverService } from 'src/common/utils/lead-language-resolver.service';
+import { normalizeLeadName } from 'src/common/utils/lead-name';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ConversationService } from '../conversation/conversation.service';
 import { ChatEventsService } from '../chat-events/chat-events.service';
@@ -62,6 +63,7 @@ export class InboundMessageService {
 
     const inboundAt =
       inbound.providerSendTime ?? inbound.providerCreateTime ?? new Date();
+    const whatsappProfileName = normalizeLeadName(inbound.senderName);
 
     const result = await this.prisma.$transaction(async (tx) => {
       const lead = await tx.lead.upsert({
@@ -74,7 +76,8 @@ export class InboundMessageService {
         create: {
           accountId: account.id,
           phoneE164: inbound.from,
-          name: inbound.senderName ?? undefined,
+          name: whatsappProfileName ?? undefined,
+          whatsappProfileName: whatsappProfileName ?? undefined,
           whatsappUserId: inbound.fromUserId ?? undefined,
           whatsappParentUserId: inbound.fromParentUserId ?? undefined,
           whatsappUsername: inbound.senderUsername ?? undefined,
@@ -87,7 +90,7 @@ export class InboundMessageService {
         },
         update: {
           status: LeadStatus.RESPONDED,
-          name: inbound.senderName ?? undefined,
+          whatsappProfileName: whatsappProfileName ?? undefined,
           whatsappUserId: inbound.fromUserId ?? undefined,
           whatsappParentUserId: inbound.fromParentUserId ?? undefined,
           whatsappUsername: inbound.senderUsername ?? undefined,
@@ -179,7 +182,7 @@ export class InboundMessageService {
           senderWhatsAppUserId: inbound.fromUserId ?? null,
           senderParentUserId: inbound.fromParentUserId ?? null,
           customerUsername: inbound.senderUsername ?? null,
-          customerDisplayName: inbound.senderName ?? null,
+          customerDisplayName: whatsappProfileName,
           ycloudMessageId: inbound.ycloudMessageId,
           wamid: inbound.wamid,
           contextWamid: inbound.contextWamid,
@@ -215,7 +218,7 @@ export class InboundMessageService {
           senderWhatsAppUserId: inbound.fromUserId ?? undefined,
           senderParentUserId: inbound.fromParentUserId ?? undefined,
           customerUsername: inbound.senderUsername ?? undefined,
-          customerDisplayName: inbound.senderName ?? undefined,
+          customerDisplayName: whatsappProfileName ?? undefined,
           rawPayload: inbound.rawPayload as Prisma.InputJsonValue,
           responseToId: responseTo?.id ?? undefined,
           respondedAt: inboundAt,
@@ -481,7 +484,7 @@ export class InboundMessageService {
       wabaId: msg.wabaId,
       from: msg.from,
       to: msg.to,
-      senderName: msg.customerProfile?.name ?? null,
+      senderName: normalizeLeadName(msg.customerProfile?.name),
       senderUsername: msg.customerProfile?.username ?? null,
       fromUserId: msg.fromUserId ?? null,
       fromParentUserId: msg.fromParentUserId ?? null,

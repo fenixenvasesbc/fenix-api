@@ -132,6 +132,8 @@ model Account {
 model Lead {
   id                   String     @id @default(uuid())
   name                 String?
+  ycloudNickname       String?
+  whatsappProfileName  String?
   phoneE164            String
   email                String?
   status               LeadStatus @default(NEW)

@@ -15,6 +15,7 @@ import {
 } from '@prisma/client';
 import { ChatEventsService } from '../chat-events/chat-events.service';
 import { ConversationService } from '../conversation/conversation.service';
+import { normalizeLeadName } from 'src/common/utils/lead-name';
 
 @Injectable()
 export class MessageStatusService {
@@ -309,6 +310,9 @@ export class MessageStatusService {
       : providerCreateTime;
     const outboundAt =
       providerSendTime ?? providerCreateTime ?? providerUpdateTime;
+    const whatsappProfileName = normalizeLeadName(
+      whatsappMessage.customerProfile?.name,
+    );
 
     return this.prisma.$transaction(async (tx) => {
       const lead = await tx.lead.upsert({
@@ -321,7 +325,8 @@ export class MessageStatusService {
         create: {
           accountId: account.id,
           phoneE164: to,
-          name: whatsappMessage.customerProfile?.name ?? undefined,
+          name: whatsappProfileName ?? undefined,
+          whatsappProfileName: whatsappProfileName ?? undefined,
           whatsappUserId: whatsappMessage.recipientUserId ?? undefined,
           whatsappParentUserId:
             whatsappMessage.parentRecipientUserId ?? undefined,
@@ -333,7 +338,7 @@ export class MessageStatusService {
           lastMessageAt: outboundAt,
         },
         update: {
-          name: whatsappMessage.customerProfile?.name ?? undefined,
+          whatsappProfileName: whatsappProfileName ?? undefined,
           whatsappUserId: whatsappMessage.recipientUserId ?? undefined,
           whatsappParentUserId:
             whatsappMessage.parentRecipientUserId ?? undefined,

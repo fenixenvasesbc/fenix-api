@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { LeadLabel, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { withLeadDisplayName } from 'src/common/utils/lead-name';
 import { ChatEventsService } from '../chat-events/chat-events.service';
 
 type ListLeadsInput = {
@@ -58,6 +59,13 @@ export class LeadsService {
       ...(search
         ? {
             OR: [
+              { ycloudNickname: { contains: search, mode: 'insensitive' } },
+              {
+                whatsappProfileName: {
+                  contains: search,
+                  mode: 'insensitive',
+                },
+              },
               { name: { contains: search, mode: 'insensitive' } },
               { phoneE164: { contains: search, mode: 'insensitive' } },
               { email: { contains: search, mode: 'insensitive' } },
@@ -137,7 +145,8 @@ export class LeadsService {
     });
 
     const hasMore = leads.length > limit;
-    const data = hasMore ? leads.slice(0, limit) : leads;
+    const page = hasMore ? leads.slice(0, limit) : leads;
+    const data = page.map(withLeadDisplayName);
 
     return {
       data,
@@ -276,7 +285,7 @@ export class LeadsService {
       },
     });
 
-    return result;
+    return { ...result, lead: withLeadDisplayName(result.lead) };
   }
 
   async getHistory(accountId: string, leadId: string) {
@@ -290,7 +299,7 @@ export class LeadsService {
   }
 
   async listDueRepetitionReminders(accountId: string, limit: number) {
-    return this.prisma.leadRepetitionReminder.findMany({
+    const reminders = await this.prisma.leadRepetitionReminder.findMany({
       where: {
         accountId,
         dueAt: {
@@ -307,6 +316,11 @@ export class LeadsService {
         },
       },
     });
+
+    return reminders.map((reminder) => ({
+      ...reminder,
+      lead: withLeadDisplayName(reminder.lead),
+    }));
   }
 
   async markRepetitionReminderSent(accountId: string, reminderId: string) {
@@ -362,7 +376,7 @@ export class LeadsService {
     }
 
     return {
-      lead,
+      lead: withLeadDisplayName(lead),
       labelHistoryId: null,
       repetitionReminderId: null,
       nextRepetitionReminderAt: lead.nextRepetitionReminderAt,
@@ -432,6 +446,8 @@ export class LeadsService {
       id: true,
       accountId: true,
       name: true,
+      ycloudNickname: true,
+      whatsappProfileName: true,
       phoneE164: true,
       email: true,
       status: true,

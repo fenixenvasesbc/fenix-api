@@ -14,14 +14,20 @@ describe('ConversationService pagination', () => {
 
   it('returns a stable cursor and removes the extra row', async () => {
     const cursorDate = new Date('2026-06-24T10:00:00.000Z');
+    const lead = {
+      ycloudNickname: null,
+      whatsappProfileName: 'Cliente',
+      name: null,
+      phoneE164: '+34600000000',
+    };
     prisma.conversation.findFirst.mockResolvedValue({
       id: '33333333-3333-4333-8333-333333333333',
       lastMessageAt: cursorDate,
     });
     prisma.conversation.findMany.mockResolvedValue([
-      { id: 'conversation-1' },
-      { id: 'conversation-2' },
-      { id: 'conversation-3' },
+      { id: 'conversation-1', lead },
+      { id: 'conversation-2', lead },
+      { id: 'conversation-3', lead },
     ]);
 
     const result = await service.listByAccount({
@@ -31,7 +37,24 @@ describe('ConversationService pagination', () => {
     });
 
     expect(result).toEqual({
-      data: [{ id: 'conversation-1' }, { id: 'conversation-2' }],
+      data: [
+        {
+          id: 'conversation-1',
+          lead: {
+            ...lead,
+            displayName: 'Cliente',
+            displayNameSource: 'WHATSAPP_PROFILE',
+          },
+        },
+        {
+          id: 'conversation-2',
+          lead: {
+            ...lead,
+            displayName: 'Cliente',
+            displayNameSource: 'WHATSAPP_PROFILE',
+          },
+        },
+      ],
       pageInfo: { hasMore: true, nextBefore: 'conversation-2' },
     });
     expect(prisma.conversation.findMany).toHaveBeenCalledWith(

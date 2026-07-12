@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { MessageDirection, Prisma } from '@prisma/client';
+import { MessageDirection } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { withLeadDisplayName } from 'src/common/utils/lead-name';
 
 type GetLeadMessagesInput = {
   accountId: string;
@@ -31,6 +32,8 @@ export class MessageService {
         id: true,
         accountId: true,
         name: true,
+        ycloudNickname: true,
+        whatsappProfileName: true,
         phoneE164: true,
         email: true,
         status: true,
@@ -182,7 +185,7 @@ export class MessageService {
     const oldestMessage = orderedMessages[0] ?? null;
 
     return {
-      lead,
+      lead: withLeadDisplayName(lead),
       conversation: conversation
         ? {
             id: conversation.id,
@@ -224,6 +227,18 @@ export class MessageService {
           ? {
               lead: {
                 OR: [
+                  {
+                    ycloudNickname: {
+                      contains: search,
+                      mode: 'insensitive',
+                    },
+                  },
+                  {
+                    whatsappProfileName: {
+                      contains: search,
+                      mode: 'insensitive',
+                    },
+                  },
                   {
                     name: {
                       contains: search,
@@ -279,6 +294,8 @@ export class MessageService {
             id: true,
             accountId: true,
             name: true,
+            ycloudNickname: true,
+            whatsappProfileName: true,
             phoneE164: true,
             email: true,
             status: true,
@@ -329,7 +346,7 @@ export class MessageService {
 
     return {
       data: conversations.map((conversation) => ({
-        lead: conversation.lead,
+        lead: withLeadDisplayName(conversation.lead),
         conversation: {
           id: conversation.id,
           channel: conversation.channel,

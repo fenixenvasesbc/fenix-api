@@ -1,6 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, MessageDirection, MessageStatus, MessageType, LeadStatus } from '@prisma/client';
+import {
+  Prisma,
+  MessageDirection,
+  MessageStatus,
+  MessageType,
+  LeadStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { normalizeLeadName } from '../../common/utils/lead-name';
 import { YCloudOutboundAcceptedDto } from './dto/ycloud-outbound-accepted.dto';
 import { YCloudInboundReceivedDto } from './dto/ycloud-inbound-received.dto';
 
@@ -13,24 +20,37 @@ export class EventsService {
   // -------------------------
   private mapStatus(status?: string): MessageStatus {
     switch ((status || '').toLowerCase()) {
-      case 'accepted': return MessageStatus.ACCEPTED;
-      case 'sent': return MessageStatus.SENT;
-      case 'delivered': return MessageStatus.DELIVERED;
-      case 'read': return MessageStatus.READ;
-      case 'failed': return MessageStatus.FAILED;
-      default: return MessageStatus.UNKNOWN;
+      case 'accepted':
+        return MessageStatus.ACCEPTED;
+      case 'sent':
+        return MessageStatus.SENT;
+      case 'delivered':
+        return MessageStatus.DELIVERED;
+      case 'read':
+        return MessageStatus.READ;
+      case 'failed':
+        return MessageStatus.FAILED;
+      default:
+        return MessageStatus.UNKNOWN;
     }
   }
 
   private mapType(type?: string): MessageType {
     switch ((type || '').toLowerCase()) {
-      case 'template': return MessageType.TEMPLATE;
-      case 'text': return MessageType.TEXT;
-      case 'image': return MessageType.IMAGE;
-      case 'audio': return MessageType.AUDIO;
-      case 'video': return MessageType.VIDEO;
-      case 'document': return MessageType.DOCUMENT;
-      default: return MessageType.UNKNOWN;
+      case 'template':
+        return MessageType.TEMPLATE;
+      case 'text':
+        return MessageType.TEXT;
+      case 'image':
+        return MessageType.IMAGE;
+      case 'audio':
+        return MessageType.AUDIO;
+      case 'video':
+        return MessageType.VIDEO;
+      case 'document':
+        return MessageType.DOCUMENT;
+      default:
+        return MessageType.UNKNOWN;
     }
   }
 
@@ -72,15 +92,22 @@ export class EventsService {
     return Number.isNaN(d.getTime()) ? null : d;
   }
 
-  private extractInboundMedia(msg: any): { mediaUrl: string | null; caption: string | null } {
+  private extractInboundMedia(msg: any): {
+    mediaUrl: string | null;
+    caption: string | null;
+  } {
     const t = (msg?.type || '').toLowerCase();
 
     const media =
-      t === 'image' ? msg?.image :
-      t === 'video' ? msg?.video :
-      t === 'audio' ? msg?.audio :
-      t === 'document' ? msg?.document :
-      null;
+      t === 'image'
+        ? msg?.image
+        : t === 'video'
+          ? msg?.video
+          : t === 'audio'
+            ? msg?.audio
+            : t === 'document'
+              ? msg?.document
+              : null;
 
     const mediaUrl = media?.link ?? null;
     const caption = media?.caption ?? null;
@@ -93,7 +120,9 @@ export class EventsService {
   // -------------------------
   async registerOutboundAccepted(body: YCloudOutboundAcceptedDto) {
     const account = await this.prisma.account.findUnique({
-      where: { wabaId_phoneE164: { wabaId: body.wabaId, phoneE164: body.from } },
+      where: {
+        wabaId_phoneE164: { wabaId: body.wabaId, phoneE164: body.from },
+      },
       select: { id: true },
     });
     if (!account) {
@@ -102,8 +131,12 @@ export class EventsService {
       );
     }
 
-    const providerCreateTime = body.createTime ? new Date(body.createTime) : null;
-    const providerUpdateTime = body.updateTime ? new Date(body.updateTime) : null;
+    const providerCreateTime = body.createTime
+      ? new Date(body.createTime)
+      : null;
+    const providerUpdateTime = body.updateTime
+      ? new Date(body.updateTime)
+      : null;
     const firstOutboundTemplateName = body.template?.name ?? null;
 
     const nameFromInput = (body.leadName ?? '').trim();
@@ -149,13 +182,13 @@ export class EventsService {
       }
 
       const existingName = (existingLead.name ?? '').trim();
-      
+
       if (existingName.length === 0) {
         data.name = leadNameFinal;
       }
 
       const existingEmail = (existingLead.email ?? '').trim();
-      if ((existingEmail.length === 0) && leadEmailFinal) {
+      if (existingEmail.length === 0 && leadEmailFinal) {
         data.email = leadEmailFinal;
       }
 
@@ -249,12 +282,15 @@ export class EventsService {
     const providerCreateTime = this.pickIsoToDate(body.createTime) ?? null;
     const providerSendTime = this.pickIsoToDate(msg.sendTime) ?? null;
 
-    const inboundName = (msg.customerProfile?.name ?? '').trim();
+    const inboundName = normalizeLeadName(msg.customerProfile?.name);
     const leadNameFallback = customerPhone; // si no hay nombre, al menos queda el teléfono
 
     const existingLead = await this.prisma.lead.findUnique({
       where: {
-        accountId_phoneE164: { accountId: account.id, phoneE164: customerPhone },
+        accountId_phoneE164: {
+          accountId: account.id,
+          phoneE164: customerPhone,
+        },
       },
       select: { id: true, name: true, firstInboundAt: true, status: true },
     });
@@ -266,7 +302,8 @@ export class EventsService {
         data: {
           accountId: account.id,
           phoneE164: customerPhone,
-          name: inboundName.length > 0 ? inboundName : leadNameFallback,
+          name: inboundName ?? leadNameFallback,
+          whatsappProfileName: inboundName ?? undefined,
           status: LeadStatus.RESPONDED,
           firstInboundAt: providerSendTime ?? providerCreateTime ?? new Date(),
         },
@@ -280,7 +317,8 @@ export class EventsService {
 
       // firstInboundAt solo si está null
       if (!existingLead.firstInboundAt) {
-        leadUpdate.firstInboundAt = providerSendTime ?? providerCreateTime ?? new Date();
+        leadUpdate.firstInboundAt =
+          providerSendTime ?? providerCreateTime ?? new Date();
       }
 
       // status: al primer inbound, pasa a RESPONDED (si todavía está NEW)
@@ -288,14 +326,21 @@ export class EventsService {
         leadUpdate.status = LeadStatus.RESPONDED;
       }
 
+      if (inboundName) {
+        leadUpdate.whatsappProfileName = inboundName;
+      }
+
       // name: si está vacío y llega customerProfile.name
       const existingName = (existingLead.name ?? '').trim();
       if (existingName.length === 0) {
-        leadUpdate.name = inboundName.length > 0 ? inboundName : leadNameFallback;
+        leadUpdate.name = inboundName ?? leadNameFallback;
       }
 
       if (Object.keys(leadUpdate).length > 0) {
-        await this.prisma.lead.update({ where: { id: leadId }, data: leadUpdate });
+        await this.prisma.lead.update({
+          where: { id: leadId },
+          data: leadUpdate,
+        });
       }
     }
 

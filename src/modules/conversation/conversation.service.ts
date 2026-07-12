@@ -6,6 +6,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { withLeadDisplayName } from '../../common/utils/lead-name';
 
 type TouchInboundConversationInput = {
   accountId: string;
@@ -313,7 +314,7 @@ export class ConversationService {
   }
 
   async getByLead(accountId: string, leadId: string) {
-    return this.prisma.conversation.findUnique({
+    const conversation = await this.prisma.conversation.findUnique({
       where: {
         accountId_leadId_channel: {
           accountId,
@@ -328,6 +329,10 @@ export class ConversationService {
         lastOutboundMessage: true,
       },
     });
+
+    return conversation
+      ? { ...conversation, lead: withLeadDisplayName(conversation.lead) }
+      : null;
   }
 
   async listByAccount(params: {
@@ -372,6 +377,18 @@ export class ConversationService {
                 ...(search
                   ? {
                       OR: [
+                        {
+                          ycloudNickname: {
+                            contains: search,
+                            mode: 'insensitive',
+                          },
+                        },
+                        {
+                          whatsappProfileName: {
+                            contains: search,
+                            mode: 'insensitive',
+                          },
+                        },
                         { name: { contains: search, mode: 'insensitive' } },
                         {
                           phoneE164: { contains: search, mode: 'insensitive' },
@@ -418,7 +435,11 @@ export class ConversationService {
     });
 
     const hasMore = conversations.length > limit;
-    const data = hasMore ? conversations.slice(0, limit) : conversations;
+    const page = hasMore ? conversations.slice(0, limit) : conversations;
+    const data = page.map((conversation) => ({
+      ...conversation,
+      lead: withLeadDisplayName(conversation.lead),
+    }));
 
     return {
       data,
