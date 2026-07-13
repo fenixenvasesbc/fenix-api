@@ -7,6 +7,7 @@ import type {
 } from 'src/common/types/ycloud-smb-app-state-sync.dto';
 import { normalizeLeadName } from 'src/common/utils/lead-name';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { ChatEventsService } from '../chat-events/chat-events.service';
 
 type ProcessSummary = {
   updated: number;
@@ -20,7 +21,10 @@ type ProcessSummary = {
 export class SmbStateSyncService {
   private readonly logger = new Logger(SmbStateSyncService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly chatEvents: ChatEventsService,
+  ) {}
 
   async process(job: WebhookInboxJob): Promise<void> {
     this.logger.log(
@@ -148,6 +152,14 @@ export class SmbStateSyncService {
         },
       });
 
+      await this.publishLeadUpdated({
+        accountId: input.accountId,
+        leadId: lead.id,
+        providerEventId: input.providerEventId,
+        source: 'whatsapp.smb.app.state.sync',
+        action,
+      });
+
       input.summary.removed += 1;
       return;
     }
@@ -204,7 +216,35 @@ export class SmbStateSyncService {
       data: updateData,
     });
 
+    await this.publishLeadUpdated({
+      accountId: input.accountId,
+      leadId: lead.id,
+      providerEventId: input.providerEventId,
+      source: 'whatsapp.smb.app.state.sync',
+      action,
+    });
+
     input.summary.updated += 1;
+  }
+
+  private async publishLeadUpdated(input: {
+    accountId: string;
+    leadId: string;
+    providerEventId: string;
+    source: string;
+    action: string | null;
+  }) {
+    await this.chatEvents.publish({
+      type: 'conversation.updated',
+      accountId: input.accountId,
+      leadId: input.leadId,
+      payload: {
+        source: input.source,
+        providerEventId: input.providerEventId,
+        action: input.action,
+        reason: 'lead.contact_name.updated',
+      },
+    });
   }
 
   private parseEvent(payload: unknown): YCloudSmbAppStateSyncPayload {

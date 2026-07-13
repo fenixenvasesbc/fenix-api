@@ -9,6 +9,7 @@ import type {
 import { normalizeLeadName } from 'src/common/utils/lead-name';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CredentialCryptoService } from '../credentials/credential-crypto.service';
+import { ChatEventsService } from '../chat-events/chat-events.service';
 
 type ActiveCredential = {
   accountId: string;
@@ -33,6 +34,7 @@ export class ContactAttributesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cryptoService: CredentialCryptoService,
+    private readonly chatEvents: ChatEventsService,
   ) {}
 
   async process(job: WebhookInboxJob): Promise<void> {
@@ -161,6 +163,18 @@ export class ContactAttributesService {
     await this.prisma.lead.update({
       where: { id: lead.id },
       data: updateData,
+    });
+
+    await this.chatEvents.publish({
+      type: 'conversation.updated',
+      accountId: lookup.accountId,
+      leadId: lead.id,
+      payload: {
+        source: 'contact.attributes_changed',
+        providerEventId: job.providerEventId,
+        updatedFields: Object.keys(updateData),
+        reason: 'lead.contact_name.updated',
+      },
     });
 
     await this.markProcessed(job, {

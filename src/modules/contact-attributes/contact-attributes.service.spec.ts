@@ -37,6 +37,9 @@ describe('ContactAttributesService', () => {
   };
 
   const buildService = () => {
+    const chatEvents = {
+      publish: jest.fn().mockResolvedValue(undefined),
+    };
     const prisma = {
       webhookEvent: {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -60,9 +63,10 @@ describe('ContactAttributesService', () => {
     const service = new ContactAttributesService(
       prisma as never,
       cryptoService as never,
+      chatEvents as never,
     );
 
-    return { service, prisma, cryptoService };
+    return { service, prisma, cryptoService, chatEvents };
   };
 
   beforeEach(() => {
@@ -79,7 +83,7 @@ describe('ContactAttributesService', () => {
   });
 
   it('updates only ycloudNickname when nickname changed and the lead exists', async () => {
-    const { service, prisma } = buildService();
+    const { service, prisma, chatEvents } = buildService();
 
     await service.process(job);
 
@@ -100,6 +104,17 @@ describe('ContactAttributesService', () => {
       where: { id: 'lead-1' },
       data: { ycloudNickname: 'Cliente Agenda' },
     });
+    expect(chatEvents.publish).toHaveBeenCalledWith({
+      type: 'conversation.updated',
+      accountId: 'account-1',
+      leadId: 'lead-1',
+      payload: {
+        source: 'contact.attributes_changed',
+        providerEventId: 'evt_1',
+        updatedFields: ['ycloudNickname'],
+        reason: 'lead.contact_name.updated',
+      },
+    });
     expect(prisma.webhookEvent.updateMany).toHaveBeenLastCalledWith({
       where: { providerEventId: 'evt_1' },
       data: {
@@ -113,7 +128,7 @@ describe('ContactAttributesService', () => {
   });
 
   it('does not overwrite when the nickname newValue is empty', async () => {
-    const { service, prisma } = buildService();
+    const { service, prisma, chatEvents } = buildService();
 
     await service.process({
       ...job,
@@ -133,6 +148,7 @@ describe('ContactAttributesService', () => {
 
     expect(mockedAxios.get).not.toHaveBeenCalled();
     expect(prisma.lead.update).not.toHaveBeenCalled();
+    expect(chatEvents.publish).not.toHaveBeenCalled();
     expect(prisma.webhookEvent.updateMany).toHaveBeenLastCalledWith({
       where: { providerEventId: 'evt_1' },
       data: {

@@ -36,6 +36,9 @@ describe('SmbStateSyncService', () => {
   };
 
   const buildService = () => {
+    const chatEvents = {
+      publish: jest.fn().mockResolvedValue(undefined),
+    };
     const prisma = {
       webhookEvent: {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -57,12 +60,13 @@ describe('SmbStateSyncService', () => {
 
     return {
       prisma,
-      service: new SmbStateSyncService(prisma as never),
+      chatEvents,
+      service: new SmbStateSyncService(prisma as never, chatEvents as never),
     };
   };
 
   it('updates contact name and WhatsApp identifiers from SMB state sync', async () => {
-    const { service, prisma } = buildService();
+    const { service, prisma, chatEvents } = buildService();
 
     await service.process(job);
 
@@ -99,6 +103,17 @@ describe('SmbStateSyncService', () => {
         whatsappUsername: '@Joejoe',
       },
     });
+    expect(chatEvents.publish).toHaveBeenCalledWith({
+      type: 'conversation.updated',
+      accountId: 'account-1',
+      leadId: 'lead-1',
+      payload: {
+        source: 'whatsapp.smb.app.state.sync',
+        providerEventId: 'evt_6a54b78594f7fc5f9b9c0ea5',
+        action: 'add',
+        reason: 'lead.contact_name.updated',
+      },
+    });
     expect(prisma.webhookEvent.updateMany).toHaveBeenLastCalledWith({
       where: { providerEventId: 'evt_6a54b78594f7fc5f9b9c0ea5' },
       data: {
@@ -111,7 +126,7 @@ describe('SmbStateSyncService', () => {
   });
 
   it('clears whatsappContactName when the contact is removed from the SMB agenda', async () => {
-    const { service, prisma } = buildService();
+    const { service, prisma, chatEvents } = buildService();
     prisma.lead.findUnique.mockResolvedValue({
       id: 'lead-1',
       whatsappContactName: 'CUSTOMER-FULL-NAME',
@@ -148,6 +163,17 @@ describe('SmbStateSyncService', () => {
       where: { id: 'lead-1' },
       data: {
         whatsappContactName: null,
+      },
+    });
+    expect(chatEvents.publish).toHaveBeenCalledWith({
+      type: 'conversation.updated',
+      accountId: 'account-1',
+      leadId: 'lead-1',
+      payload: {
+        source: 'whatsapp.smb.app.state.sync',
+        providerEventId: 'evt_6a54b78594f7fc5f9b9c0ea5',
+        action: 'remove',
+        reason: 'lead.contact_name.updated',
       },
     });
   });
