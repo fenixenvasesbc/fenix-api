@@ -378,6 +378,12 @@ export class ConversationService {
                   ? {
                       OR: [
                         {
+                          whatsappContactName: {
+                            contains: search,
+                            mode: 'insensitive',
+                          },
+                        },
+                        {
                           ycloudNickname: {
                             contains: search,
                             mode: 'insensitive',

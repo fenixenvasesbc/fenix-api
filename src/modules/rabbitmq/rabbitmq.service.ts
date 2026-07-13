@@ -97,6 +97,29 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     const qDead = process.env.RABBITMQ_QUEUE_DEAD;
     const qInbound = process.env.RABBITMQ_QUEUE_INBOUND;
     const qMessageUpdated = process.env.RABBITMQ_QUEUE_MESSAGE_UPDATED;
+    const qContactAttributesChanged =
+      process.env.RABBITMQ_QUEUE_CONTACT_ATTRIBUTES_CHANGED ??
+      'ycloud.contact_attributes_changed';
+    const qContactAttributesRetry10s =
+      process.env.RABBITMQ_QUEUE_CONTACT_ATTRIBUTES_RETRY_10S ??
+      'q_contact_attributes_retry_10s';
+    const qContactAttributesRetry1m =
+      process.env.RABBITMQ_QUEUE_CONTACT_ATTRIBUTES_RETRY_1M ??
+      'q_contact_attributes_retry_1m';
+    const qContactAttributesRetry10m =
+      process.env.RABBITMQ_QUEUE_CONTACT_ATTRIBUTES_RETRY_10M ??
+      'q_contact_attributes_retry_10m';
+    const qSmbStateSync =
+      process.env.RABBITMQ_QUEUE_SMB_STATE_SYNC ?? 'q_smb_state_sync';
+    const qSmbStateSyncRetry10s =
+      process.env.RABBITMQ_QUEUE_SMB_STATE_SYNC_RETRY_10S ??
+      'q_smb_state_sync_retry_10s';
+    const qSmbStateSyncRetry1m =
+      process.env.RABBITMQ_QUEUE_SMB_STATE_SYNC_RETRY_1M ??
+      'q_smb_state_sync_retry_1m';
+    const qSmbStateSyncRetry10m =
+      process.env.RABBITMQ_QUEUE_SMB_STATE_SYNC_RETRY_10M ??
+      'q_smb_state_sync_retry_10m';
     const qChatEvents =
       process.env.RABBITMQ_QUEUE_CHAT_EVENTS ?? 'chat.events.api';
     const qReengagement = process.env.RABBITMQ_QUEUE_REENGAGEMENT;
@@ -109,6 +132,29 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
 
     const rkInbound = process.env.RABBITMQ_RK_INBOUND;
     const rkMessageUpdated = process.env.RABBITMQ_RK_MESSAGE_UPDATED;
+    const rkContactAttributesChanged =
+      process.env.RABBITMQ_RK_CONTACT_ATTRIBUTES_CHANGED ??
+      'ycloud.contact.attributes_changed';
+    const rkContactAttributesRetry10s =
+      process.env.RABBITMQ_RK_CONTACT_ATTRIBUTES_RETRY_10S ??
+      'ycloud.contact.attributes_changed.retry.10s';
+    const rkContactAttributesRetry1m =
+      process.env.RABBITMQ_RK_CONTACT_ATTRIBUTES_RETRY_1M ??
+      'ycloud.contact.attributes_changed.retry.1m';
+    const rkContactAttributesRetry10m =
+      process.env.RABBITMQ_RK_CONTACT_ATTRIBUTES_RETRY_10M ??
+      'ycloud.contact.attributes_changed.retry.10m';
+    const rkSmbStateSync =
+      process.env.RABBITMQ_RK_SMB_STATE_SYNC ?? 'whatsapp.smb.app.state.sync';
+    const rkSmbStateSyncRetry10s =
+      process.env.RABBITMQ_RK_SMB_STATE_SYNC_RETRY_10S ??
+      'whatsapp.smb.app.state.sync.retry.10s';
+    const rkSmbStateSyncRetry1m =
+      process.env.RABBITMQ_RK_SMB_STATE_SYNC_RETRY_1M ??
+      'whatsapp.smb.app.state.sync.retry.1m';
+    const rkSmbStateSyncRetry10m =
+      process.env.RABBITMQ_RK_SMB_STATE_SYNC_RETRY_10M ??
+      'whatsapp.smb.app.state.sync.retry.10m';
     const rkChatEvents = process.env.RABBITMQ_RK_CHAT_EVENTS ?? 'chat.events';
     const rkReengagement = process.env.RABBITMQ_RK_REENGAGEMENT;
     const rkReengagementRetry10s =
@@ -170,6 +216,90 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
 
     await this.ch!.assertQueue(qMessageUpdated!, { durable: true });
     await this.ch!.bindQueue(qMessageUpdated!, exchange!, rkMessageUpdated!);
+
+    await this.ch!.assertQueue(qContactAttributesChanged, { durable: true });
+    await this.ch!.bindQueue(
+      qContactAttributesChanged,
+      exchange!,
+      rkContactAttributesChanged,
+    );
+    await this.ch!.assertQueue(qContactAttributesRetry10s, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 10_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkContactAttributesChanged,
+      },
+    });
+    await this.ch!.bindQueue(
+      qContactAttributesRetry10s,
+      dlx!,
+      rkContactAttributesRetry10s,
+    );
+    await this.ch!.assertQueue(qContactAttributesRetry1m, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 60_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkContactAttributesChanged,
+      },
+    });
+    await this.ch!.bindQueue(
+      qContactAttributesRetry1m,
+      dlx!,
+      rkContactAttributesRetry1m,
+    );
+    await this.ch!.assertQueue(qContactAttributesRetry10m, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 600_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkContactAttributesChanged,
+      },
+    });
+    await this.ch!.bindQueue(
+      qContactAttributesRetry10m,
+      dlx!,
+      rkContactAttributesRetry10m,
+    );
+
+    await this.ch!.assertQueue(qSmbStateSync, { durable: true });
+    await this.ch!.bindQueue(qSmbStateSync, exchange!, rkSmbStateSync);
+    await this.ch!.assertQueue(qSmbStateSyncRetry10s, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 10_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkSmbStateSync,
+      },
+    });
+    await this.ch!.bindQueue(
+      qSmbStateSyncRetry10s,
+      dlx!,
+      rkSmbStateSyncRetry10s,
+    );
+    await this.ch!.assertQueue(qSmbStateSyncRetry1m, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 60_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkSmbStateSync,
+      },
+    });
+    await this.ch!.bindQueue(qSmbStateSyncRetry1m, dlx!, rkSmbStateSyncRetry1m);
+    await this.ch!.assertQueue(qSmbStateSyncRetry10m, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 600_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkSmbStateSync,
+      },
+    });
+    await this.ch!.bindQueue(
+      qSmbStateSyncRetry10m,
+      dlx!,
+      rkSmbStateSyncRetry10m,
+    );
 
     await this.ch!.assertQueue(qChatEvents, { durable: true });
     await this.ch!.bindQueue(qChatEvents, exchange!, rkChatEvents);

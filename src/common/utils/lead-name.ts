@@ -1,4 +1,5 @@
 export type LeadDisplayNameSource =
+  | 'WHATSAPP_CONTACT'
   | 'YCLOUD_NICKNAME'
   | 'WHATSAPP_PROFILE'
   | 'LEGACY_NAME'
@@ -6,6 +7,7 @@ export type LeadDisplayNameSource =
 
 export type LeadNameFields = {
   ycloudNickname: string | null;
+  whatsappContactName: string | null;
   whatsappProfileName: string | null;
   name: string | null;
   phoneE164: string;
@@ -21,6 +23,14 @@ export function resolveLeadDisplayName(lead: LeadNameFields): {
   displayName: string;
   displayNameSource: LeadDisplayNameSource;
 } {
+  const whatsappContactName = normalizeLeadName(lead.whatsappContactName);
+  if (whatsappContactName) {
+    return {
+      displayName: whatsappContactName,
+      displayNameSource: 'WHATSAPP_CONTACT',
+    };
+  }
+
   const ycloudNickname = normalizeLeadName(lead.ycloudNickname);
   if (ycloudNickname) {
     return {

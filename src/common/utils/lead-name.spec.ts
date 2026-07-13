@@ -3,26 +3,37 @@ import { normalizeLeadName, resolveLeadDisplayName } from './lead-name';
 describe('lead name resolver', () => {
   const baseLead = {
     ycloudNickname: null,
+    whatsappContactName: null,
     whatsappProfileName: null,
     name: null,
     phoneE164: '+34600000000',
   };
 
-  it('prioritizes the YCloud nickname', () => {
+  it('prioritizes the WhatsApp agenda name', () => {
     expect(
       resolveLeadDisplayName({
         ...baseLead,
-        ycloudNickname: 'Nombre agenda',
+        whatsappContactName: 'Nombre agenda',
+        ycloudNickname: 'Nickname YCloud',
         whatsappProfileName: 'Perfil WhatsApp',
         name: 'Nombre historico',
       }),
     ).toEqual({
       displayName: 'Nombre agenda',
-      displayNameSource: 'YCLOUD_NICKNAME',
+      displayNameSource: 'WHATSAPP_CONTACT',
     });
   });
 
-  it('falls back through profile, legacy name and phone', () => {
+  it('falls back through YCloud nickname, profile, legacy name and phone', () => {
+    expect(
+      resolveLeadDisplayName({
+        ...baseLead,
+        ycloudNickname: 'Nickname YCloud',
+        whatsappProfileName: 'Perfil WhatsApp',
+        name: 'Nombre historico',
+      }).displayNameSource,
+    ).toBe('YCLOUD_NICKNAME');
+
     expect(
       resolveLeadDisplayName({
         ...baseLead,

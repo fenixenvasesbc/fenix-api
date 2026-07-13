@@ -33,6 +33,7 @@ export class MessageService {
         accountId: true,
         name: true,
         ycloudNickname: true,
+        whatsappContactName: true,
         whatsappProfileName: true,
         phoneE164: true,
         email: true,
@@ -228,6 +229,12 @@ export class MessageService {
               lead: {
                 OR: [
                   {
+                    whatsappContactName: {
+                      contains: search,
+                      mode: 'insensitive',
+                    },
+                  },
+                  {
                     ycloudNickname: {
                       contains: search,
                       mode: 'insensitive',
@@ -295,6 +302,7 @@ export class MessageService {
             accountId: true,
             name: true,
             ycloudNickname: true,
+            whatsappContactName: true,
             whatsappProfileName: true,
             phoneE164: true,
             email: true,

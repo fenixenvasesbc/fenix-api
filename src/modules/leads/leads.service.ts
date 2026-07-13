@@ -59,6 +59,12 @@ export class LeadsService {
       ...(search
         ? {
             OR: [
+              {
+                whatsappContactName: {
+                  contains: search,
+                  mode: 'insensitive',
+                },
+              },
               { ycloudNickname: { contains: search, mode: 'insensitive' } },
               {
                 whatsappProfileName: {
@@ -447,6 +453,7 @@ export class LeadsService {
       accountId: true,
       name: true,
       ycloudNickname: true,
+      whatsappContactName: true,
       whatsappProfileName: true,
       phoneE164: true,
       email: true,

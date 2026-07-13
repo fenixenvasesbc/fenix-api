@@ -133,6 +133,7 @@ model Lead {
   id                   String     @id @default(uuid())
   name                 String?
   ycloudNickname       String?
+  whatsappContactName  String?
   whatsappProfileName  String?
   phoneE164            String
   email                String?

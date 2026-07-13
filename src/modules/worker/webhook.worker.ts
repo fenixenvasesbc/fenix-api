@@ -113,6 +113,23 @@ export class WebhookWorker implements OnModuleInit {
       return;
     }
 
+    if (job.eventType === 'contact.attributes_changed') {
+      await this.rabbit.publish(
+        process.env.RABBITMQ_RK_CONTACT_ATTRIBUTES_CHANGED ??
+          'ycloud.contact.attributes_changed',
+        job,
+      );
+      return;
+    }
+
+    if (job.eventType === 'whatsapp.smb.app.state.sync') {
+      await this.rabbit.publish(
+        process.env.RABBITMQ_RK_SMB_STATE_SYNC ?? 'whatsapp.smb.app.state.sync',
+        job,
+      );
+      return;
+    }
+
     this.logger.warn(
       `No downstream route configured for eventType=${job.eventType} providerEventId=${job.providerEventId}`,
     );

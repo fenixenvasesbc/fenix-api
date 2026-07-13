@@ -11,6 +11,10 @@ import { MessageStatusWorker } from './message-status.worker';
 import { ReengagementModule } from '../reengagement/reengagement.module';
 import { ReengagementWorker } from './ReengagementWorker';
 import { ChatEventsModule } from '../chat-events/chat-events.module';
+import { ContactAttributesModule } from '../contact-attributes/contact-attributes.module';
+import { ContactAttributesWorker } from './contact-attributes.worker';
+import { SmbStateSyncModule } from '../smb-state-sync/smb-state-sync.module';
+import { SmbStateSyncWorker } from './smb-state-sync.worker';
 
 @Module({
   imports: [
@@ -22,12 +26,16 @@ import { ChatEventsModule } from '../chat-events/chat-events.module';
     MessageStatusModule,
     ReengagementModule,
     ChatEventsModule,
+    ContactAttributesModule,
+    SmbStateSyncModule,
   ],
   providers: [
     WebhookWorker,
     InboundMessageWorker,
     MessageStatusWorker,
     ReengagementWorker,
+    ContactAttributesWorker,
+    SmbStateSyncWorker,
   ],
 })
 export class WorkerModule {}
