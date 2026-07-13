@@ -16,11 +16,16 @@ type LeadCandidate = {
   id: string;
   accountId: string | null;
   phoneE164: string;
+  whatsappContactName: string | null;
   ycloudNickname: string | null;
 };
 
 type ContactLookup =
-  | { kind: 'found'; nickname: string | null }
+  | {
+      kind: 'found';
+      whatsappContactName: string | null;
+      ycloudNickname: string | null;
+    }
   | { kind: 'not_found' };
 
 type CredentialResult =
@@ -32,6 +37,7 @@ type Summary = {
   invalidPhone: number;
   credentialErrors: number;
   notFound: number;
+  withoutRemarkName: number;
   withoutNickname: number;
   unchanged: number;
   wouldUpdate: number;
@@ -89,20 +95,69 @@ function nonEmpty(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function extractNickname(payload: unknown): string | null {
+function normalizeKey(key: string): string {
+  return key.replace(/[^a-z0-9]+/gi, '').toLowerCase();
+}
+
+function pickObjectValue(
+  object: Record<string, unknown>,
+  keys: string[],
+): unknown {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(object, key)) {
+      return object[key];
+    }
+  }
+
+  const normalizedKeys = new Set(keys.map(normalizeKey));
+  for (const [key, value] of Object.entries(object)) {
+    if (normalizedKeys.has(normalizeKey(key))) return value;
+  }
+
+  return null;
+}
+
+function objectCandidates(payload: unknown): Record<string, unknown>[] {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    return null;
+    return [];
   }
 
   const root = payload as Record<string, unknown>;
-  const nested =
-    root.data && typeof root.data === 'object' && !Array.isArray(root.data)
-      ? (root.data as Record<string, unknown>)
-      : null;
+  const candidates = [root];
 
-  return nonEmpty(
-    root.nickname ?? root.nickName ?? nested?.nickname ?? nested?.nickName,
-  );
+  for (const key of ['data', 'contact']) {
+    const nested = root[key];
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      candidates.push(nested as Record<string, unknown>);
+    }
+  }
+
+  return candidates;
+}
+
+function extractContactNames(payload: unknown): {
+  whatsappContactName: string | null;
+  ycloudNickname: string | null;
+} {
+  let whatsappContactName: string | null = null;
+  let ycloudNickname: string | null = null;
+
+  for (const object of objectCandidates(payload)) {
+    whatsappContactName ??= nonEmpty(
+      pickObjectValue(object, [
+        'remarkName',
+        'remark_name',
+        'remark name',
+        'fullName',
+        'full_name',
+      ]),
+    );
+    ycloudNickname ??= nonEmpty(
+      pickObjectValue(object, ['nickname', 'nickName', 'nick_name']),
+    );
+  }
+
+  return { whatsappContactName, ycloudNickname };
 }
 
 function providerMessage(response: AxiosResponse): string {
@@ -161,9 +216,11 @@ async function retrieveContact(input: {
       response = receivedResponse;
 
       if (receivedResponse.status === 200) {
+        const names = extractContactNames(receivedResponse.data);
         return {
           kind: 'found',
-          nickname: extractNickname(receivedResponse.data),
+          whatsappContactName: names.whatsappContactName,
+          ycloudNickname: names.ycloudNickname,
         };
       }
 
@@ -224,6 +281,7 @@ function printSummary(summary: Summary, apply: boolean) {
   console.log(`- invalid phones: ${summary.invalidPhone}`);
   console.log(`- skipped by credential error: ${summary.credentialErrors}`);
   console.log(`- contacts not found: ${summary.notFound}`);
+  console.log(`- contacts without remarkName: ${summary.withoutRemarkName}`);
   console.log(`- contacts without nickname: ${summary.withoutNickname}`);
   console.log(`- names already synchronized: ${summary.unchanged}`);
   console.log(`- names that would change: ${summary.wouldUpdate}`);
@@ -257,6 +315,7 @@ async function main() {
     invalidPhone: 0,
     credentialErrors: 0,
     notFound: 0,
+    withoutRemarkName: 0,
     withoutNickname: 0,
     unchanged: 0,
     wouldUpdate: 0,
@@ -359,12 +418,22 @@ async function main() {
       return;
     }
 
-    if (!contact.nickname) {
-      summary.withoutNickname += 1;
-      return;
+    if (!contact.whatsappContactName) {
+      summary.withoutRemarkName += 1;
     }
 
-    if (lead.ycloudNickname === contact.nickname) {
+    if (!contact.ycloudNickname) {
+      summary.withoutNickname += 1;
+    }
+
+    const nextWhatsappContactName =
+      contact.whatsappContactName ?? lead.whatsappContactName;
+    const nextYcloudNickname = contact.ycloudNickname ?? lead.ycloudNickname;
+
+    if (
+      lead.whatsappContactName === nextWhatsappContactName &&
+      lead.ycloudNickname === nextYcloudNickname
+    ) {
       summary.unchanged += 1;
       return;
     }
@@ -373,8 +442,15 @@ async function main() {
     if (!args.apply) return;
 
     const update = await prisma.lead.updateMany({
-      where: { id: lead.id, ycloudNickname: lead.ycloudNickname },
-      data: { ycloudNickname: contact.nickname },
+      where: {
+        id: lead.id,
+        whatsappContactName: lead.whatsappContactName,
+        ycloudNickname: lead.ycloudNickname,
+      },
+      data: {
+        whatsappContactName: nextWhatsappContactName,
+        ycloudNickname: nextYcloudNickname,
+      },
     });
 
     if (update.count === 1) {
@@ -411,6 +487,7 @@ async function main() {
           id: true,
           accountId: true,
           phoneE164: true,
+          whatsappContactName: true,
           ycloudNickname: true,
         },
       });
