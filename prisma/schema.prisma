@@ -397,6 +397,7 @@ model MessageStatusHistory {
 enum CampaignDefinitionType {
   FIRST_CONTACT
   WEEK1_REENGAGEMENT
+  REPETITION_REMINDER
 }
 
 enum CampaignDefinitionStatus {
@@ -418,6 +419,7 @@ enum AccountCampaignTemplateStatus {
 
 enum LeadCampaignType {
   WEEK1_REENGAGEMENT
+  REPETITION_REMINDER
 }
 
 enum LeadCampaignStatus {
