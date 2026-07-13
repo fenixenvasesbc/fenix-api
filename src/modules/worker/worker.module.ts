@@ -15,6 +15,8 @@ import { ContactAttributesModule } from '../contact-attributes/contact-attribute
 import { ContactAttributesWorker } from './contact-attributes.worker';
 import { SmbStateSyncModule } from '../smb-state-sync/smb-state-sync.module';
 import { SmbStateSyncWorker } from './smb-state-sync.worker';
+import { RepetitionReminderModule } from '../repetition-reminder/repetition-reminder.module';
+import { RepetitionReminderWorker } from './repetition-reminder.worker';
 
 @Module({
   imports: [
@@ -28,6 +30,7 @@ import { SmbStateSyncWorker } from './smb-state-sync.worker';
     ChatEventsModule,
     ContactAttributesModule,
     SmbStateSyncModule,
+    RepetitionReminderModule,
   ],
   providers: [
     WebhookWorker,
@@ -36,6 +39,7 @@ import { SmbStateSyncWorker } from './smb-state-sync.worker';
     ReengagementWorker,
     ContactAttributesWorker,
     SmbStateSyncWorker,
+    RepetitionReminderWorker,
   ],
 })
 export class WorkerModule {}

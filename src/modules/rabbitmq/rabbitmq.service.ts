@@ -129,6 +129,14 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
       process.env.RABBITMQ_QUEUE_REENGAGEMENT_RETRY_1M;
     const qReengagementRetry10m =
       process.env.RABBITMQ_QUEUE_REENGAGEMENT_RETRY_10M;
+    const qRepetitionReminder =
+      process.env.RABBITMQ_QUEUE_REPETITION_REMINDER;
+    const qRepetitionReminderRetry10s =
+      process.env.RABBITMQ_QUEUE_REPETITION_REMINDER_RETRY_10S;
+    const qRepetitionReminderRetry1m =
+      process.env.RABBITMQ_QUEUE_REPETITION_REMINDER_RETRY_1M;
+    const qRepetitionReminderRetry10m =
+      process.env.RABBITMQ_QUEUE_REPETITION_REMINDER_RETRY_10M;
 
     const rkInbound = process.env.RABBITMQ_RK_INBOUND;
     const rkMessageUpdated = process.env.RABBITMQ_RK_MESSAGE_UPDATED;
@@ -162,6 +170,14 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     const rkReengagementRetry1m = process.env.RABBITMQ_RK_REENGAGEMENT_RETRY_1M;
     const rkReengagementRetry10m =
       process.env.RABBITMQ_RK_REENGAGEMENT_RETRY_10M;
+    const rkRepetitionReminder =
+      process.env.RABBITMQ_RK_REPETITION_REMINDER;
+    const rkRepetitionReminderRetry10s =
+      process.env.RABBITMQ_RK_REPETITION_REMINDER_RETRY_10S;
+    const rkRepetitionReminderRetry1m =
+      process.env.RABBITMQ_RK_REPETITION_REMINDER_RETRY_1M;
+    const rkRepetitionReminderRetry10m =
+      process.env.RABBITMQ_RK_REPETITION_REMINDER_RETRY_10M;
 
     const rkProcess = process.env.RABBITMQ_RK_PROCESS;
     const rkRetry10s = process.env.RABBITMQ_RK_RETRY_10S;
@@ -185,10 +201,36 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
       ['RABBITMQ_QUEUE_REENGAGEMENT_RETRY_10S', qReengagementRetry10s],
       ['RABBITMQ_QUEUE_REENGAGEMENT_RETRY_1M', qReengagementRetry1m],
       ['RABBITMQ_QUEUE_REENGAGEMENT_RETRY_10M', qReengagementRetry10m],
+      ['RABBITMQ_QUEUE_REPETITION_REMINDER', qRepetitionReminder],
+      [
+        'RABBITMQ_QUEUE_REPETITION_REMINDER_RETRY_10S',
+        qRepetitionReminderRetry10s,
+      ],
+      [
+        'RABBITMQ_QUEUE_REPETITION_REMINDER_RETRY_1M',
+        qRepetitionReminderRetry1m,
+      ],
+      [
+        'RABBITMQ_QUEUE_REPETITION_REMINDER_RETRY_10M',
+        qRepetitionReminderRetry10m,
+      ],
       ['RABBITMQ_RK_REENGAGEMENT', rkReengagement],
       ['RABBITMQ_RK_REENGAGEMENT_RETRY_10S', rkReengagementRetry10s],
       ['RABBITMQ_RK_REENGAGEMENT_RETRY_1M', rkReengagementRetry1m],
       ['RABBITMQ_RK_REENGAGEMENT_RETRY_10M', rkReengagementRetry10m],
+      ['RABBITMQ_RK_REPETITION_REMINDER', rkRepetitionReminder],
+      [
+        'RABBITMQ_RK_REPETITION_REMINDER_RETRY_10S',
+        rkRepetitionReminderRetry10s,
+      ],
+      [
+        'RABBITMQ_RK_REPETITION_REMINDER_RETRY_1M',
+        rkRepetitionReminderRetry1m,
+      ],
+      [
+        'RABBITMQ_RK_REPETITION_REMINDER_RETRY_10M',
+        rkRepetitionReminderRetry10m,
+      ],
       ['RABBITMQ_RK_PROCESS', rkProcess],
       ['RABBITMQ_RK_RETRY_10S', rkRetry10s],
       ['RABBITMQ_RK_RETRY_1M', rkRetry1m],
@@ -346,6 +388,54 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
       qReengagementRetry10m!,
       dlx!,
       rkReengagementRetry10m!,
+    );
+
+    await this.ch!.assertQueue(qRepetitionReminder!, { durable: true });
+    await this.ch!.bindQueue(
+      qRepetitionReminder!,
+      exchange!,
+      rkRepetitionReminder!,
+    );
+    await this.ch!.assertQueue(qRepetitionReminderRetry10s!, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 10_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkRepetitionReminder!,
+      },
+    });
+    await this.ch!.bindQueue(
+      qRepetitionReminderRetry10s!,
+      dlx!,
+      rkRepetitionReminderRetry10s!,
+    );
+
+    await this.ch!.assertQueue(qRepetitionReminderRetry1m!, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 60_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkRepetitionReminder!,
+      },
+    });
+    await this.ch!.bindQueue(
+      qRepetitionReminderRetry1m!,
+      dlx!,
+      rkRepetitionReminderRetry1m!,
+    );
+
+    await this.ch!.assertQueue(qRepetitionReminderRetry10m!, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 600_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkRepetitionReminder!,
+      },
+    });
+    await this.ch!.bindQueue(
+      qRepetitionReminderRetry10m!,
+      dlx!,
+      rkRepetitionReminderRetry10m!,
     );
 
     await this.ch!.assertQueue(qRetry10s!, {

@@ -14,9 +14,30 @@ export class CampaignTemplateResolverService {
     accountId: string;
     language: string;
   }) {
+    return this.resolveCampaignTemplate({
+      ...params,
+      type: CampaignDefinitionType.WEEK1_REENGAGEMENT,
+    });
+  }
+
+  async resolveRepetitionReminderTemplate(params: {
+    accountId: string;
+    language: string;
+  }) {
+    return this.resolveCampaignTemplate({
+      ...params,
+      type: CampaignDefinitionType.REPETITION_REMINDER,
+    });
+  }
+
+  private async resolveCampaignTemplate(params: {
+    accountId: string;
+    language: string;
+    type: CampaignDefinitionType;
+  }) {
     const definition = await this.prisma.campaignDefinition.findFirst({
       where: {
-        type: CampaignDefinitionType.WEEK1_REENGAGEMENT,
+        type: params.type,
         language: params.language,
         status: CampaignDefinitionStatus.ACTIVE,
         isActive: true,
