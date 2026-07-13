@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -43,10 +44,13 @@ import { ChatEventsController } from './modules/chat-events/chat-events.controll
 import { ChatEventsBridge } from './modules/chat-events/chat-events.bridge';
 import { LeadsModule } from './modules/leads/leads.module';
 import { ClichesModule } from './modules/cliches/cliches.module';
+import { ReengagementSchedulerModule } from './modules/reengagement/reengagement-scheduler.module';
+import { RepetitionReminderSchedulerModule } from './modules/repetition-reminder/repetition-reminder-scheduler.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     UsersModule,
     AuthModule,
     PrismaModule,
@@ -68,6 +72,8 @@ import { ClichesModule } from './modules/cliches/cliches.module';
     ChatEventsModule,
     LeadsModule,
     ClichesModule,
+    ReengagementSchedulerModule,
+    RepetitionReminderSchedulerModule,
   ],
   controllers: [
     AppController,
