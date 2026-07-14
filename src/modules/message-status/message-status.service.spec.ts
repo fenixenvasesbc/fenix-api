@@ -10,12 +10,14 @@ describe('MessageStatusService', () => {
   let prisma: {
     message: { findFirst: jest.Mock };
     account: { findUnique: jest.Mock };
+    webhookEvent: { updateMany: jest.Mock };
     $transaction: jest.Mock;
   };
   let tx: {
     lead: { upsert: jest.Mock; update: jest.Mock };
-    message: { upsert: jest.Mock };
+    message: { upsert: jest.Mock; update: jest.Mock };
     messageStatusHistory: { create: jest.Mock };
+    leadCampaign: { findFirst: jest.Mock; update: jest.Mock };
     webhookEvent: { updateMany: jest.Mock };
   };
   let chatEvents: { publish: jest.Mock };
@@ -29,9 +31,14 @@ describe('MessageStatusService', () => {
       },
       message: {
         upsert: jest.fn(),
+        update: jest.fn(),
       },
       messageStatusHistory: {
         create: jest.fn(),
+      },
+      leadCampaign: {
+        findFirst: jest.fn(),
+        update: jest.fn(),
       },
       webhookEvent: {
         updateMany: jest.fn(),
@@ -44,6 +51,9 @@ describe('MessageStatusService', () => {
       },
       account: {
         findUnique: jest.fn(),
+      },
+      webhookEvent: {
+        updateMany: jest.fn(),
       },
       $transaction: jest.fn((callback) => callback(tx)),
     };
@@ -179,6 +189,70 @@ describe('MessageStatusService', () => {
         leadId: 'lead-1',
         conversationId: 'conversation-1',
         messageId: 'message-1',
+      }),
+    );
+  });
+
+  it('marks webhook event with account, lead and message when updating an existing message', async () => {
+    prisma.message.findFirst.mockResolvedValueOnce({
+      id: 'message-1',
+      accountId: 'account-1',
+      leadId: 'lead-1',
+      status: MessageStatus.SENT,
+      ycloudMessageId: '6a54b1b6ba9fc44294d16131',
+      wamid: null,
+      externalId: null,
+    });
+
+    await service.process({
+      providerEventId: 'evt_existing_message_updated',
+      payload: {
+        id: 'evt_existing_message_updated',
+        type: 'whatsapp.message.updated',
+        apiVersion: 'v2',
+        createTime: '2026-07-14T08:31:54.320Z',
+        whatsappMessage: {
+          id: '6a54b1b6ba9fc44294d16131',
+          status: 'read',
+          from: '+34667980423',
+          to: '+393395988835',
+          wabaId: '130594500136724',
+          type: 'template',
+        },
+      },
+    } as any);
+
+    expect(tx.message.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'message-1' },
+        data: expect.objectContaining({
+          status: MessageStatus.READ,
+        }),
+      }),
+    );
+
+    expect(tx.webhookEvent.updateMany).toHaveBeenCalledWith({
+      where: {
+        providerEventId: 'evt_existing_message_updated',
+      },
+      data: expect.objectContaining({
+        status: 'PROCESSED',
+        accountId: 'account-1',
+        leadId: 'lead-1',
+        messageId: 'message-1',
+        lastError: null,
+      }),
+    });
+
+    expect(chatEvents.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'message.status.updated',
+        accountId: 'account-1',
+        leadId: 'lead-1',
+        messageId: 'message-1',
+        payload: expect.objectContaining({
+          status: MessageStatus.READ,
+        }),
       }),
     );
   });

@@ -33,6 +33,10 @@ export class MessageStatusWorker implements OnModuleInit {
       }
 
       const job = this.validateJob(payload);
+      this.logger.log(
+        `Processing message-status job providerEventId=${job.providerEventId} eventType=${job.eventType} deaths=${deaths}`,
+      );
+
       await this.messageStatusService.process(job);
 
       return { action: 'ack' };

@@ -90,6 +90,9 @@ export class MessageStatusService {
         where: { providerEventId: job.providerEventId },
         data: {
           status: 'PROCESSED',
+          accountId: message.accountId,
+          leadId: message.leadId,
+          messageId: message.id,
           processedAt: new Date(),
           lastError: null,
         },
@@ -162,11 +165,18 @@ export class MessageStatusService {
         where: { providerEventId: job.providerEventId },
         data: {
           status: 'PROCESSED',
+          accountId: message.accountId,
+          leadId: message.leadId,
+          messageId: message.id,
           processedAt: new Date(),
           lastError: null,
         },
       });
     });
+
+    this.logger.log(
+      `Message status updated providerEventId=${job.providerEventId} ycloudMessageId=${whatsappMessage.id ?? '-'} accountId=${message.accountId} leadId=${message.leadId} messageId=${message.id} from=${message.status} to=${nextStatus}`,
+    );
 
     await this.chatEvents.publish({
       type: 'message.status.updated',

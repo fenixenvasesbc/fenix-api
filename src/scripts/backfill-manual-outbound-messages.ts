@@ -51,6 +51,23 @@ type MaterializedMessage = {
   eventAt: Date;
 };
 
+type MaterializeResult =
+  | {
+      action: 'created';
+      message: MaterializedMessage;
+      linkedWebhookEvents: number;
+    }
+  | {
+      action: 'skipped';
+      reason:
+        | 'missing_content_event'
+        | 'unsupported_type'
+        | 'unsupported_status'
+        | 'missing_content'
+        | 'lead_not_found'
+        | 'message_already_exists';
+    };
+
 type MessageStatus = 'ACCEPTED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
 type MessageType = 'TEXT' | 'IMAGE' | 'AUDIO' | 'VIDEO' | 'DOCUMENT';
 
@@ -108,7 +125,7 @@ function statusRank(status: MessageStatus) {
 }
 
 function normalizeType(value: string | null): MessageType | null {
-  switch (value) {
+  switch (value?.trim().toLowerCase()) {
     case 'text':
       return 'TEXT';
     case 'image':
@@ -153,9 +170,12 @@ function extractContent(event: WebhookCandidateRow, type: MessageType) {
 
   const mediaKey = type.toLowerCase();
   const media = payloadObject(whatsappMessage[mediaKey]);
+  const mediaUrl = nonEmpty(media.link);
+
+  if (!mediaUrl) return null;
 
   return {
-    mediaUrl: nonEmpty(media.link),
+    mediaUrl,
     caption: nonEmpty(media.caption),
     fileName: nonEmpty(media.filename),
     mimeType: nonEmpty(media.mime_type),
@@ -255,6 +275,7 @@ async function findCandidates(
         NULLIF(we."payload" #>> '{whatsappMessage,updateTime}', '') AS "updateTime"
       FROM "WebhookEvent" we
       WHERE we."eventType" = 'whatsapp.message.updated'
+        AND we."messageId" IS NULL
         AND we."payload" #>> '{whatsappMessage,wabaId}' = ${account.wabaId}
         AND we."payload" #>> '{whatsappMessage,from}' = ${account.phoneE164}
         AND we."payload" #>> '{whatsappMessage,id}' IS NOT NULL
@@ -286,53 +307,66 @@ async function materializeGroup(
   prisma: PrismaClient,
   account: AccountContext,
   group: MessageGroup,
-) {
+): Promise<MaterializeResult> {
   const contentEvent = pickContentEvent(group.events);
-  if (!contentEvent) return null;
+  if (!contentEvent) {
+    return { action: 'skipped', reason: 'missing_content_event' };
+  }
 
   const messageType = normalizeType(contentEvent.messageType);
   const status = latestStatus(group.events);
-  if (!messageType || !status) return null;
+  if (!messageType) return { action: 'skipped', reason: 'unsupported_type' };
+  if (!status) return { action: 'skipped', reason: 'unsupported_status' };
 
   const content = extractContent(contentEvent, messageType);
-  if (!content) return null;
+  if (!content) return { action: 'skipped', reason: 'missing_content' };
 
   const outboundAt = eventTime(contentEvent);
   const latestEvent = group.events[group.events.length - 1];
   const providerUpdateTime = eventTime(latestEvent);
 
-  return prisma.$transaction(async (tx) => {
-    const lead = await tx.lead.upsert({
-      where: {
-        accountId_phoneE164: {
-          accountId: account.id,
-          phoneE164: contentEvent.toPhone,
-        },
-      },
-      create: {
+  const existingMessage = await prisma.message.findFirst({
+    where: {
+      accountId: account.id,
+      OR: [
+        { ycloudMessageId: contentEvent.ycloudMessageId },
+        ...(contentEvent.wamid ? [{ wamid: contentEvent.wamid }] : []),
+        ...(contentEvent.externalId
+          ? [{ externalId: contentEvent.externalId }]
+          : []),
+      ],
+    },
+    select: { id: true },
+  });
+
+  if (existingMessage) {
+    return { action: 'skipped', reason: 'message_already_exists' };
+  }
+
+  const lead = await prisma.lead.findUnique({
+    where: {
+      accountId_phoneE164: {
         accountId: account.id,
         phoneE164: contentEvent.toPhone,
-        status: 'NEW',
-        firstOutboundAt: outboundAt,
+      },
+    },
+    select: {
+      id: true,
+      firstOutboundAt: true,
+    },
+  });
+
+  if (!lead) return { action: 'skipped', reason: 'lead_not_found' };
+
+  return prisma.$transaction(async (tx) => {
+    await tx.lead.update({
+      where: { id: lead.id },
+      data: {
+        firstOutboundAt: lead.firstOutboundAt ? undefined : outboundAt,
         lastOutboundAt: outboundAt,
         lastMessageAt: outboundAt,
-      },
-      update: {
-        lastOutboundAt: outboundAt,
-        lastMessageAt: outboundAt,
-      },
-      select: {
-        id: true,
-        firstOutboundAt: true,
       },
     });
-
-    if (!lead.firstOutboundAt) {
-      await tx.lead.update({
-        where: { id: lead.id },
-        data: { firstOutboundAt: outboundAt },
-      });
-    }
 
     const message = await tx.message.create({
       data: {
@@ -439,13 +473,17 @@ async function materializeGroup(
     });
 
     return {
-      messageId: message.id,
-      accountId: account.id,
-      leadId: lead.id,
-      ycloudMessageId: contentEvent.ycloudMessageId,
-      status,
-      eventAt: outboundAt,
-    } satisfies MaterializedMessage;
+      action: 'created',
+      message: {
+        messageId: message.id,
+        accountId: account.id,
+        leadId: lead.id,
+        ycloudMessageId: contentEvent.ycloudMessageId,
+        status,
+        eventAt: outboundAt,
+      },
+      linkedWebhookEvents: group.events.length,
+    } satisfies MaterializeResult;
   });
 }
 
@@ -504,18 +542,20 @@ async function main() {
     }
 
     let created = 0;
-    let skipped = 0;
+    let linkedWebhookEvents = 0;
+    const skipped = new Map<string, number>();
 
     for (const group of groups) {
       try {
         const result = await materializeGroup(prisma, account, group);
-        if (result) {
+        if (result.action === 'created') {
           created += 1;
+          linkedWebhookEvents += result.linkedWebhookEvents;
         } else {
-          skipped += 1;
+          skipped.set(result.reason, (skipped.get(result.reason) ?? 0) + 1);
         }
       } catch (error) {
-        skipped += 1;
+        skipped.set('error', (skipped.get('error') ?? 0) + 1);
         console.error(
           `Failed group=${group.key}: ${
             error instanceof Error ? error.message : String(error)
@@ -525,7 +565,11 @@ async function main() {
     }
 
     console.log(`\nCreated messages: ${created}`);
-    console.log(`Skipped messages: ${skipped}`);
+    console.log(`Linked webhook events: ${linkedWebhookEvents}`);
+    console.log('Skipped messages:');
+    for (const [reason, count] of skipped) {
+      console.log(`- ${reason}: ${count}`);
+    }
   } finally {
     await prisma.$disconnect();
   }
