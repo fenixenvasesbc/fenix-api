@@ -54,6 +54,10 @@ export class MessageStatusService {
     const message = await this.findMessage(whatsappMessage);
 
     if (!message) {
+      this.logger.warn(
+        `Message not found for updated event; attempting manual outbound reconstruction providerEventId=${job.providerEventId} ycloudMessageId=${whatsappMessage.id ?? '-'} wamid=${whatsappMessage.wamid ?? '-'} externalId=${whatsappMessage.externalId ?? '-'} type=${whatsappMessage.type ?? '-'} status=${whatsappMessage.status ?? '-'} from=${whatsappMessage.from ?? '-'} to=${whatsappMessage.to ?? '-'} wabaId=${whatsappMessage.wabaId ?? '-'}`,
+      );
+
       const manualMessage = await this.createManualOutboundIfPossible({
         job,
         whatsappMessage,
@@ -265,11 +269,28 @@ export class MessageStatusService {
     const ycloudMessageId = this.nonEmpty(whatsappMessage.id);
 
     if (!wabaId || !from || !to || !ycloudMessageId) {
+      this.logManualOutboundSkipped(job.providerEventId, 'missing_identifiers', {
+        hasWabaId: Boolean(wabaId),
+        hasFrom: Boolean(from),
+        hasTo: Boolean(to),
+        hasYcloudMessageId: Boolean(ycloudMessageId),
+        rawWabaId: whatsappMessage.wabaId ?? null,
+        rawFrom: whatsappMessage.from ?? null,
+        rawTo: whatsappMessage.to ?? null,
+        rawYcloudMessageId: whatsappMessage.id ?? null,
+      });
       return null;
     }
 
     const messageType = this.mapManualOutboundType(whatsappMessage.type);
     if (!messageType) {
+      this.logManualOutboundSkipped(job.providerEventId, 'unsupported_type', {
+        ycloudMessageId,
+        rawType: whatsappMessage.type ?? null,
+        from,
+        to,
+        wabaId,
+      });
       return null;
     }
 
@@ -278,6 +299,18 @@ export class MessageStatusService {
       messageType,
     );
     if (!content) {
+      this.logManualOutboundSkipped(job.providerEventId, 'missing_content', {
+        ycloudMessageId,
+        messageType,
+        rawType: whatsappMessage.type ?? null,
+        hasTextBody: Boolean(this.nonEmpty(whatsappMessage.text?.body)),
+        hasImageLink: Boolean(this.nonEmpty(whatsappMessage.image?.link)),
+        hasAudioLink: Boolean(this.nonEmpty(whatsappMessage.audio?.link)),
+        hasVideoLink: Boolean(this.nonEmpty(whatsappMessage.video?.link)),
+        hasDocumentLink: Boolean(
+          this.nonEmpty(whatsappMessage.document?.link),
+        ),
+      });
       return null;
     }
 
@@ -294,9 +327,12 @@ export class MessageStatusService {
     });
 
     if (!account) {
-      this.logger.warn(
-        `Manual outbound ignored. Account not found providerEventId=${job.providerEventId} wabaId=${wabaId} from=${from}`,
-      );
+      this.logManualOutboundSkipped(job.providerEventId, 'account_not_found', {
+        ycloudMessageId,
+        wabaId,
+        from,
+        to,
+      });
       return null;
     }
 
@@ -314,7 +350,7 @@ export class MessageStatusService {
       whatsappMessage.customerProfile?.name,
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    const manualOutbound = await this.prisma.$transaction(async (tx) => {
       const lead = await tx.lead.upsert({
         where: {
           accountId_phoneE164: {
@@ -460,6 +496,12 @@ export class MessageStatusService {
         messageType,
       };
     });
+
+    this.logger.log(
+      `Manual outbound reconstructed providerEventId=${job.providerEventId} ycloudMessageId=${ycloudMessageId} accountId=${manualOutbound.accountId} leadId=${manualOutbound.leadId} messageId=${manualOutbound.messageId} conversationId=${manualOutbound.conversationId} type=${messageType} status=${nextStatus}`,
+    );
+
+    return manualOutbound;
   }
 
   private async publishManualOutboundCreated(
@@ -621,7 +663,9 @@ export class MessageStatusService {
   }
 
   private mapManualOutboundType(type?: string): MessageType | null {
-    switch (type) {
+    const normalized = this.nonEmpty(type)?.toLowerCase();
+
+    switch (normalized) {
       case 'text':
         return MessageType.TEXT;
       case 'image':
@@ -637,6 +681,18 @@ export class MessageStatusService {
     }
   }
 
+  private logManualOutboundSkipped(
+    providerEventId: string,
+    reason: string,
+    details: Record<string, unknown>,
+  ) {
+    this.logger.warn(
+      `Manual outbound reconstruction skipped providerEventId=${providerEventId} reason=${reason} details=${JSON.stringify(
+        details,
+      )}`,
+    );
+  }
+
   private extractManualOutboundContent(
     whatsappMessage: YCloudUpdatedWhatsappMessageDto,
     messageType: MessageType,
@@ -650,31 +706,43 @@ export class MessageStatusService {
     }
 
     if (messageType === MessageType.IMAGE) {
+      const mediaUrl = this.nonEmpty(whatsappMessage.image?.link);
+      if (!mediaUrl) return null;
+
       return {
-        mediaUrl: this.nonEmpty(whatsappMessage.image?.link),
+        mediaUrl,
         caption: this.nonEmpty(whatsappMessage.image?.caption),
         mimeType: this.nonEmpty(whatsappMessage.image?.mime_type),
       };
     }
 
     if (messageType === MessageType.AUDIO) {
+      const mediaUrl = this.nonEmpty(whatsappMessage.audio?.link);
+      if (!mediaUrl) return null;
+
       return {
-        mediaUrl: this.nonEmpty(whatsappMessage.audio?.link),
+        mediaUrl,
         mimeType: this.nonEmpty(whatsappMessage.audio?.mime_type),
       };
     }
 
     if (messageType === MessageType.VIDEO) {
+      const mediaUrl = this.nonEmpty(whatsappMessage.video?.link);
+      if (!mediaUrl) return null;
+
       return {
-        mediaUrl: this.nonEmpty(whatsappMessage.video?.link),
+        mediaUrl,
         caption: this.nonEmpty(whatsappMessage.video?.caption),
         mimeType: this.nonEmpty(whatsappMessage.video?.mime_type),
       };
     }
 
     if (messageType === MessageType.DOCUMENT) {
+      const mediaUrl = this.nonEmpty(whatsappMessage.document?.link);
+      if (!mediaUrl) return null;
+
       return {
-        mediaUrl: this.nonEmpty(whatsappMessage.document?.link),
+        mediaUrl,
         caption: this.nonEmpty(whatsappMessage.document?.caption),
         fileName: this.nonEmpty(whatsappMessage.document?.filename),
         mimeType: this.nonEmpty(whatsappMessage.document?.mime_type),
