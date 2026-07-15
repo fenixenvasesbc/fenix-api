@@ -17,6 +17,10 @@ import { SmbStateSyncModule } from '../smb-state-sync/smb-state-sync.module';
 import { SmbStateSyncWorker } from './smb-state-sync.worker';
 import { RepetitionReminderModule } from '../repetition-reminder/repetition-reminder.module';
 import { RepetitionReminderWorker } from './repetition-reminder.worker';
+import { SmbMessageEchoesModule } from '../smb-message-echoes/smb-message-echoes.module';
+import { SmbMessageEchoesWorker } from './smb-message-echoes.worker';
+import { SmbHistoryModule } from '../smb-history/smb-history.module';
+import { SmbHistoryWorker } from './smb-history.worker';
 
 @Module({
   imports: [
@@ -30,6 +34,8 @@ import { RepetitionReminderWorker } from './repetition-reminder.worker';
     ChatEventsModule,
     ContactAttributesModule,
     SmbStateSyncModule,
+    SmbMessageEchoesModule,
+    SmbHistoryModule,
     RepetitionReminderModule,
   ],
   providers: [
@@ -39,6 +45,8 @@ import { RepetitionReminderWorker } from './repetition-reminder.worker';
     ReengagementWorker,
     ContactAttributesWorker,
     SmbStateSyncWorker,
+    SmbMessageEchoesWorker,
+    SmbHistoryWorker,
     RepetitionReminderWorker,
   ],
 })

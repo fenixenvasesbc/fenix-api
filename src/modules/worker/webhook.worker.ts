@@ -130,6 +130,23 @@ export class WebhookWorker implements OnModuleInit {
       return;
     }
 
+    if (job.eventType === 'whatsapp.smb.message.echoes') {
+      await this.rabbit.publish(
+        process.env.RABBITMQ_RK_SMB_MESSAGE_ECHOES ??
+          'whatsapp.smb.message.echoes',
+        job,
+      );
+      return;
+    }
+
+    if (job.eventType === 'whatsapp.smb.history') {
+      await this.rabbit.publish(
+        process.env.RABBITMQ_RK_SMB_HISTORY ?? 'whatsapp.smb.history',
+        job,
+      );
+      return;
+    }
+
     this.logger.warn(
       `No downstream route configured for eventType=${job.eventType} providerEventId=${job.providerEventId}`,
     );

@@ -120,6 +120,29 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     const qSmbStateSyncRetry10m =
       process.env.RABBITMQ_QUEUE_SMB_STATE_SYNC_RETRY_10M ??
       'q_smb_state_sync_retry_10m';
+    const qSmbMessageEchoes =
+      process.env.RABBITMQ_QUEUE_SMB_MESSAGE_ECHOES ??
+      'q_smb_message_echoes';
+    const qSmbMessageEchoesRetry10s =
+      process.env.RABBITMQ_QUEUE_SMB_MESSAGE_ECHOES_RETRY_10S ??
+      'q_smb_message_echoes_retry_10s';
+    const qSmbMessageEchoesRetry1m =
+      process.env.RABBITMQ_QUEUE_SMB_MESSAGE_ECHOES_RETRY_1M ??
+      'q_smb_message_echoes_retry_1m';
+    const qSmbMessageEchoesRetry10m =
+      process.env.RABBITMQ_QUEUE_SMB_MESSAGE_ECHOES_RETRY_10M ??
+      'q_smb_message_echoes_retry_10m';
+    const qSmbHistory =
+      process.env.RABBITMQ_QUEUE_SMB_HISTORY ?? 'q_smb_history';
+    const qSmbHistoryRetry10s =
+      process.env.RABBITMQ_QUEUE_SMB_HISTORY_RETRY_10S ??
+      'q_smb_history_retry_10s';
+    const qSmbHistoryRetry1m =
+      process.env.RABBITMQ_QUEUE_SMB_HISTORY_RETRY_1M ??
+      'q_smb_history_retry_1m';
+    const qSmbHistoryRetry10m =
+      process.env.RABBITMQ_QUEUE_SMB_HISTORY_RETRY_10M ??
+      'q_smb_history_retry_10m';
     const qChatEvents =
       process.env.RABBITMQ_QUEUE_CHAT_EVENTS ?? 'chat.events.api';
     const qReengagement = process.env.RABBITMQ_QUEUE_REENGAGEMENT;
@@ -163,6 +186,29 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     const rkSmbStateSyncRetry10m =
       process.env.RABBITMQ_RK_SMB_STATE_SYNC_RETRY_10M ??
       'whatsapp.smb.app.state.sync.retry.10m';
+    const rkSmbMessageEchoes =
+      process.env.RABBITMQ_RK_SMB_MESSAGE_ECHOES ??
+      'whatsapp.smb.message.echoes';
+    const rkSmbMessageEchoesRetry10s =
+      process.env.RABBITMQ_RK_SMB_MESSAGE_ECHOES_RETRY_10S ??
+      'whatsapp.smb.message.echoes.retry.10s';
+    const rkSmbMessageEchoesRetry1m =
+      process.env.RABBITMQ_RK_SMB_MESSAGE_ECHOES_RETRY_1M ??
+      'whatsapp.smb.message.echoes.retry.1m';
+    const rkSmbMessageEchoesRetry10m =
+      process.env.RABBITMQ_RK_SMB_MESSAGE_ECHOES_RETRY_10M ??
+      'whatsapp.smb.message.echoes.retry.10m';
+    const rkSmbHistory =
+      process.env.RABBITMQ_RK_SMB_HISTORY ?? 'whatsapp.smb.history';
+    const rkSmbHistoryRetry10s =
+      process.env.RABBITMQ_RK_SMB_HISTORY_RETRY_10S ??
+      'whatsapp.smb.history.retry.10s';
+    const rkSmbHistoryRetry1m =
+      process.env.RABBITMQ_RK_SMB_HISTORY_RETRY_1M ??
+      'whatsapp.smb.history.retry.1m';
+    const rkSmbHistoryRetry10m =
+      process.env.RABBITMQ_RK_SMB_HISTORY_RETRY_10M ??
+      'whatsapp.smb.history.retry.10m';
     const rkChatEvents = process.env.RABBITMQ_RK_CHAT_EVENTS ?? 'chat.events';
     const rkReengagement = process.env.RABBITMQ_RK_REENGAGEMENT;
     const rkReengagementRetry10s =
@@ -341,6 +387,86 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
       qSmbStateSyncRetry10m,
       dlx!,
       rkSmbStateSyncRetry10m,
+    );
+
+    await this.ch!.assertQueue(qSmbMessageEchoes, { durable: true });
+    await this.ch!.bindQueue(qSmbMessageEchoes, exchange!, rkSmbMessageEchoes);
+    await this.ch!.assertQueue(qSmbMessageEchoesRetry10s, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 10_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkSmbMessageEchoes,
+      },
+    });
+    await this.ch!.bindQueue(
+      qSmbMessageEchoesRetry10s,
+      dlx!,
+      rkSmbMessageEchoesRetry10s,
+    );
+    await this.ch!.assertQueue(qSmbMessageEchoesRetry1m, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 60_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkSmbMessageEchoes,
+      },
+    });
+    await this.ch!.bindQueue(
+      qSmbMessageEchoesRetry1m,
+      dlx!,
+      rkSmbMessageEchoesRetry1m,
+    );
+    await this.ch!.assertQueue(qSmbMessageEchoesRetry10m, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 600_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkSmbMessageEchoes,
+      },
+    });
+    await this.ch!.bindQueue(
+      qSmbMessageEchoesRetry10m,
+      dlx!,
+      rkSmbMessageEchoesRetry10m,
+    );
+
+    await this.ch!.assertQueue(qSmbHistory, { durable: true });
+    await this.ch!.bindQueue(qSmbHistory, exchange!, rkSmbHistory);
+    await this.ch!.assertQueue(qSmbHistoryRetry10s, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 10_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkSmbHistory,
+      },
+    });
+    await this.ch!.bindQueue(
+      qSmbHistoryRetry10s,
+      dlx!,
+      rkSmbHistoryRetry10s,
+    );
+    await this.ch!.assertQueue(qSmbHistoryRetry1m, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 60_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkSmbHistory,
+      },
+    });
+    await this.ch!.bindQueue(qSmbHistoryRetry1m, dlx!, rkSmbHistoryRetry1m);
+    await this.ch!.assertQueue(qSmbHistoryRetry10m, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 600_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkSmbHistory,
+      },
+    });
+    await this.ch!.bindQueue(
+      qSmbHistoryRetry10m,
+      dlx!,
+      rkSmbHistoryRetry10m,
     );
 
     await this.ch!.assertQueue(qChatEvents, { durable: true });

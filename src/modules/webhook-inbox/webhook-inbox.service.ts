@@ -53,6 +53,7 @@ export class WebhookInboxService {
 
     const phoneE164 =
       body?.whatsappInboundMessage?.to ??
+      body?.whatsappMessage?.from ??
       body?.whatsappMessage?.to ??
       null;
 
