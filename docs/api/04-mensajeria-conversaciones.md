@@ -205,3 +205,67 @@ Regla:
 - Busca un candidato inbound dentro de una ventana corta de 30 segundos.
 - Si encuentra coincidencia, marca el mensaje como eliminado y publica `message.deleted`.
 
+## Iniciar nueva conversacion desde la SPA
+
+Endpoint:
+
+```http
+POST /conversations/start
+```
+
+Objetivo:
+
+- permitir que la SPA cree/inicie una conversacion estilo WhatsApp a partir de un telefono;
+- buscar o crear el lead de forma segura;
+- respetar la ventana de conversacion de WhatsApp;
+- enviar plantilla cuando el contacto esta fuera de la ventana de 24h.
+
+Payload:
+
+```json
+{
+  "accountId": "uuid-opcional-para-admin",
+  "countryCode": "34",
+  "phoneNumber": "612345678",
+  "name": "Cliente opcional",
+  "templateName": "nombre_template",
+  "languageCode": "es_ES",
+  "clientRequestId": "uuid"
+}
+```
+
+Reglas de negocio:
+
+- `SALES` usa siempre su propia cuenta.
+- `ADMIN` debe enviar `accountId`.
+- El telefono se normaliza a `phoneE164`.
+- El lead se asegura por `accountId + phoneE164`.
+- Si el lead ya existe, no se sobrescribe su nombre.
+- Si el lead no existe, se crea en estado `NEW`.
+- Si no hay ventana de 24h abierta, `templateName` es obligatorio.
+- El envio de plantilla reutiliza `OutboundService.sendTemplateMessage`, conservando idempotencia, persistencia de mensaje y eventos realtime.
+- No se expone la API key de YCloud a la SPA.
+
+## Listado de plantillas WhatsApp para SPA
+
+Endpoint:
+
+```http
+GET /outbound/templates
+```
+
+Query params:
+
+- `accountId`: requerido para `ADMIN`, implicito para `SALES`;
+- `search`: busca por nombre o cuerpo de plantilla;
+- `category`: filtra por categoria YCloud;
+- `language`: filtra por idioma;
+- `status`: por defecto `APPROVED`; acepta `ALL`;
+- `limit`: maximo 100;
+- `offset`: paginacion.
+
+Reglas de seguridad:
+
+- La SPA nunca consulta YCloud directamente.
+- La API obtiene la API key activa de la cuenta desde credenciales internas.
+- La API devuelve solo campos necesarios para seleccionar y enviar la plantilla.

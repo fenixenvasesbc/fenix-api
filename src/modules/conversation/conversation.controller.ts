@@ -1,4 +1,6 @@
 import {
+  BadRequestException,
+  Body,
   Controller,
   ForbiddenException,
   Get,
@@ -11,6 +13,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -19,7 +22,11 @@ import {
   ConversationAccountQueryDto,
   ConversationListQueryDto,
 } from './dto/conversation-query.dto';
+import { StartConversationDto } from './dto/start-conversation.dto';
 import { ChatEventsService } from '../chat-events/chat-events.service';
+import { LeadsService } from '../leads/leads.service';
+import { ChatPolicyService } from '../outbound/chat-policy.service';
+import { OutboundService } from '../outbound/outbound.service';
 
 type AuthUser = {
   userId: string;
@@ -33,7 +40,70 @@ export class ConversationController {
   constructor(
     private readonly conversationService: ConversationService,
     private readonly chatEvents: ChatEventsService,
+    private readonly leadsService: LeadsService,
+    private readonly chatPolicyService: ChatPolicyService,
+    private readonly outboundService: OutboundService,
   ) {}
+
+  @Roles(Role.ADMIN, Role.SALES)
+  @Post('start')
+  async startConversation(
+    @Body() body: StartConversationDto,
+    @Req() req: { user: AuthUser },
+  ) {
+    const accountId = this.resolveAccountId(req.user, body.accountId);
+    const lead = await this.leadsService.ensureByPhone({
+      accountId,
+      countryCode: body.countryCode,
+      phoneNumber: body.phoneNumber,
+      name: body.name ?? null,
+    });
+
+    const initialPolicy = await this.chatPolicyService.getPolicy(
+      accountId,
+      lead.id,
+    );
+
+    let sentMessage: unknown = null;
+    if (initialPolicy.requiresTemplate) {
+      if (!body.templateName) {
+        throw new BadRequestException(
+          'Template is required to start a conversation outside the 24-hour customer service window.',
+        );
+      }
+
+      sentMessage = await this.outboundService.sendTemplateMessage({
+        accountId,
+        leadId: lead.id,
+        clientRequestId: body.clientRequestId ?? randomUUID(),
+        templateName: body.templateName,
+        languageCode: body.languageCode ?? null,
+      });
+    } else if (body.templateName) {
+      sentMessage = await this.outboundService.sendTemplateMessage({
+        accountId,
+        leadId: lead.id,
+        clientRequestId: body.clientRequestId ?? randomUUID(),
+        templateName: body.templateName,
+        languageCode: body.languageCode ?? null,
+      });
+    }
+
+    const conversation = await this.conversationService.getByLead(
+      accountId,
+      lead.id,
+    );
+    const policy = await this.chatPolicyService.getPolicy(accountId, lead.id);
+
+    return {
+      data: {
+        lead,
+        conversation,
+        policy,
+        sentMessage,
+      },
+    };
+  }
 
   @Roles(Role.ADMIN, Role.SALES)
   @Get()

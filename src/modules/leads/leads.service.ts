@@ -3,9 +3,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { LeadLabel, Prisma } from '@prisma/client';
+import { LeadLabel, LeadStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { withLeadDisplayName } from 'src/common/utils/lead-name';
+import { normalizeLeadName, withLeadDisplayName } from 'src/common/utils/lead-name';
 import { ChatEventsService } from '../chat-events/chat-events.service';
 
 type ListLeadsInput = {
@@ -23,6 +23,13 @@ type SetLabelInput = {
   label: LeadLabel;
   changedByUserId?: string | null;
   reminderDays?: number;
+};
+
+type EnsureLeadByPhoneInput = {
+  accountId: string;
+  countryCode: string;
+  phoneNumber: string;
+  name?: string | null;
 };
 
 const DEFAULT_REPETITION_REMINDER_DAYS = 90;
@@ -161,6 +168,30 @@ export class LeadsService {
         nextBefore: hasMore ? (data.at(-1)?.id ?? null) : null,
       },
     };
+  }
+
+  async ensureByPhone(input: EnsureLeadByPhoneInput) {
+    const phoneE164 = this.toE164(input.countryCode, input.phoneNumber);
+    const normalizedName = normalizeLeadName(input.name);
+
+    const lead = await this.prisma.lead.upsert({
+      where: {
+        accountId_phoneE164: {
+          accountId: input.accountId,
+          phoneE164,
+        },
+      },
+      create: {
+        accountId: input.accountId,
+        phoneE164,
+        name: normalizedName ?? undefined,
+        status: LeadStatus.NEW,
+      },
+      update: {},
+      select: this.leadSelect(),
+    });
+
+    return withLeadDisplayName(lead);
   }
 
   async setLabel(input: SetLabelInput) {
@@ -478,5 +509,33 @@ export class LeadsService {
       createdAt: true,
       updatedAt: true,
     } satisfies Prisma.LeadSelect;
+  }
+
+  private toE164(countryCode: string, phoneNumber: string) {
+    const countryDigits = countryCode.replace(/\D/g, '');
+    const phoneRaw = phoneNumber.trim();
+
+    if (phoneRaw.startsWith('+')) {
+      const directDigits = phoneRaw.replace(/\D/g, '');
+      if (directDigits.length < 8 || directDigits.length > 15) {
+        throw new BadRequestException('Invalid phone number');
+      }
+      return `+${directDigits}`;
+    }
+
+    const nationalDigits = phoneRaw.replace(/\D/g, '').replace(/^00/, '');
+    if (!countryDigits || countryDigits.length < 1 || countryDigits.length > 4) {
+      throw new BadRequestException('Invalid country code');
+    }
+    if (nationalDigits.length < 5 || nationalDigits.length > 14) {
+      throw new BadRequestException('Invalid phone number');
+    }
+
+    const e164 = `+${countryDigits}${nationalDigits}`;
+    if (e164.length < 9 || e164.length > 16) {
+      throw new BadRequestException('Invalid E.164 phone number');
+    }
+
+    return e164;
   }
 }

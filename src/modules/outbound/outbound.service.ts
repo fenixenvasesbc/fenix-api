@@ -10,6 +10,7 @@ import {
   MessageType,
   Prisma,
 } from '@prisma/client';
+import type { YcloudWhatsappTemplate } from 'src/common/types/ycloud-types';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConversationService } from '../conversation/conversation.service';
@@ -28,6 +29,16 @@ type IdempotencyExpectation = {
   fileName?: string | null;
 };
 
+type ListTemplatesInput = {
+  accountId: string;
+  search?: string | null;
+  category?: string | null;
+  language?: string | null;
+  status?: string | null;
+  limit: number;
+  offset: number;
+};
+
 @Injectable()
 export class OutboundService {
   constructor(
@@ -37,6 +48,72 @@ export class OutboundService {
     private readonly chatPolicyService: ChatPolicyService,
     private readonly chatEvents: ChatEventsService,
   ) {}
+
+  async listTemplates(input: ListTemplatesInput) {
+    const templates = await this.ycloudService.listWhatsappTemplates({
+      accountId: input.accountId,
+      pageLimit: 100,
+      maxTemplates: 2000,
+    });
+
+    const search = input.search?.trim().toLowerCase() || null;
+    const category = input.category?.trim().toLowerCase() || null;
+    const language = input.language?.trim().toLowerCase() || null;
+    const status = input.status?.trim().toUpperCase() || 'APPROVED';
+
+    const normalized = templates
+      .map((template) => this.normalizeTemplate(template))
+      .filter((template) => {
+        if (!template.name) return false;
+        if (status !== 'ALL' && template.status?.toUpperCase() !== status) {
+          return false;
+        }
+        if (category && template.category?.toLowerCase() !== category) {
+          return false;
+        }
+        if (language && template.language?.toLowerCase() !== language) {
+          return false;
+        }
+        if (
+          search &&
+          !`${template.name} ${template.body ?? ''}`
+            .toLowerCase()
+            .includes(search)
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const byName = a.name.localeCompare(b.name);
+        if (byName !== 0) return byName;
+        return (a.language ?? '').localeCompare(b.language ?? '');
+      });
+
+    const page = normalized.slice(input.offset, input.offset + input.limit);
+
+    return {
+      data: page,
+      pageInfo: {
+        total: normalized.length,
+        limit: input.limit,
+        offset: input.offset,
+        hasMore: input.offset + input.limit < normalized.length,
+        nextOffset:
+          input.offset + input.limit < normalized.length
+            ? input.offset + input.limit
+            : null,
+      },
+      filters: {
+        categories: this.uniqueOptions(
+          normalized.map((template) => template.category),
+        ),
+        languages: this.uniqueOptions(
+          normalized.map((template) => template.language),
+        ),
+      },
+    };
+  }
 
   // =========================
   // TEMPLATE MESSAGE
@@ -578,6 +655,55 @@ export class OutboundService {
     }
 
     return fallback;
+  }
+
+  private normalizeTemplate(template: YcloudWhatsappTemplate) {
+    const name = this.nonEmpty(template.name);
+    const language = this.nonEmpty(template.language);
+    const category = this.nonEmpty(template.category);
+    const status = this.nonEmpty(template.status);
+    const body = this.extractTemplateBody(template.components);
+
+    return {
+      id:
+        this.nonEmpty(template.officialTemplateId) ??
+        this.nonEmpty(template.id) ??
+        [name, language].filter(Boolean).join(':'),
+      officialTemplateId: this.nonEmpty(template.officialTemplateId),
+      name: name ?? '',
+      language,
+      category,
+      status,
+      qualityRating: this.nonEmpty(template.qualityRating),
+      body,
+      createTime: this.nonEmpty(template.createTime),
+      updateTime: this.nonEmpty(template.updateTime),
+    };
+  }
+
+  private extractTemplateBody(components: unknown): string | null {
+    if (!Array.isArray(components)) return null;
+
+    const body = components.find((component) => {
+      if (!component || typeof component !== 'object') return false;
+      const type = (component as { type?: unknown }).type;
+      return typeof type === 'string' && type.toUpperCase() === 'BODY';
+    });
+
+    if (!body || typeof body !== 'object') return null;
+    return this.nonEmpty((body as { text?: unknown }).text);
+  }
+
+  private uniqueOptions(values: Array<string | null>) {
+    return Array.from(new Set(values.filter(Boolean) as string[])).sort((a, b) =>
+      a.localeCompare(b),
+    );
+  }
+
+  private nonEmpty(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
   }
 
   private async handleError(messageId: string, error: any) {

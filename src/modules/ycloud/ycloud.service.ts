@@ -4,6 +4,8 @@ import { ProviderCredentialService } from '../credentials/provider-credential.se
 import {
   SendYcloudTemplateMessageInput,
   YcloudSendTemplateResponse,
+  YcloudWhatsappTemplate,
+  YcloudWhatsappTemplateListResponse,
 } from 'src/common/types/ycloud-types';
 import { firstValueFrom } from 'rxjs';
 import FormData from 'form-data';
@@ -92,6 +94,45 @@ export class YcloudService {
       operation: 'sendTemplateMessage',
       body,
     });
+  }
+
+  async listWhatsappTemplates(input: {
+    accountId: string;
+    pageLimit?: number;
+    maxTemplates?: number;
+  }): Promise<YcloudWhatsappTemplate[]> {
+    const apiKey = await this.credentialService.getYcloudApiKey(
+      input.accountId,
+    );
+    const pageLimit = Math.min(Math.max(input.pageLimit ?? 100, 1), 1000);
+    const maxTemplates = Math.min(
+      Math.max(input.maxTemplates ?? 1000, pageLimit),
+      5000,
+    );
+
+    const templates: YcloudWhatsappTemplate[] = [];
+    let offset = 0;
+
+    while (templates.length < maxTemplates) {
+      const page = await this.getTemplatePage({
+        accountId: input.accountId,
+        apiKey,
+        limit: Math.min(pageLimit, maxTemplates - templates.length),
+        offset,
+      });
+      const items = Array.isArray(page.items) ? page.items : [];
+
+      for (const item of items) {
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
+          templates.push(item as YcloudWhatsappTemplate);
+        }
+      }
+
+      if (items.length < pageLimit) break;
+      offset += items.length;
+    }
+
+    return templates;
   }
 
   async sendTextMessage(
@@ -329,6 +370,77 @@ export class YcloudService {
       } else {
         this.logger.error('YCLOUD request could not be created');
       }
+
+      throw new YcloudRequestError(
+        `YCLOUD ${operation} failed: ${providerMessage}`,
+        retryable,
+        statusCode,
+        providerMessage,
+      );
+    }
+  }
+
+  private async getTemplatePage(params: {
+    accountId: string;
+    apiKey: string;
+    limit: number;
+    offset: number;
+  }): Promise<YcloudWhatsappTemplateListResponse> {
+    const { apiKey, limit, offset } = params;
+    const operation = 'listWhatsappTemplates';
+
+    try {
+      this.logger.log(
+        `YCLOUD request → operation=${operation} baseUrl=${this.baseUrl} limit=${limit} offset=${offset}`,
+      );
+
+      const response = await firstValueFrom(
+        this.httpService.get(`${this.baseUrl}/whatsapp/templates`, {
+          headers: {
+            'X-API-Key': apiKey,
+            Accept: 'application/json',
+          },
+          params: { limit, offset },
+          timeout: 20000,
+        }),
+      );
+
+      this.logger.log(
+        `YCLOUD response operation=${operation} status=${response.status}`,
+      );
+
+      return response.data as YcloudWhatsappTemplateListResponse;
+    } catch (error: any) {
+      const statusCode =
+        typeof error?.response?.status === 'number'
+          ? error.response.status
+          : undefined;
+
+      const providerMessage =
+        typeof error?.response?.data?.message === 'string'
+          ? error.response.data.message
+          : typeof error?.response?.data?.error?.message === 'string'
+            ? error.response.data.error.message
+            : typeof error?.message === 'string'
+              ? error.message
+              : 'Unknown YCloud error';
+
+      const retryable =
+        error?.code === 'ECONNABORTED' ||
+        error?.code === 'ETIMEDOUT' ||
+        error?.code === 'ECONNRESET' ||
+        error?.code === 'ENOTFOUND' ||
+        error?.code === 'EAI_AGAIN' ||
+        !statusCode ||
+        statusCode === 429 ||
+        statusCode === 500 ||
+        statusCode === 502 ||
+        statusCode === 503 ||
+        statusCode === 504;
+
+      this.logger.error(
+        `YCLOUD request failed operation=${operation} retryable=${retryable} status=${statusCode ?? 'n/a'} message=${providerMessage}`,
+      );
 
       throw new YcloudRequestError(
         `YCLOUD ${operation} failed: ${providerMessage}`,

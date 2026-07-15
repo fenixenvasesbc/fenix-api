@@ -2,7 +2,9 @@ import {
   Body,
   Controller,
   ForbiddenException,
+  Get,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -12,6 +14,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { OutboundService } from './outbound.service';
 import {
+  ListOutboundTemplatesQueryDto,
   SendMediaDto,
   SendTemplateDto,
   SendTextDto,
@@ -27,6 +30,25 @@ type AuthUser = {
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class OutboundController {
   constructor(private readonly outboundMessageService: OutboundService) {}
+
+  @Roles(Role.ADMIN, Role.SALES)
+  @Get('templates')
+  listTemplates(
+    @Query() query: ListOutboundTemplatesQueryDto,
+    @Req() req: { user: AuthUser },
+  ) {
+    const accountId = this.resolveAccountId(req.user, query.accountId);
+
+    return this.outboundMessageService.listTemplates({
+      accountId,
+      search: query.search ?? null,
+      category: query.category ?? null,
+      language: query.language ?? null,
+      status: query.status ?? 'APPROVED',
+      limit: query.limit ?? 20,
+      offset: query.offset ?? 0,
+    });
+  }
 
   @Roles(Role.ADMIN, Role.SALES)
   @Post('template')

@@ -39,6 +39,7 @@
 
 | Método | Endpoint | Roles | Uso |
 |---|---|---|---|
+| `POST` | `/conversations/start` | `ADMIN`, `SALES` | Buscar/crear lead por telefono e iniciar conversacion con plantilla si aplica. |
 | `GET` | `/conversations` | `ADMIN`, `SALES` | Listar conversaciones. |
 | `GET` | `/conversations/:leadId` | `ADMIN`, `SALES` | Detalle por lead. |
 | `POST` | `/conversations/:leadId/read` | `ADMIN`, `SALES` | Marcar como leída. |
@@ -56,6 +57,7 @@
 
 | Método | Endpoint | Roles | Uso |
 |---|---|---|---|
+| `GET` | `/outbound/templates` | `ADMIN`, `SALES` | Listar plantillas WhatsApp desde YCloud sin exponer API key a la SPA. |
 | `POST` | `/outbound/template` | `ADMIN`, `SALES` | Enviar plantilla. |
 | `POST` | `/outbound/text` | `ADMIN`, `SALES` | Enviar texto libre. |
 | `POST` | `/outbound/media` | `ADMIN`, `SALES` | Enviar media. |
@@ -97,4 +99,3 @@
 |---|---|---|
 | `POST` | `/events/outbound/accepted` | Procesar evento outbound aceptado legacy/manual. |
 | `POST` | `/events/inbound/received` | Procesar evento inbound legacy/manual. |
-
