@@ -269,3 +269,4 @@ Reglas de seguridad:
 - La SPA nunca consulta YCloud directamente.
 - La API obtiene la API key activa de la cuenta desde credenciales internas.
 - La API devuelve solo campos necesarios para seleccionar y enviar la plantilla.
+- Si la plantilla trae `HEADER` media (`IMAGE`, `VIDEO` o `DOCUMENT`) con URL en los `components` de YCloud, la API lo detecta y lo envia automaticamente como componente del template.

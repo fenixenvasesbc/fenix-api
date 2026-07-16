@@ -39,6 +39,12 @@ type ListTemplatesInput = {
   offset: number;
 };
 
+type TemplateHeaderMedia = {
+  format: 'IMAGE' | 'VIDEO' | 'DOCUMENT';
+  url: string;
+  fileName?: string | null;
+};
+
 @Injectable()
 export class OutboundService {
   constructor(
@@ -145,6 +151,11 @@ export class OutboundService {
 
     await this.chatPolicyService.assertCanSendTemplate({ accountId, leadId });
     const account = await this.getAccount(accountId);
+    const templateComponents = await this.resolveTemplateComponentsForSend({
+      accountId,
+      templateName,
+      languageCode: finalLanguage,
+    });
 
     const externalId = randomUUID();
     const outboundAt = new Date();
@@ -184,6 +195,7 @@ export class OutboundService {
         templateName,
         languageCode: finalLanguage,
         externalId,
+        components: templateComponents,
       });
 
       const providerCreateTime = this.parseProviderDate(
@@ -663,6 +675,7 @@ export class OutboundService {
     const category = this.nonEmpty(template.category);
     const status = this.nonEmpty(template.status);
     const body = this.extractTemplateBody(template.components);
+    const headerMedia = this.extractHeaderMedia(template.components);
 
     return {
       id:
@@ -676,8 +689,74 @@ export class OutboundService {
       status,
       qualityRating: this.nonEmpty(template.qualityRating),
       body,
+      headerMedia,
+      requiresHeaderMedia: Boolean(headerMedia),
       createTime: this.nonEmpty(template.createTime),
       updateTime: this.nonEmpty(template.updateTime),
+    };
+  }
+
+  private async resolveTemplateComponentsForSend(input: {
+    accountId: string;
+    templateName: string;
+    languageCode: string;
+  }): Promise<unknown[] | undefined> {
+    const templates = await this.ycloudService.listWhatsappTemplates({
+      accountId: input.accountId,
+      pageLimit: 100,
+      maxTemplates: 2000,
+    });
+
+    const template = templates.find((candidate) => {
+      const name = this.nonEmpty(candidate.name);
+      const language = this.nonEmpty(candidate.language);
+      return (
+        name === input.templateName &&
+        (!language || language === input.languageCode)
+      );
+    });
+
+    if (!template) return undefined;
+
+    const headerFormat = this.extractHeaderFormat(template.components);
+    if (!headerFormat) return undefined;
+
+    const headerMedia = this.extractHeaderMedia(template.components);
+    if (!headerMedia) {
+      throw new BadRequestException(
+        `Template ${input.templateName} requires ${headerFormat} header media, but YCloud did not include a media URL in the template metadata.`,
+      );
+    }
+
+    return [
+      {
+        type: 'header',
+        parameters: [this.buildHeaderMediaParameter(headerMedia)],
+      },
+    ];
+  }
+
+  private buildHeaderMediaParameter(media: TemplateHeaderMedia) {
+    if (media.format === 'IMAGE') {
+      return {
+        type: 'image',
+        image: { link: media.url },
+      };
+    }
+
+    if (media.format === 'VIDEO') {
+      return {
+        type: 'video',
+        video: { link: media.url },
+      };
+    }
+
+    return {
+      type: 'document',
+      document: {
+        link: media.url,
+        ...(media.fileName ? { filename: media.fileName } : {}),
+      },
     };
   }
 
@@ -692,6 +771,78 @@ export class OutboundService {
 
     if (!body || typeof body !== 'object') return null;
     return this.nonEmpty((body as { text?: unknown }).text);
+  }
+
+  private extractHeaderMedia(components: unknown): TemplateHeaderMedia | null {
+    if (!Array.isArray(components)) return null;
+
+    const header = components.find((component) => {
+      if (!component || typeof component !== 'object') return false;
+      const type = (component as { type?: unknown }).type;
+      return typeof type === 'string' && type.toUpperCase() === 'HEADER';
+    });
+    if (!header || typeof header !== 'object') return null;
+
+    const format = this.extractHeaderFormat(components);
+    if (!format) return null;
+
+    const url = this.findFirstUrl(header);
+    if (!url) return null;
+
+    return {
+      format,
+      url,
+      fileName:
+        this.nonEmpty((header as { filename?: unknown }).filename) ??
+        this.nonEmpty((header as { fileName?: unknown }).fileName),
+    };
+  }
+
+  private extractHeaderFormat(
+    components: unknown,
+  ): TemplateHeaderMedia['format'] | null {
+    if (!Array.isArray(components)) return null;
+
+    const header = components.find((component) => {
+      if (!component || typeof component !== 'object') return false;
+      const type = (component as { type?: unknown }).type;
+      return typeof type === 'string' && type.toUpperCase() === 'HEADER';
+    });
+    if (!header || typeof header !== 'object') return null;
+
+    const format = this.nonEmpty((header as { format?: unknown }).format)
+      ?.toUpperCase()
+      .trim();
+
+    if (format === 'IMAGE' || format === 'VIDEO' || format === 'DOCUMENT') {
+      return format;
+    }
+
+    return null;
+  }
+
+  private findFirstUrl(value: unknown): string | null {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return /^https?:\/\//i.test(trimmed) ? trimmed : null;
+    }
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = this.findFirstUrl(item);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    if (value && typeof value === 'object') {
+      for (const item of Object.values(value)) {
+        const found = this.findFirstUrl(item);
+        if (found) return found;
+      }
+    }
+
+    return null;
   }
 
   private uniqueOptions(values: Array<string | null>) {

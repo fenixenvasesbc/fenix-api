@@ -27,6 +27,8 @@ Regla:
 - la API consulta YCloud;
 - la SPA no conoce ni recibe la API key;
 - por defecto se muestran plantillas `APPROVED`.
+- si la plantilla trae header media en YCloud, la respuesta incluye `headerMedia` y `requiresHeaderMedia`.
+- la SPA no pide la imagen: la API usa la URL que viene en los `components` de YCloud al enviar.
 
 Tipos SPA:
 
@@ -83,3 +85,28 @@ La SPA no decide si puede enviar texto libre fuera de ventana. La API devuelve `
 - `requiresTemplate`.
 
 Si `requiresTemplate = true`, la SPA debe seleccionar plantilla y llamar `/conversations/start` con `templateName`.
+
+## Plantillas con header media
+
+Cuando YCloud devuelve una plantilla con componente `HEADER` de formato `IMAGE`, `VIDEO` o `DOCUMENT`, la API:
+
+1. Extrae la primera URL disponible dentro del componente.
+2. Devuelve esa informacion en `WhatsappTemplate.headerMedia`.
+3. Al enviar la plantilla, vuelve a resolver la metadata en backend por `name + language`.
+4. Construye automaticamente el componente:
+
+```json
+{
+  "type": "header",
+  "parameters": [
+    {
+      "type": "image",
+      "image": {
+        "link": "https://..."
+      }
+    }
+  ]
+}
+```
+
+La SPA solo selecciona la plantilla; no debe pedir ni enviar la URL del header como dato de confianza.

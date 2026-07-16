@@ -84,6 +84,7 @@ export class YcloudService {
         language: {
           code: input.languageCode,
         },
+        ...(input.components?.length ? { components: input.components } : {}),
       },
       externalId: input.externalId,
     };
