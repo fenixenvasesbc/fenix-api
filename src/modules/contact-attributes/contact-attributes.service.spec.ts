@@ -50,6 +50,7 @@ describe('ContactAttributesService', () => {
       lead: {
         findUnique: jest.fn().mockResolvedValue({
           id: 'lead-1',
+          phoneE164: '+15551234567',
           whatsappContactName: null,
           ycloudNickname: null,
         }),
@@ -96,6 +97,7 @@ describe('ContactAttributesService', () => {
       },
       select: {
         id: true,
+        phoneE164: true,
         whatsappContactName: true,
         ycloudNickname: true,
       },
@@ -202,8 +204,102 @@ describe('ContactAttributesService', () => {
       },
       select: {
         id: true,
+        phoneE164: true,
         whatsappContactName: true,
         ycloudNickname: true,
+      },
+    });
+  });
+
+  it('updates lead phoneE164 when YCloud phone_number changes', async () => {
+    const { service, prisma, chatEvents } = buildService();
+
+    prisma.lead.findUnique
+      .mockResolvedValueOnce({
+        id: 'lead-1',
+        phoneE164: '+34614795298',
+        whatsappContactName: null,
+        ycloudNickname: null,
+      })
+      .mockResolvedValueOnce(null);
+
+    mockedAxios.get.mockResolvedValue({
+      status: 200,
+      data: {
+        id: '1855367914716488704',
+        phone_number: '+34643605783',
+      },
+      headers: {},
+    });
+
+    await service.process({
+      provider: 'ycloud',
+      providerEventId: 'evt_6a58c9ad57b83f14dd5cc7a4',
+      eventType: 'contact.attributes_changed',
+      apiVersion: 'v2',
+      providerTime: '2026-07-16T12:08:13.409Z',
+      receivedAt: '2026-07-16T12:08:14.000Z',
+      payload: {
+        id: 'evt_6a58c9ad57b83f14dd5cc7a4',
+        type: 'contact.attributes_changed',
+        apiVersion: 'v2',
+        createTime: '2026-07-16T12:08:13.409Z',
+        contactAttributesChanged: {
+          id: '1855367914716488704',
+          updateTime: '2026-07-16T12:08:13.409Z',
+          changedAttributes: {
+            phone_number: {
+              oldValue: '+34614795298',
+              newValue: '+34643605783',
+              extra: [
+                {
+                  action: 'CHANGED',
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    expect(prisma.lead.findUnique).toHaveBeenNthCalledWith(1, {
+      where: {
+        accountId_phoneE164: {
+          accountId: 'account-1',
+          phoneE164: '+34614795298',
+        },
+      },
+      select: {
+        id: true,
+        phoneE164: true,
+        whatsappContactName: true,
+        ycloudNickname: true,
+      },
+    });
+    expect(prisma.lead.findUnique).toHaveBeenNthCalledWith(2, {
+      where: {
+        accountId_phoneE164: {
+          accountId: 'account-1',
+          phoneE164: '+34643605783',
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+    expect(prisma.lead.update).toHaveBeenCalledWith({
+      where: { id: 'lead-1' },
+      data: { phoneE164: '+34643605783' },
+    });
+    expect(chatEvents.publish).toHaveBeenCalledWith({
+      type: 'conversation.updated',
+      accountId: 'account-1',
+      leadId: 'lead-1',
+      payload: {
+        source: 'contact.attributes_changed',
+        providerEventId: 'evt_6a58c9ad57b83f14dd5cc7a4',
+        updatedFields: ['phoneE164'],
+        reason: 'lead.contact_attributes.updated',
       },
     });
   });

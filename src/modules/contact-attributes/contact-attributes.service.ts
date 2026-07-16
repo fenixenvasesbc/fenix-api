@@ -61,31 +61,48 @@ export class ContactAttributesService {
     const nicknameChange = this.resolveNicknameChange(
       contactAttributesChanged.changedAttributes,
     );
+    const phoneNumberChange = this.resolvePhoneNumberChange(
+      contactAttributesChanged.changedAttributes,
+    );
     const whatsappContactName = remarkNameChange.changed
       ? normalizeLeadName(remarkNameChange.newValue)
       : null;
     const ycloudNickname = nicknameChange.changed
       ? normalizeLeadName(nicknameChange.newValue)
       : null;
+    const oldPhoneE164 = phoneNumberChange.changed
+      ? this.normalizePhone(this.pickPhoneValue(phoneNumberChange.oldValue))
+      : null;
+    const newPhoneE164 = phoneNumberChange.changed
+      ? this.normalizePhone(this.pickPhoneValue(phoneNumberChange.newValue))
+      : null;
 
-    if (!remarkNameChange.changed && !nicknameChange.changed) {
+    if (
+      !remarkNameChange.changed &&
+      !nicknameChange.changed &&
+      !phoneNumberChange.changed
+    ) {
       await this.markProcessed(job, {
         accountId: null,
         leadId: null,
       });
       this.logger.log(
-        `Ignoring contact attributes event without nickname change providerEventId=${job.providerEventId} contactId=${contactId}`,
+        `Ignoring contact attributes event without relevant change providerEventId=${job.providerEventId} contactId=${contactId}`,
       );
       return;
     }
 
-    if (!whatsappContactName && !ycloudNickname) {
+    if (
+      !whatsappContactName &&
+      !ycloudNickname &&
+      (!phoneNumberChange.changed || !newPhoneE164)
+    ) {
       await this.markProcessed(job, {
         accountId: null,
         leadId: null,
       });
       this.logger.log(
-        `Ignoring empty contact name attributes providerEventId=${job.providerEventId} contactId=${contactId}`,
+        `Ignoring empty contact attributes providerEventId=${job.providerEventId} contactId=${contactId}`,
       );
       return;
     }
@@ -96,6 +113,7 @@ export class ContactAttributesService {
     }
 
     const phoneE164 =
+      newPhoneE164 ??
       this.extractPhoneE164FromChangedAttributes(
         contactAttributesChanged.changedAttributes,
       ) ?? this.extractPhoneE164(lookup.contact);
@@ -105,19 +123,10 @@ export class ContactAttributesService {
       );
     }
 
-    const lead = await this.prisma.lead.findUnique({
-      where: {
-        accountId_phoneE164: {
-          accountId: lookup.accountId,
-          phoneE164,
-        },
-      },
-      select: {
-        id: true,
-        whatsappContactName: true,
-        ycloudNickname: true,
-      },
-    });
+    const lead = await this.findLeadByPhones(lookup.accountId, [
+      oldPhoneE164,
+      phoneE164,
+    ]);
 
     if (!lead) {
       await this.markProcessed(job, {
@@ -131,6 +140,7 @@ export class ContactAttributesService {
     }
 
     const updateData: {
+      phoneE164?: string;
       whatsappContactName?: string;
       ycloudNickname?: string;
     } = {};
@@ -147,6 +157,32 @@ export class ContactAttributesService {
       normalizeLeadName(lead.ycloudNickname) !== ycloudNickname
     ) {
       updateData.ycloudNickname = ycloudNickname;
+    }
+
+    if (
+      phoneNumberChange.changed &&
+      newPhoneE164 &&
+      lead.phoneE164 !== newPhoneE164
+    ) {
+      const existingLeadWithNewPhone = await this.prisma.lead.findUnique({
+        where: {
+          accountId_phoneE164: {
+            accountId: lookup.accountId,
+            phoneE164: newPhoneE164,
+          },
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (existingLeadWithNewPhone && existingLeadWithNewPhone.id !== lead.id) {
+        this.logger.warn(
+          `Skipping lead phone update from contact attributes because target phone already exists providerEventId=${job.providerEventId} accountId=${lookup.accountId} leadId=${lead.id} oldPhone=${this.maskPhone(lead.phoneE164)} newPhone=${this.maskPhone(newPhoneE164)} existingLeadId=${existingLeadWithNewPhone.id}`,
+        );
+      } else {
+        updateData.phoneE164 = newPhoneE164;
+      }
     }
 
     if (Object.keys(updateData).length === 0) {
@@ -173,7 +209,9 @@ export class ContactAttributesService {
         source: 'contact.attributes_changed',
         providerEventId: job.providerEventId,
         updatedFields: Object.keys(updateData),
-        reason: 'lead.contact_name.updated',
+        reason: updateData.phoneE164
+          ? 'lead.contact_attributes.updated'
+          : 'lead.contact_name.updated',
       },
     });
 
@@ -183,7 +221,7 @@ export class ContactAttributesService {
     });
 
     this.logger.log(
-      `Lead contact names updated from contact attributes providerEventId=${job.providerEventId} leadId=${lead.id} accountId=${lookup.accountId}`,
+      `Lead contact attributes updated from contact attributes providerEventId=${job.providerEventId} leadId=${lead.id} accountId=${lookup.accountId} fields=${Object.keys(updateData).join(',')}`,
     );
   }
 
@@ -252,6 +290,68 @@ export class ContactAttributesService {
     }
 
     return { changed: true, newValue: change.newValue };
+  }
+
+  private resolvePhoneNumberChange(
+    changedAttributes:
+      | Record<string, YCloudContactAttributeChange>
+      | null
+      | undefined,
+  ):
+    | { changed: true; oldValue: unknown; newValue: unknown }
+    | { changed: false } {
+    if (!changedAttributes) return { changed: false };
+
+    const change = this.findAttributeChange(changedAttributes, [
+      'phoneE164',
+      'phone_e164',
+      'phone',
+      'phoneNumber',
+      'phone_number',
+      'mobile',
+      'whatsapp',
+      'whatsappNumber',
+      'whatsapp_number',
+      'waId',
+      'wa_id',
+    ]);
+    if (!change || !Object.prototype.hasOwnProperty.call(change, 'newValue')) {
+      return { changed: false };
+    }
+
+    return {
+      changed: true,
+      oldValue: change.oldValue,
+      newValue: change.newValue,
+    };
+  }
+
+  private async findLeadByPhones(
+    accountId: string,
+    phones: Array<string | null>,
+  ) {
+    const uniquePhones = [...new Set(phones.filter(Boolean))] as string[];
+
+    for (const phoneE164 of uniquePhones) {
+      const lead = await this.prisma.lead.findUnique({
+        where: {
+          accountId_phoneE164: {
+            accountId,
+            phoneE164,
+          },
+        },
+        select: {
+          id: true,
+          phoneE164: true,
+          whatsappContactName: true,
+          ycloudNickname: true,
+        },
+      });
+
+      if (lead) return lead;
+    }
+
+    return null;
   }
 
   private async findContact(contactId: string): Promise<ContactLookup> {
