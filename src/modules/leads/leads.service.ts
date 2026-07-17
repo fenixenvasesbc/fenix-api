@@ -15,6 +15,7 @@ type ListLeadsInput = {
   limit: number;
   beforeLeadId?: string | null;
   labelChangedOrder?: 'asc' | 'desc';
+  labelStaleDays?: number;
 };
 
 type SetLabelInput = {
@@ -49,18 +50,25 @@ export class LeadsService {
       limit,
       beforeLeadId,
       labelChangedOrder = 'desc',
+      labelStaleDays,
     } = input;
     const sortByLabelChangedAt = Boolean(label);
     const sortDirection = sortByLabelChangedAt
       ? labelChangedOrder
       : ('desc' as const);
+    const staleCutoff =
+      label && labelStaleDays
+        ? this.addDays(new Date(), -labelStaleDays)
+        : null;
 
     const baseWhere: Prisma.LeadWhereInput = {
       accountId,
       ...(label
         ? {
             currentLabel: label,
-            currentLabelChangedAt: { not: null },
+            currentLabelChangedAt: staleCutoff
+              ? { not: null, lte: staleCutoff }
+              : { not: null },
           }
         : {}),
       ...(search

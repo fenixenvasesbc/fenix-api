@@ -176,3 +176,25 @@ El backend publica eventos por cuenta:
 - `notification.updated`.
 
 La SPA puede usarlos para refrescar el contador de la campanita sin recargar toda la pantalla.
+
+### Navegacion desde alerta a Leads
+
+Cuando la campanita agrupa alertas por etiqueta, la SPA navega a:
+
+```txt
+/dashboard/leads?label=MUESTRAS&labelStaleDays=7&labelChangedOrder=asc
+```
+
+Para admin tambien incluye:
+
+```txt
+accountId=uuid
+```
+
+El endpoint `GET /leads` acepta `labelStaleDays` para devolver solo leads cuyo `currentLabelChangedAt` sea anterior o igual al umbral:
+
+```txt
+currentLabelChangedAt <= now - labelStaleDays
+```
+
+Esto evita que la vista de Leads muestre contactos que tienen la etiqueta, pero aun no estan vencidos.

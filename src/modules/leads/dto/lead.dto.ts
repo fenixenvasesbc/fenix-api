@@ -49,6 +49,13 @@ export class ListLeadsQueryDto {
   @IsOptional()
   @IsIn(['asc', 'desc'])
   labelChangedOrder?: 'asc' | 'desc' = 'desc';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  labelStaleDays?: number;
 }
 
 export class SetLeadLabelDto {

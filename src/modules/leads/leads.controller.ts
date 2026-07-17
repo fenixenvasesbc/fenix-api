@@ -48,6 +48,7 @@ export class LeadsController {
       limit: query.limit ?? 50,
       beforeLeadId: query.before ?? null,
       labelChangedOrder: query.labelChangedOrder ?? 'desc',
+      labelStaleDays: query.labelStaleDays,
     });
 
     return { accountId, ...leads };
