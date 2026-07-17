@@ -172,6 +172,42 @@ Docker:
 docker compose exec api pnpm ycloud:sync-repetition-templates -- --template-name=recordatorio_repeticion --apply
 ```
 
+### Ejecutar alertas por labels manualmente
+
+Uso local:
+
+```bash
+pnpm notifications:run-label-alerts
+```
+
+Docker:
+
+```bash
+docker compose exec api pnpm notifications:run-label-alerts
+```
+
+Salida esperada:
+
+```json
+{
+  "ok": true,
+  "executedAt": "2026-07-17T05:00:00.000Z",
+  "rules": 5,
+  "inspected": 120,
+  "created": 45
+}
+```
+
+Reglas:
+
+- Crea alertas reales, no es dry-run.
+- Es idempotente: si ya existen alertas para el mismo lead, label y fecha de entrada al label, no las duplica.
+- Para simular una fecha concreta:
+
+```bash
+pnpm notifications:run-label-alerts -- --now=2026-07-17T07:00:00+02:00
+```
+
 ## Validaciones recomendadas antes de despliegue
 
 ```bash
