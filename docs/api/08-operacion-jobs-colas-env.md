@@ -191,3 +191,27 @@ pnpm run build
 6. Verificar plantillas `APPROVED` en `AccountCampaignTemplate`.
 7. Revisar logs del scheduler a las 09:00 y 09:15 Europe/Madrid.
 
+## Alertas por labels
+
+El scheduler de notificaciones corre en el proceso API a las 07:00 Europe/Madrid.
+
+Variables opcionales:
+
+```env
+NOTIFICATION_LABEL_ALERT_MUESTRAS_DAYS=7
+NOTIFICATION_LABEL_ALERT_BOCETO_EN_PROCESO_DAYS=4
+NOTIFICATION_LABEL_ALERT_PENDIENTE_DE_PAGO_DAYS=7
+NOTIFICATION_LABEL_ALERT_PRODUCCION_DAYS=14
+NOTIFICATION_LABEL_ALERT_BOCETOS_ATRASADOS_DAYS=2
+NOTIFICATION_LABEL_ALERT_REPETICIONES_DAYS=0
+NOTIFICATION_LABEL_ALERT_BATCH_LIMIT=500
+NOTIFICATION_LABEL_ALERT_SCHEDULER_ENABLED=true
+```
+
+Reglas:
+
+- Si una variable `NOTIFICATION_LABEL_ALERT_<LABEL>_DAYS` no existe, se usa el default del codigo.
+- Si se define en `0`, vacia o con un valor no valido, esa alerta queda desactivada.
+- `REPETICIONES` queda sin alerta por defecto.
+- `NOTIFICATION_LABEL_ALERT_BATCH_LIMIT` limita cuantos leads se inspeccionan por label en cada ejecucion.
+- `NOTIFICATION_LABEL_ALERT_SCHEDULER_ENABLED=false` apaga el scheduler sin quitar el modulo.

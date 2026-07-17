@@ -180,3 +180,41 @@ Si el lead sale de `REPETICIONES` y luego vuelve a entrar:
 2. se recalcula frecuencia;
 3. se enviará de nuevo cuando venza ese nuevo `dueAt`.
 
+## Alertas por permanencia en labels
+
+La API genera notificaciones internas cuando un lead permanece demasiado tiempo en una etiqueta operativa.
+
+Scheduler:
+
+```txt
+07:00 Europe/Madrid, todos los dias
+```
+
+Reglas por defecto:
+
+| Label | Umbral por defecto | Alerta |
+|---|---:|---|
+| `MUESTRAS` | 7 dias | Si el lead lleva 7 dias o mas en muestras. |
+| `BOCETO_EN_PROCESO` | 4 dias | Si el lead lleva 4 dias o mas en boceto en proceso. |
+| `PENDIENTE_DE_PAGO` | 7 dias | Si el lead lleva 7 dias o mas pendiente de pago. |
+| `PRODUCCION` | 14 dias | Si el lead lleva 14 dias o mas en produccion. |
+| `BOCETOS_ATRASADOS` | 2 dias | Si el lead lleva 2 dias o mas en boceto atrasado. |
+| `REPETICIONES` | desactivado | No genera alertas. |
+
+Reglas:
+
+- La alerta se crea por cuenta.
+- La alerta queda asociada al lead.
+- Una comercial ve las alertas de su cuenta.
+- Un admin debe consultar indicando `accountId`.
+- La API genera una sola alerta por cada entrada del lead a una etiqueta.
+- Si la alerta no se marca como leida, permanece visible cada dia.
+- Si el lead sale de una etiqueta y luego vuelve a entrar, `currentLabelChangedAt` cambia y puede generarse una nueva alerta cuando venza el nuevo umbral.
+
+Idempotencia:
+
+```txt
+dedupeKey = label-stale:{leadId}:{label}:{currentLabelChangedAt}
+```
+
+Esto evita duplicados aunque el scheduler corra varias veces.

@@ -110,3 +110,69 @@ Cuando YCloud devuelve una plantilla con componente `HEADER` de formato `IMAGE`,
 ```
 
 La SPA solo selecciona la plantilla; no debe pedir ni enviar la URL del header como dato de confianza.
+
+## Notificaciones de campanita
+
+La SPA debe consumir las notificaciones desde la API. Las reglas de negocio y los umbrales viven en backend.
+
+### `GET /notifications`
+
+Uso SPA:
+
+- cargar la campanita;
+- mostrar alertas pendientes por cuenta;
+- permitir ver historico si se consulta `status=ALL` o `status=READ`.
+
+Query:
+
+```txt
+accountId=uuid   # requerido para ADMIN, ignorado para SALES si coincide con su cuenta
+status=UNREAD    # UNREAD | READ | ALL
+limit=50         # maximo 200
+```
+
+Respuesta:
+
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "accountId": "uuid",
+      "leadId": "uuid",
+      "type": "LABEL_STALE",
+      "status": "UNREAD",
+      "severity": "WARNING",
+      "title": "Cliente lleva 7 dias en Muestras",
+      "message": "El lead Cliente permanece en Muestras...",
+      "label": "MUESTRAS",
+      "triggeredAt": "2026-07-17T05:00:00.000Z",
+      "readAt": null,
+      "metadata": {},
+      "lead": {
+        "id": "uuid",
+        "displayName": "Cliente",
+        "displayNameSource": "whatsappContactName"
+      }
+    }
+  ],
+  "unreadCount": 1
+}
+```
+
+### `POST /notifications/:notificationId/read`
+
+Marca una alerta como leida y devuelve la alerta actualizada.
+
+### `POST /notifications/read-all`
+
+Marca todas las alertas no leidas de la cuenta como leidas.
+
+### Eventos realtime
+
+El backend publica eventos por cuenta:
+
+- `notification.created`;
+- `notification.updated`.
+
+La SPA puede usarlos para refrescar el contador de la campanita sin recargar toda la pantalla.

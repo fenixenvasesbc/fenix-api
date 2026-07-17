@@ -46,6 +46,7 @@ import { LeadsModule } from './modules/leads/leads.module';
 import { ClichesModule } from './modules/cliches/cliches.module';
 import { ReengagementSchedulerModule } from './modules/reengagement/reengagement-scheduler.module';
 import { RepetitionReminderSchedulerModule } from './modules/repetition-reminder/repetition-reminder-scheduler.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { RepetitionReminderSchedulerModule } from './modules/repetition-reminder
     ClichesModule,
     ReengagementSchedulerModule,
     RepetitionReminderSchedulerModule,
+    NotificationsModule,
   ],
   controllers: [
     AppController,

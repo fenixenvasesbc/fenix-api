@@ -35,6 +35,14 @@
 | `GET` | `/leads/repetition-reminders/due` | `ADMIN`, `SALES` | Recordatorios vencidos manuales. |
 | `POST` | `/leads/repetition-reminders/:reminderId/sent` | `ADMIN`, `SALES` | Marcar reminder como enviado. |
 
+## Notificaciones
+
+| MÃ©todo | Endpoint | Roles | Uso |
+|---|---|---|---|
+| `GET` | `/notifications` | `ADMIN`, `SALES` | Listar alertas por cuenta. |
+| `POST` | `/notifications/:notificationId/read` | `ADMIN`, `SALES` | Marcar una alerta como leida. |
+| `POST` | `/notifications/read-all` | `ADMIN`, `SALES` | Marcar todas las alertas de la cuenta como leidas. |
+
 ## Conversaciones
 
 | Método | Endpoint | Roles | Uso |

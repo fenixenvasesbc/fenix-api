@@ -5,7 +5,9 @@ export type ChatEventType =
   | 'conversation.updated'
   | 'conversation.read'
   | 'conversation.closed'
-  | 'conversation.reopened';
+  | 'conversation.reopened'
+  | 'notification.created'
+  | 'notification.updated';
 
 export type ChatEvent = {
   id: string;

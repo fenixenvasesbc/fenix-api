@@ -39,6 +39,21 @@ enum LeadLabel {
   BOCETOS_ATRASADOS
 }
 
+enum AppNotificationType {
+  LABEL_STALE
+}
+
+enum AppNotificationStatus {
+  UNREAD
+  READ
+}
+
+enum AppNotificationSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
 enum MessageDirection {
   OUTBOUND
   INBOUND
@@ -118,6 +133,7 @@ model Account {
   campaignTemplates   AccountCampaignTemplate[]
   leadLabelHistory    LeadLabelHistory[]
   repetitionReminders LeadRepetitionReminder[]
+  notifications       AppNotification[]
 
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -173,6 +189,7 @@ model Lead {
   conversations       Conversation[]
   labelHistory        LeadLabelHistory[]
   repetitionReminders LeadRepetitionReminder[]
+  notifications       AppNotification[]
 
   @@unique([accountId, phoneE164])
   @@index([accountId])
@@ -227,6 +244,37 @@ model LeadRepetitionReminder {
   @@index([accountId, dueAt, sentAt, canceledAt])
   @@index([leadId, markedAt])
   @@index([labelHistoryId])
+}
+
+model AppNotification {
+  id        String                    @id @default(uuid())
+  accountId String
+  leadId    String?
+
+  type     AppNotificationType
+  status   AppNotificationStatus   @default(UNREAD)
+  severity AppNotificationSeverity @default(WARNING)
+
+  dedupeKey String
+  title     String
+  message   String
+  label     LeadLabel?
+
+  triggeredAt DateTime @default(now())
+  readAt      DateTime?
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  lead    Lead?   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, dedupeKey])
+  @@index([accountId, status, triggeredAt])
+  @@index([accountId, type, status])
+  @@index([leadId, type, status])
 }
 
 model RefreshToken {
