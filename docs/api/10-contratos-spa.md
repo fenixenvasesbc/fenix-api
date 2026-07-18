@@ -168,6 +168,32 @@ Marca una alerta como leida y devuelve la alerta actualizada.
 
 Marca todas las alertas no leidas de la cuenta como leidas.
 
+### `POST /notifications/read-label-stale`
+
+Marca como leidas solo las alertas `LABEL_STALE` no leidas de una etiqueta dentro de la cuenta activa.
+
+Uso SPA:
+
+- mantener una alerta de otra etiqueta como pendiente;
+- limpiar un grupo concreto desde la campanita sin usar "marcar todas".
+
+Body:
+
+```json
+{
+  "label": "MUESTRAS"
+}
+```
+
+Respuesta:
+
+```json
+{
+  "unreadCount": 3,
+  "updatedCount": 2
+}
+```
+
 ### Eventos realtime
 
 El backend publica eventos por cuenta:

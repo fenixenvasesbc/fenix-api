@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   ForbiddenException,
   Get,
@@ -14,6 +15,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import {
+  MarkLabelStaleNotificationsReadDto,
   NotificationAccountQueryDto,
   NotificationsQueryDto,
 } from './dto/notification-query.dto';
@@ -70,6 +72,21 @@ export class NotificationsController {
     const accountId = this.resolveAccountId(req.user, query.accountId);
 
     return this.notificationsService.markAllAsRead(accountId);
+  }
+
+  @Roles(Role.ADMIN, Role.SALES)
+  @Post('read-label-stale')
+  async markLabelStaleAsRead(
+    @Body() body: MarkLabelStaleNotificationsReadDto,
+    @Query() query: NotificationAccountQueryDto,
+    @Req() req: { user: AuthUser },
+  ) {
+    const accountId = this.resolveAccountId(req.user, query.accountId);
+
+    return this.notificationsService.markLabelStaleAsRead(
+      accountId,
+      body.label,
+    );
   }
 
   private resolveAccountId(

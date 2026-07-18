@@ -42,6 +42,7 @@
 | `GET` | `/notifications` | `ADMIN`, `SALES` | Listar alertas por cuenta. |
 | `POST` | `/notifications/:notificationId/read` | `ADMIN`, `SALES` | Marcar una alerta como leida. |
 | `POST` | `/notifications/read-all` | `ADMIN`, `SALES` | Marcar todas las alertas de la cuenta como leidas. |
+| `POST` | `/notifications/read-label-stale` | `ADMIN`, `SALES` | Marcar como leidas las alertas pendientes de una etiqueta especifica. |
 
 ## Conversaciones
 

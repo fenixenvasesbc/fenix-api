@@ -160,6 +160,43 @@ export class NotificationsService {
     return { unreadCount: 0 };
   }
 
+  async markLabelStaleAsRead(accountId: string, label: LeadLabel) {
+    const now = new Date();
+
+    const result = await this.prisma.appNotification.updateMany({
+      where: {
+        accountId,
+        type: AppNotificationType.LABEL_STALE,
+        label,
+        status: AppNotificationStatus.UNREAD,
+      },
+      data: {
+        status: AppNotificationStatus.READ,
+        readAt: now,
+      },
+    });
+
+    const unreadCount = await this.countUnread(accountId);
+
+    await this.chatEvents.publish({
+      type: 'notification.updated',
+      accountId,
+      payload: {
+        type: AppNotificationType.LABEL_STALE,
+        label,
+        status: AppNotificationStatus.READ,
+        unreadCount,
+        scope: 'label-stale-group',
+        updatedCount: result.count,
+      },
+    });
+
+    return {
+      unreadCount,
+      updatedCount: result.count,
+    };
+  }
+
   async runLabelAlerts(now = new Date()) {
     const rules = this.resolveLabelAlertRules();
     const limit = this.resolveBatchLimit();

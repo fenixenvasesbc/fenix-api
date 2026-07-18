@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
-import { AppNotificationStatus } from '@prisma/client';
+import { IsEnum, IsIn, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { AppNotificationStatus, LeadLabel } from '@prisma/client';
 
 export const NOTIFICATION_STATUS_FILTERS = [
   AppNotificationStatus.UNREAD,
@@ -32,4 +32,9 @@ export class NotificationAccountQueryDto {
   @IsOptional()
   @IsUUID()
   accountId?: string;
+}
+
+export class MarkLabelStaleNotificationsReadDto {
+  @IsEnum(LeadLabel)
+  label: LeadLabel;
 }
