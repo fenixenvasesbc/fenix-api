@@ -17,6 +17,7 @@ import { normalizeLeadName } from 'src/common/utils/lead-name';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ChatEventsService } from '../chat-events/chat-events.service';
 import { ConversationService } from '../conversation/conversation.service';
+import { MessageMediaService } from '../message-media/message-media.service';
 
 type MessageContent = Pick<
   Prisma.MessageUncheckedCreateInput,
@@ -32,6 +33,7 @@ export class SmbMessageEchoesService {
     private readonly conversationService: ConversationService,
     private readonly chatEvents: ChatEventsService,
     private readonly leadLanguageResolver: LeadLanguageResolverService,
+    private readonly messageMedia: MessageMediaService,
   ) {}
 
   async process(job: WebhookInboxJob): Promise<void> {
@@ -84,7 +86,9 @@ export class SmbMessageEchoesService {
     });
 
     if (!account) {
-      throw new Error(`Account not found for wabaId=${wabaId} phoneE164=${from}`);
+      throw new Error(
+        `Account not found for wabaId=${wabaId} phoneE164=${from}`,
+      );
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -224,9 +228,7 @@ export class SmbMessageEchoesService {
           wamid: this.nonEmpty(whatsappMessage.wamid),
           externalId: this.nonEmpty(whatsappMessage.externalId),
           recipientWhatsAppUserId: this.nonEmpty(whatsappMessage.toUserId),
-          recipientParentUserId: this.nonEmpty(
-            whatsappMessage.toParentUserId,
-          ),
+          recipientParentUserId: this.nonEmpty(whatsappMessage.toParentUserId),
           customerUsername,
           customerDisplayName: whatsappMessage.customerProfile?.name ?? null,
           providerCreateTime,
@@ -279,6 +281,18 @@ export class SmbMessageEchoesService {
         status,
       };
     });
+
+    if (content.mediaUrl) {
+      await this.messageMedia.archiveMessageMedia({
+        accountId: result.accountId,
+        messageId: result.messageId,
+        sourceUrl: content.mediaUrl,
+        mimeType: content.mimeType,
+        fileName: content.fileName,
+        messageType: result.messageType,
+        providerEventId: job.providerEventId,
+      });
+    }
 
     if (result.isNewMessage && result.conversationId) {
       await this.chatEvents.publish({
@@ -338,7 +352,8 @@ export class SmbMessageEchoesService {
     if (!event.id) throw new Error('Missing event id');
     if (!event.createTime) throw new Error('Missing event createTime');
     if (!event.whatsappMessage) throw new Error('Missing whatsappMessage');
-    if (!event.whatsappMessage.id) throw new Error('Missing whatsappMessage.id');
+    if (!event.whatsappMessage.id)
+      throw new Error('Missing whatsappMessage.id');
 
     return event;
   }

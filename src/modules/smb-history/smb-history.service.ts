@@ -19,6 +19,7 @@ import { LeadLanguageResolverService } from 'src/common/utils/lead-language-reso
 import { normalizeLeadName } from 'src/common/utils/lead-name';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ChatEventsService } from '../chat-events/chat-events.service';
+import { MessageMediaService } from '../message-media/message-media.service';
 
 type MessageContent = Pick<
   Prisma.MessageUncheckedCreateInput,
@@ -34,6 +35,9 @@ type ProcessResult = {
   direction: MessageDirection;
   messageType: MessageType;
   status: MessageStatus;
+  mediaUrl?: string | null;
+  mimeType?: string | null;
+  fileName?: string | null;
 };
 
 @Injectable()
@@ -44,6 +48,7 @@ export class SmbHistoryService {
     private readonly prisma: PrismaService,
     private readonly chatEvents: ChatEventsService,
     private readonly leadLanguageResolver: LeadLanguageResolverService,
+    private readonly messageMedia: MessageMediaService,
   ) {}
 
   async process(job: WebhookInboxJob): Promise<void> {
@@ -55,8 +60,24 @@ export class SmbHistoryService {
 
     const event = this.parseEvent(job.payload);
     const result = event.whatsappInboundMessage
-      ? await this.processInboundHistory(job, event, event.whatsappInboundMessage)
+      ? await this.processInboundHistory(
+          job,
+          event,
+          event.whatsappInboundMessage,
+        )
       : await this.processOutboundHistory(job, event, event.whatsappMessage!);
+
+    if (result.mediaUrl) {
+      await this.messageMedia.archiveMessageMedia({
+        accountId: result.accountId,
+        messageId: result.messageId,
+        sourceUrl: result.mediaUrl,
+        mimeType: result.mimeType,
+        fileName: result.fileName,
+        messageType: result.messageType,
+        providerEventId: job.providerEventId,
+      });
+    }
 
     if (result.isNewMessage && result.conversationId) {
       await this.chatEvents.publish({
@@ -242,7 +263,13 @@ export class SmbHistoryService {
           },
         });
 
-        await this.markProcessedTx(tx, job, account.id, lead.id, existingMessage.id);
+        await this.markProcessedTx(
+          tx,
+          job,
+          account.id,
+          lead.id,
+          existingMessage.id,
+        );
 
         return {
           isNewMessage: false,
@@ -253,6 +280,9 @@ export class SmbHistoryService {
           direction: MessageDirection.INBOUND,
           messageType,
           status: MessageStatus.UNKNOWN,
+          mediaUrl: content.mediaUrl,
+          mimeType: content.mimeType,
+          fileName: content.fileName,
         };
       }
 
@@ -306,6 +336,9 @@ export class SmbHistoryService {
         direction: MessageDirection.INBOUND,
         messageType,
         status: MessageStatus.UNKNOWN,
+        mediaUrl: content.mediaUrl,
+        mimeType: content.mimeType,
+        fileName: content.fileName,
       };
     });
   }
@@ -349,7 +382,9 @@ export class SmbHistoryService {
       select: { id: true },
     });
     if (!account) {
-      throw new Error(`Account not found for wabaId=${wabaId} phoneE164=${from}`);
+      throw new Error(
+        `Account not found for wabaId=${wabaId} phoneE164=${from}`,
+      );
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -452,7 +487,13 @@ export class SmbHistoryService {
           },
         });
 
-        await this.markProcessedTx(tx, job, account.id, lead.id, existingMessage.id);
+        await this.markProcessedTx(
+          tx,
+          job,
+          account.id,
+          lead.id,
+          existingMessage.id,
+        );
 
         return {
           isNewMessage: false,
@@ -463,12 +504,18 @@ export class SmbHistoryService {
           direction: MessageDirection.OUTBOUND,
           messageType,
           status,
+          mediaUrl: content.mediaUrl,
+          mimeType: content.mimeType,
+          fileName: content.fileName,
         };
       }
 
       const responseTo = outbound.context?.message_id
         ? await tx.message.findFirst({
-            where: { accountId: account.id, wamid: outbound.context.message_id },
+            where: {
+              accountId: account.id,
+              wamid: outbound.context.message_id,
+            },
             select: { id: true },
             orderBy: { createdAt: 'desc' },
           })
@@ -527,6 +574,9 @@ export class SmbHistoryService {
         direction: MessageDirection.OUTBOUND,
         messageType,
         status,
+        mediaUrl: content.mediaUrl,
+        mimeType: content.mimeType,
+        fileName: content.fileName,
       };
     });
   }
@@ -820,7 +870,9 @@ export class SmbHistoryService {
   }
 
   private extractContent(
-    message: YCloudSmbHistoryInboundMessageDto | YCloudSmbHistoryWhatsappMessageDto,
+    message:
+      | YCloudSmbHistoryInboundMessageDto
+      | YCloudSmbHistoryWhatsappMessageDto,
     messageType: MessageType,
   ): MessageContent | null {
     if (messageType === MessageType.TEXT) {

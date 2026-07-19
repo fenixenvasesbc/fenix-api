@@ -247,7 +247,7 @@ model LeadRepetitionReminder {
 }
 
 model AppNotification {
-  id        String                    @id @default(uuid())
+  id        String  @id @default(uuid())
   accountId String
   leadId    String?
 
@@ -260,7 +260,7 @@ model AppNotification {
   message   String
   label     LeadLabel?
 
-  triggeredAt DateTime @default(now())
+  triggeredAt DateTime  @default(now())
   readAt      DateTime?
 
   metadata Json?
@@ -343,6 +343,13 @@ model Message {
   caption            String?
   mimeType           String?
   fileName           String?
+  mediaOriginalUrl   String?
+  mediaStorageDriver String?
+  mediaStorageKey    String?
+  mediaSizeBytes     Int?
+  mediaStoredAt      DateTime?
+  mediaExpiresAt     DateTime?
+  mediaExpiredAt     DateTime?
   errors             Json?
   interactivePayload Json?
 

@@ -501,6 +501,12 @@ Validaciones:
 
 Sube un archivo a YCloud para obtener URL usable en mensajes de media.
 
+## Persistencia de media recibida/sincronizada
+
+Los mensajes de WhatsApp con media pueden llegar desde webhooks inbound, echoes, history o updated. Cuando el payload trae `mediaUrl`, la API intenta copiar el archivo al storage propio y reemplaza `Message.mediaUrl` por una URL de Fenix.
+
+Documento operativo: [15-media-storage.md](api/15-media-storage.md).
+
 ```http
 POST /media/upload
 Content-Type: multipart/form-data

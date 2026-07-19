@@ -18,6 +18,7 @@ import { normalizeLeadName } from 'src/common/utils/lead-name';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ConversationService } from '../conversation/conversation.service';
 import { ChatEventsService } from '../chat-events/chat-events.service';
+import { MessageMediaService } from '../message-media/message-media.service';
 
 @Injectable()
 export class InboundMessageService {
@@ -29,6 +30,7 @@ export class InboundMessageService {
     private readonly leadLanguageResolverService: LeadLanguageResolverService,
     private readonly conversationService: ConversationService,
     private readonly chatEvents: ChatEventsService,
+    private readonly messageMedia: MessageMediaService,
   ) {}
 
   async process(job: WebhookInboxJob) {
@@ -275,6 +277,18 @@ export class InboundMessageService {
     this.logger.log(
       `Inbound processed providerEventId=${inbound.providerEventId} accountId=${account.id} leadId=${result.leadId} messageId=${result.messageId} kind=${result.kind} type=${inbound.type}`,
     );
+
+    if (result.kind !== 'deleted' && inbound.mediaUrl) {
+      await this.messageMedia.archiveMessageMedia({
+        accountId: account.id,
+        messageId: result.messageId,
+        sourceUrl: inbound.mediaUrl,
+        mimeType: inbound.mimeType,
+        fileName: inbound.fileName,
+        messageType: inbound.type,
+        providerEventId: inbound.providerEventId,
+      });
+    }
 
     if (result.kind === 'deleted') {
       await this.chatEvents.publish({

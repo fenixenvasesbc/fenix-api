@@ -12,6 +12,8 @@ services:
       DATABASE_URL: ${DATABASE_URL}
     extra_hosts:
       - host.docker.internal:host-gateway
+    volumes:
+      - ${MEDIA_STORAGE_HOST_DIR:-./storage/media}:/app/storage/media
     restart: unless-stopped
     networks:
       - nginx-proxy-manager-zr1y_default
@@ -28,8 +30,10 @@ services:
       DATABASE_URL: ${DATABASE_URL}
     extra_hosts:
       - host.docker.internal:host-gateway
+    volumes:
+      - ${MEDIA_STORAGE_HOST_DIR:-./storage/media}:/app/storage/media
     restart: unless-stopped
-    command: ["node", "dist/src/worker.main.js"]
+    command: ['node', 'dist/src/worker.main.js']
     networks:
       - rabbitmq-543o_default
 networks:

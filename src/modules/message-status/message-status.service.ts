@@ -16,6 +16,7 @@ import {
 import { ChatEventsService } from '../chat-events/chat-events.service';
 import { ConversationService } from '../conversation/conversation.service';
 import { normalizeLeadName } from 'src/common/utils/lead-name';
+import { MessageMediaService } from '../message-media/message-media.service';
 
 @Injectable()
 export class MessageStatusService {
@@ -25,6 +26,7 @@ export class MessageStatusService {
     private readonly prisma: PrismaService,
     private readonly chatEvents: ChatEventsService,
     private readonly conversationService: ConversationService,
+    private readonly messageMedia: MessageMediaService,
   ) {}
 
   async process(job: WebhookInboxJob): Promise<void> {
@@ -264,6 +266,9 @@ export class MessageStatusService {
     messageId: string;
     conversationId: string;
     messageType: MessageType;
+    mediaUrl?: string | null;
+    mimeType?: string | null;
+    fileName?: string | null;
   } | null> {
     const {
       job,
@@ -279,16 +284,20 @@ export class MessageStatusService {
     const ycloudMessageId = this.nonEmpty(whatsappMessage.id);
 
     if (!wabaId || !from || !to || !ycloudMessageId) {
-      this.logManualOutboundSkipped(job.providerEventId, 'missing_identifiers', {
-        hasWabaId: Boolean(wabaId),
-        hasFrom: Boolean(from),
-        hasTo: Boolean(to),
-        hasYcloudMessageId: Boolean(ycloudMessageId),
-        rawWabaId: whatsappMessage.wabaId ?? null,
-        rawFrom: whatsappMessage.from ?? null,
-        rawTo: whatsappMessage.to ?? null,
-        rawYcloudMessageId: whatsappMessage.id ?? null,
-      });
+      this.logManualOutboundSkipped(
+        job.providerEventId,
+        'missing_identifiers',
+        {
+          hasWabaId: Boolean(wabaId),
+          hasFrom: Boolean(from),
+          hasTo: Boolean(to),
+          hasYcloudMessageId: Boolean(ycloudMessageId),
+          rawWabaId: whatsappMessage.wabaId ?? null,
+          rawFrom: whatsappMessage.from ?? null,
+          rawTo: whatsappMessage.to ?? null,
+          rawYcloudMessageId: whatsappMessage.id ?? null,
+        },
+      );
       return null;
     }
 
@@ -317,9 +326,7 @@ export class MessageStatusService {
         hasImageLink: Boolean(this.nonEmpty(whatsappMessage.image?.link)),
         hasAudioLink: Boolean(this.nonEmpty(whatsappMessage.audio?.link)),
         hasVideoLink: Boolean(this.nonEmpty(whatsappMessage.video?.link)),
-        hasDocumentLink: Boolean(
-          this.nonEmpty(whatsappMessage.document?.link),
-        ),
+        hasDocumentLink: Boolean(this.nonEmpty(whatsappMessage.document?.link)),
       });
       return null;
     }
@@ -504,8 +511,23 @@ export class MessageStatusService {
         messageId: message.id,
         conversationId: conversation.id,
         messageType,
+        mediaUrl: content.mediaUrl,
+        mimeType: content.mimeType,
+        fileName: content.fileName,
       };
     });
+
+    if (manualOutbound.mediaUrl) {
+      await this.messageMedia.archiveMessageMedia({
+        accountId: manualOutbound.accountId,
+        messageId: manualOutbound.messageId,
+        sourceUrl: manualOutbound.mediaUrl,
+        mimeType: manualOutbound.mimeType,
+        fileName: manualOutbound.fileName,
+        messageType: manualOutbound.messageType,
+        providerEventId: job.providerEventId,
+      });
+    }
 
     this.logger.log(
       `Manual outbound reconstructed providerEventId=${job.providerEventId} ycloudMessageId=${ycloudMessageId} accountId=${manualOutbound.accountId} leadId=${manualOutbound.leadId} messageId=${manualOutbound.messageId} conversationId=${manualOutbound.conversationId} type=${messageType} status=${nextStatus}`,
