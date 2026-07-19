@@ -182,7 +182,13 @@ export class MessageService {
 
     const hasMore = messages.length > limit;
     const pageMessages = hasMore ? messages.slice(0, limit) : messages;
-    const orderedMessages = [...pageMessages].reverse();
+    const orderedMessages = [...pageMessages].reverse().map((message) => {
+      const { rawPayload, ...publicMessage } = message;
+      return {
+        ...publicMessage,
+        source: this.resolveMessageSource(rawPayload),
+      };
+    });
     const oldestMessage = orderedMessages[0] ?? null;
 
     return {
@@ -216,6 +222,20 @@ export class MessageService {
         nextBefore: hasMore ? (oldestMessage?.id ?? null) : null,
       },
     };
+  }
+
+  private resolveMessageSource(rawPayload: unknown) {
+    if (!rawPayload || typeof rawPayload !== 'object') return 'FENIX';
+
+    const payload = rawPayload as {
+      type?: unknown;
+      source?: unknown;
+    };
+
+    if (payload.type === 'whatsapp.smb.message.echoes') return 'APP';
+    if (payload.source === 'outbound-message-service') return 'FENIX';
+
+    return 'WEBHOOK';
   }
 
   async getConversations(input: GetConversationsInput) {
