@@ -87,6 +87,10 @@ export class OutboundController {
       clientRequestId: body.clientRequestId,
       type: body.type,
       mediaUrl: body.mediaUrl,
+      providerMediaId: body.providerMediaId ?? null,
+      mediaStorageKey: body.mediaStorageKey ?? null,
+      mediaSizeBytes: body.mediaSizeBytes ?? null,
+      mediaExpiresAt: body.mediaExpiresAt ?? null,
       caption: body.caption ?? null,
       fileName: body.fileName ?? null,
     });

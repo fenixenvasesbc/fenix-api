@@ -2,6 +2,7 @@ import {
   Controller,
   ForbiddenException,
   Post,
+  Query,
   Req,
   UploadedFile,
   UseGuards,
@@ -32,15 +33,16 @@ export class MediaUploadController {
     FileInterceptor('file', {
       storage: memoryStorage(),
       limits: {
-        fileSize: 16 * 1024 * 1024,
+        fileSize: 100 * 1024 * 1024,
       },
     }),
   )
   async upload(
     @UploadedFile() file: Express.Multer.File,
+    @Query('accountId') accountIdFromQuery: string | undefined,
     @Req() req: { user: AuthUser },
   ) {
-    const accountId = this.resolveAccountId(req.user);
+    const accountId = this.resolveAccountId(req.user, accountIdFromQuery);
 
     return this.mediaUploadService.uploadToYcloud({
       accountId,
@@ -48,7 +50,7 @@ export class MediaUploadController {
     });
   }
 
-  private resolveAccountId(user: AuthUser): string {
+  private resolveAccountId(user: AuthUser, accountIdFromQuery?: string): string {
     if (user.role === Role.SALES) {
       if (!user.accountId) {
         throw new ForbiddenException('User has no accountId');
@@ -58,13 +60,13 @@ export class MediaUploadController {
     }
 
     if (user.role === Role.ADMIN) {
-      if (!user.accountId) {
+      if (!accountIdFromQuery) {
         throw new ForbiddenException(
           'Admin upload requires accountId context for now',
         );
       }
 
-      return user.accountId;
+      return accountIdFromQuery;
     }
 
     throw new ForbiddenException('Invalid role');

@@ -39,6 +39,23 @@ type SendYcloudImageMessageInput = {
   externalId: string;
 };
 
+type SendYcloudAudioMessageInput = {
+  accountId: string;
+  to: string;
+  from: string;
+  audioUrl: string;
+  externalId: string;
+};
+
+type SendYcloudVideoMessageInput = {
+  accountId: string;
+  to: string;
+  from: string;
+  videoUrl: string;
+  caption?: string | null;
+  externalId: string;
+};
+
 type SendYcloudDocumentMessageInput = {
   accountId: string;
   to: string;
@@ -173,7 +190,7 @@ export class YcloudService {
       from: input.from,
       type: 'image',
       image: {
-        id: input.imageUrl,
+        ...this.buildMediaReference(input.imageUrl),
         ...(input.caption?.trim()
           ? {
               caption: input.caption.trim(),
@@ -191,6 +208,59 @@ export class YcloudService {
     });
   }
 
+  async sendAudioMessage(
+    input: SendYcloudAudioMessageInput,
+  ): Promise<YcloudSendDirectResponse> {
+    const apiKey = await this.credentialService.getYcloudApiKey(
+      input.accountId,
+    );
+
+    const body = {
+      to: input.to,
+      from: input.from,
+      type: 'audio',
+      audio: this.buildMediaReference(input.audioUrl),
+      externalId: input.externalId,
+    };
+
+    return this.postToYcloud<YcloudSendDirectResponse>({
+      accountId: input.accountId,
+      apiKey,
+      operation: 'sendAudioMessage',
+      body,
+    });
+  }
+
+  async sendVideoMessage(
+    input: SendYcloudVideoMessageInput,
+  ): Promise<YcloudSendDirectResponse> {
+    const apiKey = await this.credentialService.getYcloudApiKey(
+      input.accountId,
+    );
+
+    const body = {
+      to: input.to,
+      from: input.from,
+      type: 'video',
+      video: {
+        ...this.buildMediaReference(input.videoUrl),
+        ...(input.caption?.trim()
+          ? {
+              caption: input.caption.trim(),
+            }
+          : {}),
+      },
+      externalId: input.externalId,
+    };
+
+    return this.postToYcloud<YcloudSendDirectResponse>({
+      accountId: input.accountId,
+      apiKey,
+      operation: 'sendVideoMessage',
+      body,
+    });
+  }
+
   async sendDocumentMessage(
     input: SendYcloudDocumentMessageInput,
   ): Promise<YcloudSendDirectResponse> {
@@ -203,7 +273,7 @@ export class YcloudService {
       from: input.from,
       type: 'document',
       document: {
-        id: input.documentUrl,
+        ...this.buildMediaReference(input.documentUrl),
         filename: input.fileName,
         ...(input.caption?.trim()
           ? {
@@ -281,6 +351,10 @@ export class YcloudService {
         providerMessage,
       );
     }
+  }
+
+  private buildMediaReference(value: string) {
+    return /^https?:\/\//i.test(value) ? { link: value } : { id: value };
   }
 
   private async postToYcloud<T>(params: {

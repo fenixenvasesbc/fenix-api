@@ -6,7 +6,6 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
-  IsUrl,
   IsUUID,
   Max,
   MaxLength,
@@ -78,13 +77,37 @@ export class SendMediaDto {
   @IsUUID()
   clientRequestId: string;
 
-  @IsIn(['image', 'document'])
-  type: 'image' | 'document';
+  @IsIn(['image', 'audio', 'video', 'document'])
+  type: 'image' | 'audio' | 'video' | 'document';
 
   @Transform(({ value }) => trimString(value))
-  @IsUrl({ require_protocol: true })
+  @IsString()
+  @IsNotEmpty()
   @MaxLength(2048)
   mediaUrl: string;
+
+  @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(trimString(value)))
+  @IsString()
+  @MaxLength(2048)
+  providerMediaId?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(trimString(value)))
+  @IsString()
+  @MaxLength(2048)
+  mediaStorageKey?: string | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  mediaSizeBytes?: number | null;
+
+  @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(trimString(value)))
+  @IsString()
+  mediaExpiresAt?: string | null;
 
   @IsOptional()
   @Transform(({ value }) => emptyToUndefined(trimString(value)))

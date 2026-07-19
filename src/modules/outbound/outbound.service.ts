@@ -370,8 +370,12 @@ export class OutboundService {
     accountId: string;
     leadId: string;
     clientRequestId: string;
-    type: 'image' | 'document';
+    type: 'image' | 'audio' | 'video' | 'document';
     mediaUrl: string;
+    providerMediaId?: string | null;
+    mediaStorageKey?: string | null;
+    mediaSizeBytes?: number | null;
+    mediaExpiresAt?: string | null;
     caption?: string | null;
     fileName?: string | null;
   }) {
@@ -381,6 +385,10 @@ export class OutboundService {
       clientRequestId,
       type,
       mediaUrl,
+      providerMediaId,
+      mediaStorageKey,
+      mediaSizeBytes,
+      mediaExpiresAt,
       caption,
       fileName,
     } = input;
@@ -389,7 +397,7 @@ export class OutboundService {
       throw new BadRequestException('mediaUrl is required');
     }
 
-    if (type !== 'image' && type !== 'document') {
+    if (!['image', 'audio', 'video', 'document'].includes(type)) {
       throw new BadRequestException('Unsupported media type');
     }
 
@@ -399,11 +407,14 @@ export class OutboundService {
       );
     }
 
-    const messageType =
-      type === 'image' ? MessageType.IMAGE : MessageType.DOCUMENT;
+    const messageType = this.mapOutboundMediaType(type);
 
-    const finalCaption = caption?.trim() || null;
+    const finalCaption = type === 'audio' ? null : caption?.trim() || null;
     const finalMediaUrl = mediaUrl.trim();
+    const finalProviderMediaId = providerMediaId?.trim() || null;
+    const mediaSendReference = finalProviderMediaId ?? finalMediaUrl;
+    const finalMediaStorageKey = mediaStorageKey?.trim() || null;
+    const parsedMediaExpiresAt = this.parseOptionalDate(mediaExpiresAt);
     const finalFileName = fileName?.trim() || null;
     const expectation: IdempotencyExpectation = {
       leadId,
@@ -436,14 +447,22 @@ export class OutboundService {
         status: MessageStatus.UNKNOWN,
         externalId,
         mediaUrl: finalMediaUrl,
+        mediaOriginalUrl: finalProviderMediaId,
+        mediaStorageDriver: finalMediaStorageKey ? 'local' : null,
+        mediaStorageKey: finalMediaStorageKey,
+        mediaSizeBytes: mediaSizeBytes ?? null,
+        mediaStoredAt: finalMediaStorageKey ? outboundAt : null,
+        mediaExpiresAt: parsedMediaExpiresAt,
         caption: finalCaption,
         fileName: type === 'document' ? finalFileName : null,
-        mimeType: type === 'image' ? 'image/jpeg' : 'application/pdf',
+        mimeType: this.defaultMimeTypeForOutboundMedia(type),
         providerCreateTime: outboundAt,
         rawPayload: {
           source: 'outbound-message-service',
           type: `${type}.send.requested`,
           mediaUrl: finalMediaUrl,
+          providerMediaId: finalProviderMediaId,
+          mediaStorageKey: finalMediaStorageKey,
           caption: finalCaption,
           fileName: finalFileName,
           externalId,
@@ -463,15 +482,32 @@ export class OutboundService {
               accountId,
               to: lead.phoneE164,
               from: account.phoneE164,
-              imageUrl: finalMediaUrl,
+              imageUrl: mediaSendReference,
               caption: finalCaption,
               externalId,
             })
-          : await this.ycloudService.sendDocumentMessage({
+          : type === 'audio'
+            ? await this.ycloudService.sendAudioMessage({
+                accountId,
+                to: lead.phoneE164,
+                from: account.phoneE164,
+                audioUrl: mediaSendReference,
+                externalId,
+              })
+            : type === 'video'
+              ? await this.ycloudService.sendVideoMessage({
+                  accountId,
+                  to: lead.phoneE164,
+                  from: account.phoneE164,
+                  videoUrl: mediaSendReference,
+                  caption: finalCaption,
+                  externalId,
+                })
+              : await this.ycloudService.sendDocumentMessage({
               accountId,
               to: lead.phoneE164,
               from: account.phoneE164,
-              documentUrl: finalMediaUrl,
+              documentUrl: mediaSendReference,
               fileName: finalFileName!,
               caption: finalCaption,
               externalId,
@@ -667,6 +703,40 @@ export class OutboundService {
     }
 
     return fallback;
+  }
+
+  private parseOptionalDate(value?: string | null): Date | null {
+    if (!value) return null;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private mapOutboundMediaType(type: 'image' | 'audio' | 'video' | 'document') {
+    switch (type) {
+      case 'image':
+        return MessageType.IMAGE;
+      case 'audio':
+        return MessageType.AUDIO;
+      case 'video':
+        return MessageType.VIDEO;
+      case 'document':
+        return MessageType.DOCUMENT;
+    }
+  }
+
+  private defaultMimeTypeForOutboundMedia(
+    type: 'image' | 'audio' | 'video' | 'document',
+  ) {
+    switch (type) {
+      case 'image':
+        return 'image/jpeg';
+      case 'audio':
+        return 'audio/mpeg';
+      case 'video':
+        return 'video/mp4';
+      case 'document':
+        return 'application/pdf';
+    }
   }
 
   private normalizeTemplate(template: YcloudWhatsappTemplate) {

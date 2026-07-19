@@ -16,6 +16,11 @@ type ArchiveMessageMediaInput = {
   providerEventId?: string | null;
 };
 
+type StoreUploadedMediaInput = {
+  accountId: string;
+  file: Express.Multer.File;
+};
+
 @Injectable()
 export class MessageMediaService {
   private readonly logger = new Logger(MessageMediaService.name);
@@ -105,6 +110,42 @@ export class MessageMediaService {
       );
       return null;
     }
+  }
+
+  async storeUploadedMedia(input: StoreUploadedMediaInput) {
+    if (this.driver !== 'local') return null;
+
+    const now = new Date();
+    const expiresAt = new Date(
+      now.getTime() + this.retentionDays * 24 * 60 * 60 * 1000,
+    );
+    const extension = this.resolveExtension({
+      fileName: input.file.originalname,
+      mimeType: input.file.mimetype,
+      sourceUrl: input.file.originalname,
+      messageType: this.mapMimeToMessageType(input.file.mimetype),
+    });
+    const key = this.buildStorageKey({
+      accountId: input.accountId,
+      messageId: 'upload',
+      extension,
+      now,
+    });
+    const absolutePath = this.resolveLocalPath(key);
+
+    await mkdir(dirname(absolutePath), { recursive: true });
+    await writeFile(absolutePath, input.file.buffer);
+
+    return {
+      mediaUrl: this.buildPublicUrl(key),
+      mediaStorageDriver: 'local',
+      mediaStorageKey: key,
+      mediaSizeBytes: input.file.size,
+      mediaStoredAt: now,
+      mediaExpiresAt: expiresAt,
+      mimeType: input.file.mimetype,
+      fileName: input.file.originalname,
+    };
   }
 
   async getLocalMedia(key: string) {
@@ -278,6 +319,13 @@ export class MessageMediaService {
       default:
         return '.bin';
     }
+  }
+
+  private mapMimeToMessageType(mimeType: string) {
+    if (mimeType.startsWith('image/')) return MessageType.IMAGE;
+    if (mimeType.startsWith('audio/')) return MessageType.AUDIO;
+    if (mimeType.startsWith('video/')) return MessageType.VIDEO;
+    return MessageType.DOCUMENT;
   }
 
   private extensionFromText(value?: string | null) {
