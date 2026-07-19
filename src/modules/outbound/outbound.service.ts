@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  MediaUploadStatus,
   MessageDirection,
   MessageStatus,
   MessageType,
@@ -373,6 +374,7 @@ export class OutboundService {
     type: 'image' | 'audio' | 'video' | 'document';
     mediaUrl: string;
     providerMediaId?: string | null;
+    mediaUploadId?: string | null;
     mediaStorageKey?: string | null;
     mediaSizeBytes?: number | null;
     mediaExpiresAt?: string | null;
@@ -386,6 +388,7 @@ export class OutboundService {
       type,
       mediaUrl,
       providerMediaId,
+      mediaUploadId,
       mediaStorageKey,
       mediaSizeBytes,
       mediaExpiresAt,
@@ -408,14 +411,27 @@ export class OutboundService {
     }
 
     const messageType = this.mapOutboundMediaType(type);
+    const mediaUploadRecord = mediaUploadId?.trim()
+      ? await this.getReusableMediaUpload(accountId, mediaUploadId.trim())
+      : null;
 
     const finalCaption = type === 'audio' ? null : caption?.trim() || null;
-    const finalMediaUrl = mediaUrl.trim();
-    const finalProviderMediaId = providerMediaId?.trim() || null;
+    const finalMediaUrl = mediaUploadRecord?.mediaUrl ?? mediaUrl.trim();
+    const finalProviderMediaId =
+      mediaUploadRecord?.providerMediaId ?? providerMediaId?.trim() ?? null;
     const mediaSendReference = finalProviderMediaId ?? finalMediaUrl;
-    const finalMediaStorageKey = mediaStorageKey?.trim() || null;
-    const parsedMediaExpiresAt = this.parseOptionalDate(mediaExpiresAt);
-    const finalFileName = fileName?.trim() || null;
+    const finalMediaStorageKey =
+      mediaUploadRecord?.mediaStorageKey ?? mediaStorageKey?.trim() ?? null;
+    const parsedMediaExpiresAt =
+      mediaUploadRecord?.mediaExpiresAt ??
+      this.parseOptionalDate(mediaExpiresAt);
+    const finalFileName =
+      type === 'document'
+        ? fileName?.trim() || mediaUploadRecord?.originalName || null
+        : fileName?.trim() || null;
+    const finalMimeType =
+      mediaUploadRecord?.mimeType ?? this.defaultMimeTypeForOutboundMedia(type);
+    const finalMediaSizeBytes = mediaUploadRecord?.sizeBytes ?? mediaSizeBytes;
     const expectation: IdempotencyExpectation = {
       leadId,
       type: messageType,
@@ -450,18 +466,19 @@ export class OutboundService {
         mediaOriginalUrl: finalProviderMediaId,
         mediaStorageDriver: finalMediaStorageKey ? 'local' : null,
         mediaStorageKey: finalMediaStorageKey,
-        mediaSizeBytes: mediaSizeBytes ?? null,
+        mediaSizeBytes: finalMediaSizeBytes ?? null,
         mediaStoredAt: finalMediaStorageKey ? outboundAt : null,
         mediaExpiresAt: parsedMediaExpiresAt,
         caption: finalCaption,
         fileName: type === 'document' ? finalFileName : null,
-        mimeType: this.defaultMimeTypeForOutboundMedia(type),
+        mimeType: finalMimeType,
         providerCreateTime: outboundAt,
         rawPayload: {
           source: 'outbound-message-service',
           type: `${type}.send.requested`,
           mediaUrl: finalMediaUrl,
           providerMediaId: finalProviderMediaId,
+          mediaUploadId: mediaUploadRecord?.id ?? null,
           mediaStorageKey: finalMediaStorageKey,
           caption: finalCaption,
           fileName: finalFileName,
@@ -549,6 +566,18 @@ export class OutboundService {
         type: messageType,
       });
 
+      if (mediaUploadRecord) {
+        await this.prisma.mediaUpload.update({
+          where: { id: mediaUploadRecord.id },
+          data: {
+            status: MediaUploadStatus.ATTACHED,
+            messageId: updated.id,
+            attachedAt: new Date(),
+            lastError: null,
+          },
+        });
+      }
+
       return {
         success: true,
         messageId: updated.id,
@@ -559,6 +588,16 @@ export class OutboundService {
       };
     } catch (error: any) {
       await this.handleError(message.id, error);
+      if (mediaUploadRecord) {
+        await this.prisma.mediaUpload.update({
+          where: { id: mediaUploadRecord.id },
+          data: {
+            status: MediaUploadStatus.FAILED,
+            messageId: message.id,
+            lastError: this.formatError(error),
+          },
+        });
+      }
       throw error;
     }
   }
@@ -690,6 +729,37 @@ export class OutboundService {
     }
 
     return account;
+  }
+
+  private async getReusableMediaUpload(accountId: string, mediaUploadId: string) {
+    const mediaUpload = await this.prisma.mediaUpload.findFirst({
+      where: { id: mediaUploadId, accountId },
+      select: {
+        id: true,
+        status: true,
+        providerMediaId: true,
+        originalName: true,
+        mimeType: true,
+        sizeBytes: true,
+        mediaUrl: true,
+        mediaStorageKey: true,
+        mediaExpiresAt: true,
+      },
+    });
+
+    if (!mediaUpload) {
+      throw new NotFoundException('Media upload not found');
+    }
+
+    if (mediaUpload.status === MediaUploadStatus.EXPIRED) {
+      throw new BadRequestException('Media upload has expired');
+    }
+
+    if (!mediaUpload.providerMediaId && !mediaUpload.mediaUrl) {
+      throw new BadRequestException('Media upload has no usable media reference');
+    }
+
+    return mediaUpload;
   }
 
   private parseProviderDate(value: unknown, fallback: Date): Date {
@@ -939,6 +1009,11 @@ export class OutboundService {
         } as Prisma.InputJsonValue,
       },
     });
+  }
+
+  private formatError(error: unknown) {
+    if (error instanceof Error) return error.message;
+    return String(error);
   }
 
   private async publishOutboundAcceptedEvent(input: {

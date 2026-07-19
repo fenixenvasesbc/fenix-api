@@ -8,6 +8,8 @@ Cuando un webhook trae un mensaje con `mediaUrl`, la API intenta descargar el ar
 
 ## Flujo funcional
 
+### Media entrante o sincronizada por webhooks
+
 1. YCloud envia un webhook con media:
    - `whatsapp.inbound_message.received`;
    - `whatsapp.smb.message.echoes`;
@@ -21,6 +23,21 @@ Cuando un webhook trae un mensaje con `mediaUrl`, la API intenta descargar el ar
 
 Si la descarga falla, el mensaje no falla ni se pierde. Se conserva el `mediaUrl` original y se deja warning en logs.
 
+### Media saliente desde la SPA
+
+1. La SPA sube primero el archivo a `POST /media/upload`.
+2. La API guarda una copia local temporal y crea un registro `MediaUpload`.
+3. La API sube el archivo a YCloud y devuelve:
+   - `mediaUploadId`;
+   - `mediaId` de YCloud;
+   - `mediaUrl` propio de Fenix;
+   - metadatos de storage local.
+4. La SPA llama a `POST /outbound/media` enviando `mediaUploadId`.
+5. Si YCloud acepta el envio, el `Message` queda creado/aceptado y el `MediaUpload` pasa a `ATTACHED`.
+6. Si falla el envio, el `Message` queda `FAILED` y el `MediaUpload` queda `FAILED` con `lastError`, conservando la referencia local/YCloud para diagnostico y reintentos internos.
+
+Este flujo evita que un archivo subido quede sin trazabilidad cuando falla el paso de envio.
+
 ## Campos en `Message`
 
 - `mediaUrl`: URL que usa la SPA. Si el archivo fue archivado, apunta a Fenix.
@@ -31,6 +48,15 @@ Si la descarga falla, el mensaje no falla ni se pierde. Se conserva el `mediaUrl
 - `mediaStoredAt`: fecha en que se guardo.
 - `mediaExpiresAt`: fecha en que puede eliminarse por retencion.
 - `mediaExpiredAt`: fecha en que fue eliminado fisicamente.
+
+## Tabla `MediaUpload`
+
+Controla archivos subidos por la SPA antes de que se adjunten a un `Message`.
+
+- `status=UPLOADED`: archivo guardado localmente y, si YCloud respondio bien, con `providerMediaId`.
+- `status=ATTACHED`: el upload ya fue usado por un mensaje saliente.
+- `status=FAILED`: el envio asociado fallo; se conserva para diagnostico o reintento.
+- `status=EXPIRED`: el cleanup elimino el archivo temporal vencido.
 
 ## Variables de entorno
 
@@ -86,6 +112,8 @@ Cuando encuentra media vencida:
 - marca `mediaExpiredAt`.
 
 La SPA podra seguir mostrando el mensaje, pero sin preview/descarga del archivo expirado.
+
+Tambien elimina uploads temporales vencidos en `MediaUpload` con estado `UPLOADED` o `FAILED` que no quedaron adjuntos correctamente.
 
 ## Limitaciones actuales
 

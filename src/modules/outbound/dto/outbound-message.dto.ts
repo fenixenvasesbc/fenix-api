@@ -94,6 +94,11 @@ export class SendMediaDto {
 
   @IsOptional()
   @Transform(({ value }) => emptyToUndefined(trimString(value)))
+  @IsUUID()
+  mediaUploadId?: string | null;
+
+  @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(trimString(value)))
   @IsString()
   @MaxLength(2048)
   mediaStorageKey?: string | null;

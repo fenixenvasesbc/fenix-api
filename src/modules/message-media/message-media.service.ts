@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { MessageType } from '@prisma/client';
+import { MediaUploadStatus, MessageType } from '@prisma/client';
 import axios from 'axios';
 import { randomUUID } from 'crypto';
 import { mkdir, readFile, stat, unlink, writeFile } from 'fs/promises';
@@ -213,13 +213,66 @@ export class MessageMediaService {
       }
     }
 
-    if (expired.length > 0) {
+    const remainingLimit = Math.max(limit - expired.length, 0);
+    const expiredUploads =
+      remainingLimit > 0
+        ? await this.prisma.mediaUpload.findMany({
+            where: {
+              status: {
+                in: [MediaUploadStatus.UPLOADED, MediaUploadStatus.FAILED],
+              },
+              mediaStorageDriver: 'local',
+              mediaStorageKey: { not: null },
+              mediaExpiresAt: { lte: now },
+              expiredAt: null,
+            },
+            select: {
+              id: true,
+              mediaStorageKey: true,
+            },
+            take: remainingLimit,
+            orderBy: { mediaExpiresAt: 'asc' },
+          })
+        : [];
+
+    for (const upload of expiredUploads) {
+      const key = upload.mediaStorageKey;
+      if (!key) continue;
+
+      try {
+        await unlink(this.resolveLocalPath(key)).catch((error: any) => {
+          if (error?.code !== 'ENOENT') throw error;
+        });
+
+        await this.prisma.mediaUpload.update({
+          where: { id: upload.id },
+          data: {
+            status: MediaUploadStatus.EXPIRED,
+            mediaUrl: null,
+            mediaStorageKey: null,
+            mediaStorageDriver: null,
+            expiredAt: now,
+          },
+        });
+
+        deleted += 1;
+      } catch (error) {
+        failed += 1;
+        this.logger.warn(
+          `Expired media upload cleanup failed mediaUploadId=${upload.id} key=${key} reason=${this.formatError(error)}`,
+        );
+      }
+    }
+
+    const inspected = expired.length + expiredUploads.length;
+
+    if (inspected > 0) {
       this.logger.log(
-        `Expired media cleanup finished inspected=${expired.length} deleted=${deleted} failed=${failed}`,
+        `Expired media cleanup finished inspected=${inspected} deleted=${deleted} failed=${failed}`,
       );
     }
 
-    return { inspected: expired.length, deleted, failed };
+    return { inspected, deleted, failed };
   }
 
   private async download(sourceUrl: string) {

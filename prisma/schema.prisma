@@ -134,6 +134,7 @@ model Account {
   leadLabelHistory    LeadLabelHistory[]
   repetitionReminders LeadRepetitionReminder[]
   notifications       AppNotification[]
+  mediaUploads        MediaUpload[]
 
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -375,6 +376,7 @@ model Message {
   conversationsAsLastMessage         Conversation[]         @relation("ConversationLastMessage")
   conversationsAsLastInboundMessage  Conversation[]         @relation("ConversationLastInboundMessage")
   conversationsAsLastOutboundMessage Conversation[]         @relation("ConversationLastOutboundMessage")
+  mediaUploads                       MediaUpload[]
 
   @@unique([accountId, ycloudMessageId])
   @@unique([accountId, clientRequestId])
@@ -594,6 +596,47 @@ model LeadCampaign {
 
 enum ProviderType {
   YCLOUD
+}
+
+enum MediaUploadStatus {
+  UPLOADED
+  ATTACHED
+  FAILED
+  EXPIRED
+}
+
+model MediaUpload {
+  id String @id @default(uuid())
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  messageId String?
+  message   Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  provider        ProviderType @default(YCLOUD)
+  providerMediaId String?
+  originalName    String
+  mimeType        String
+  sizeBytes       Int
+
+  mediaUrl           String?
+  mediaStorageDriver String?
+  mediaStorageKey    String?
+  mediaExpiresAt     DateTime?
+
+  status     MediaUploadStatus @default(UPLOADED)
+  attachedAt DateTime?
+  expiredAt  DateTime?
+  lastError  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([accountId, status, createdAt])
+  @@index([status, mediaExpiresAt])
+  @@index([mediaStorageKey])
+  @@index([providerMediaId])
 }
 
 model AccountProviderCredential {
