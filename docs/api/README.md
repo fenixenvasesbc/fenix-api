@@ -15,6 +15,7 @@ Esta carpeta documenta la API backend de Fenix CRM desde el punto de vista funci
 9. [Operación, jobs, colas y variables de entorno](./08-operacion-jobs-colas-env.md)
 10. [Resumen de endpoints](./09-resumen-endpoints.md)
 11. [Contratos SPA relevantes](./10-contratos-spa.md)
+12. [Asistente interno con Dify](./16-asistente-interno-dify.md)
 
 ## Alcance
 

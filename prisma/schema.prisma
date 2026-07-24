@@ -54,6 +54,34 @@ enum AppNotificationSeverity {
   CRITICAL
 }
 
+enum AssistantSessionMode {
+  INTERNAL_FAQ
+}
+
+enum AssistantMessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum AssistantMessageStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum AssistantFeedbackRating {
+  HELPFUL
+  NOT_HELPFUL
+}
+
+enum AssistantAuditAction {
+  QUERY
+  FEEDBACK
+  KNOWLEDGE_UPLOAD
+  KNOWLEDGE_LIST
+}
+
 enum MessageDirection {
   OUTBOUND
   INBOUND
@@ -79,16 +107,20 @@ enum MessageStatus {
 }
 
 model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
-  passwordHash  String
-  role          Role           @default(SALES)
-  isActive      Boolean        @default(true) // Un SALES puede tener (como máximo) 1 cuenta. // ADMIN normalmente lo tendrá null. 
-  accountId     String?        @unique
-  account       Account?       @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  refreshTokens RefreshToken[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id                   String                @id @default(uuid())
+  email                String                @unique
+  passwordHash         String
+  role                 Role                  @default(SALES)
+  isActive             Boolean               @default(true) // Un SALES puede tener (como máximo) 1 cuenta. // ADMIN normalmente lo tendrá null. 
+  accountId            String?               @unique
+  account              Account?              @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  refreshTokens        RefreshToken[]
+  assistantSessions    AssistantSession[]
+  assistantMessages    AssistantMessage[]
+  assistantFeedback    AssistantFeedback[]
+  assistantAuditEvents AssistantAuditEvent[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 
   @@index([role])
   @@index([isActive])
@@ -129,12 +161,14 @@ model Account {
   webhookEvents       WebhookEvent[]
   providerCredentials AccountProviderCredential[]
 
-  leadCampaigns       LeadCampaign[]
-  campaignTemplates   AccountCampaignTemplate[]
-  leadLabelHistory    LeadLabelHistory[]
-  repetitionReminders LeadRepetitionReminder[]
-  notifications       AppNotification[]
-  mediaUploads        MediaUpload[]
+  leadCampaigns        LeadCampaign[]
+  campaignTemplates    AccountCampaignTemplate[]
+  leadLabelHistory     LeadLabelHistory[]
+  repetitionReminders  LeadRepetitionReminder[]
+  notifications        AppNotification[]
+  mediaUploads         MediaUpload[]
+  assistantSessions    AssistantSession[]
+  assistantAuditEvents AssistantAuditEvent[]
 
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -191,6 +225,7 @@ model Lead {
   labelHistory        LeadLabelHistory[]
   repetitionReminders LeadRepetitionReminder[]
   notifications       AppNotification[]
+  assistantSessions   AssistantSession[]
 
   @@unique([accountId, phoneE164])
   @@index([accountId])
@@ -276,6 +311,133 @@ model AppNotification {
   @@index([accountId, status, triggeredAt])
   @@index([accountId, type, status])
   @@index([leadId, type, status])
+}
+
+model AssistantSession {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  leadId String?
+  lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  mode                   AssistantSessionMode @default(INTERNAL_FAQ)
+  title                  String?
+  provider               String               @default("DIFY")
+  providerConversationId String?
+
+  messages AssistantMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([accountId, createdAt])
+  @@index([leadId, createdAt])
+  @@index([providerConversationId])
+}
+
+model AssistantMessage {
+  id String @id @default(uuid())
+
+  sessionId String
+  session   AssistantSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  role   AssistantMessageRole
+  status AssistantMessageStatus @default(COMPLETED)
+
+  content String
+
+  providerMessageId String?
+  providerTaskId    String?
+  model             String?
+  latencyMs         Int?
+  usage             Json?
+  rawPayload        Json?
+  errorCode         String?
+  errorMessage      String?
+
+  citations AssistantCitation[]
+  feedback  AssistantFeedback[]
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId, createdAt])
+  @@index([userId, createdAt])
+  @@index([providerMessageId])
+}
+
+model AssistantCitation {
+  id String @id @default(uuid())
+
+  messageId String
+  message   AssistantMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  providerResourceId String?
+  datasetId          String?
+  documentId         String?
+  documentName       String?
+  segmentId          String?
+  score              Decimal? @db.Decimal(10, 6)
+  excerpt            String?
+  metadata           Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([messageId])
+  @@index([datasetId, documentId])
+}
+
+model AssistantFeedback {
+  id String @id @default(uuid())
+
+  messageId String
+  message   AssistantMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  rating     AssistantFeedbackRating
+  reason     String?
+  editedText String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId])
+  @@index([userId, createdAt])
+}
+
+model AssistantAuditEvent {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  action    AssistantAuditAction
+  success   Boolean              @default(true)
+  latencyMs Int?
+
+  provider     String? @default("DIFY")
+  providerId   String?
+  errorCode    String?
+  errorMessage String?
+  metadata     Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, action, createdAt])
+  @@index([accountId, action, createdAt])
+  @@index([success, createdAt])
 }
 
 model RefreshToken {

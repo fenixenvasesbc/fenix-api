@@ -48,6 +48,7 @@ import { ReengagementSchedulerModule } from './modules/reengagement/reengagement
 import { RepetitionReminderSchedulerModule } from './modules/repetition-reminder/repetition-reminder-scheduler.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { MessageMediaModule } from './modules/message-media/message-media.module';
+import { AssistantModule } from './modules/assistant/assistant.module';
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { MessageMediaModule } from './modules/message-media/message-media.module
     RepetitionReminderSchedulerModule,
     NotificationsModule,
     MessageMediaModule,
+    AssistantModule,
   ],
   controllers: [
     AppController,

@@ -397,6 +397,7 @@ export class MessageMediaService {
       'audio/ogg': '.ogg',
       'audio/mpeg': '.mp3',
       'audio/mp4': '.m4a',
+      'audio/webm': '.webm',
       'video/mp4': '.mp4',
       'application/pdf': '.pdf',
     };
@@ -414,6 +415,7 @@ export class MessageMediaService {
       '.ogg': 'audio/ogg',
       '.mp3': 'audio/mpeg',
       '.m4a': 'audio/mp4',
+      '.webm': 'audio/webm',
       '.mp4': 'video/mp4',
       '.pdf': 'application/pdf',
     };

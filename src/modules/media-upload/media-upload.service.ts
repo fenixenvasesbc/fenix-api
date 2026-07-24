@@ -36,6 +36,7 @@ export class MediaUploadService {
       'audio/mpeg',
       'audio/amr',
       'audio/ogg',
+      'audio/webm',
       'text/plain',
       'application/pdf',
       'application/msword',
