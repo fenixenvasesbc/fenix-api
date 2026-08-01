@@ -49,6 +49,7 @@ import { RepetitionReminderSchedulerModule } from './modules/repetition-reminder
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { MessageMediaModule } from './modules/message-media/message-media.module';
 import { AssistantModule } from './modules/assistant/assistant.module';
+import { TimeTrackingModule } from './modules/time-tracking/time-tracking.module';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { AssistantModule } from './modules/assistant/assistant.module';
     NotificationsModule,
     MessageMediaModule,
     AssistantModule,
+    TimeTrackingModule,
   ],
   controllers: [
     AppController,

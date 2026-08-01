@@ -10,6 +10,18 @@ enum Role {
   ADMIN
   SALES
   FACTORY
+  FACTORY_MANAGER
+}
+
+enum EmployeeContractType {
+  FIJO
+  POR_HORAS
+}
+
+enum TimeEntryRateType {
+  OVERTIME_WEEKDAY
+  OVERTIME_SATURDAY
+  HOURLY
 }
 
 enum ClicheCategory {
@@ -866,4 +878,64 @@ enum ConversationStatus {
   OPEN
   CLOSED
   ARCHIVED
+}
+
+// ==========================================
+// Módulo de fichaje de horarios (time tracking)
+// ==========================================
+
+model Employee {
+  id           String               @id @default(uuid())
+  name         String
+  contractType EmployeeContractType
+  isActive     Boolean              @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  timeEntries TimeEntry[]
+
+  @@index([isActive, name])
+}
+
+model TimeEntry {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  clockInAt        DateTime
+  clockOutAt       DateTime?
+  clockInByUserId  String?
+  clockOutByUserId String?
+
+  // calculado al fichar la salida
+  totalMinutes Int? // duración real del turno, sin redondear
+
+  // horas que se pagan: para contrato FIJO son solo las horas extra (>8h),
+  // para contrato POR_HORAS son todas las horas trabajadas.
+  // Fracciones >= 30 min cuentan como 1 hora completa; < 30 min no se pagan ni se redondean.
+  payableHours Int?
+
+  rateType     TimeEntryRateType?
+  rateApplied  Decimal?           @db.Decimal(10, 2)
+  amount       Decimal?           @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([employeeId, clockInAt])
+  @@index([employeeId, clockOutAt])
+}
+
+model TimeTrackingRate {
+  id String @id @default("default")
+
+  overtimeWeekdayRate  Decimal @db.Decimal(10, 2) @default(10)
+  overtimeSaturdayRate Decimal @db.Decimal(10, 2) @default(15)
+  hourlyRate           Decimal @db.Decimal(10, 2) @default(8)
+
+  updatedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
