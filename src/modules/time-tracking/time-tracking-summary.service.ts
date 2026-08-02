@@ -25,11 +25,8 @@ export class TimeTrackingSummaryService {
   constructor(private readonly prisma: PrismaService) {}
 
   async summarize(query: TimeTrackingSummaryQueryDto) {
-    const to = query.to ? new Date(query.to) : new Date();
-    const from = query.from
-      ? new Date(query.from)
-      : new Date(to.getTime() - DEFAULT_RANGE_DAYS * 24 * 60 * 60 * 1000);
     const groupBy: TimeTrackingSummaryGroupBy = query.groupBy ?? 'day';
+    const { from, to } = this.resolveRange(query, groupBy);
 
     const entries = await this.prisma.timeEntry.findMany({
       where: {
@@ -100,6 +97,49 @@ export class TimeTrackingSummaryService {
       );
 
     return { from, to, groupBy, rows };
+  }
+
+  // Sin fechas explicitas: agrupar por mes usa el mes calendario actual
+  // (Europe/Madrid), no una ventana movil de 30 dias.
+  private resolveRange(
+    query: TimeTrackingSummaryQueryDto,
+    groupBy: TimeTrackingSummaryGroupBy,
+  ): { from: Date; to: Date } {
+    if (!query.from && !query.to && groupBy === 'month') {
+      return this.currentMonthRange();
+    }
+
+    const to = this.endOfDay(query.to ? new Date(query.to) : new Date());
+    const from = query.from
+      ? new Date(query.from)
+      : new Date(to.getTime() - DEFAULT_RANGE_DAYS * 24 * 60 * 60 * 1000);
+
+    return { from, to };
+  }
+
+  private currentMonthRange(): { from: Date; to: Date } {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: MADRID_TZ,
+      year: 'numeric',
+      month: '2-digit',
+    }).formatToParts(new Date());
+    const year = Number(parts.find((part) => part.type === 'year')!.value);
+    const month = Number(parts.find((part) => part.type === 'month')!.value);
+    const lastDay = new Date(year, month, 0).getDate();
+    const pad = (value: number) => String(value).padStart(2, '0');
+
+    return {
+      from: new Date(`${year}-${pad(month)}-01`),
+      to: this.endOfDay(new Date(`${year}-${pad(month)}-${pad(lastDay)}`)),
+    };
+  }
+
+  // Convierte una fecha "hasta" en el final de ese dia (23:59:59.999 UTC),
+  // para que el ultimo dia del rango (p.ej. el 31) quede incluido entero.
+  private endOfDay(date: Date): Date {
+    const end = new Date(date);
+    end.setUTCHours(23, 59, 59, 999);
+    return end;
   }
 
   private periodKey(date: Date, groupBy: TimeTrackingSummaryGroupBy): string {
