@@ -323,6 +323,16 @@ export class AccountsService {
         status: true,
         currentLabel: true,
         currentLabelChangedAt: true,
+        labelAssignments: {
+          where: { removedAt: null },
+          orderBy: { assignedAt: 'desc' },
+          select: {
+            id: true,
+            label: true,
+            assignedAt: true,
+            assignedByUserId: true,
+          },
+        },
         repetitionReminderDays: true,
         nextRepetitionReminderAt: true,
         createdAt: true,
@@ -430,6 +440,16 @@ export class AccountsService {
         status: true,
         currentLabel: true,
         currentLabelChangedAt: true,
+        labelAssignments: {
+          where: { removedAt: null },
+          orderBy: { assignedAt: 'desc' },
+          select: {
+            id: true,
+            label: true,
+            assignedAt: true,
+            assignedByUserId: true,
+          },
+        },
         repetitionReminderDays: true,
         nextRepetitionReminderAt: true,
         createdAt: true,

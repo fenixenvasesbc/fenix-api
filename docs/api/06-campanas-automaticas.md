@@ -120,7 +120,7 @@ Elegibilidad:
 - `LeadRepetitionReminder.dueAt <= now`;
 - `sentAt IS NULL`;
 - `canceledAt IS NULL`;
-- lead aún tiene `currentLabel = REPETICIONES`;
+- lead aún tiene una asignación activa `LeadLabelAssignment.label = REPETICIONES`;
 - lead tiene `accountId`.
 
 Idempotencia:
@@ -166,7 +166,7 @@ Skip reasons:
 | `REMINDER_CANCELED` | Fue cancelado por cambio de label. |
 | `LEAD_WITHOUT_ACCOUNT` | Lead sin cuenta. |
 | `LEAD_WITHOUT_LANGUAGE` | No se pudo resolver idioma. |
-| `LEAD_LABEL_CHANGED` | Ya no está en `REPETICIONES`. |
+| `LEAD_LABEL_CHANGED` | Ya no tiene asignación activa `REPETICIONES`. |
 | `TEMPLATE_NOT_FOUND` | No hay plantilla aprobada. |
 
 ## Sincronización de plantillas de repetición desde YCloud
@@ -224,4 +224,3 @@ Si YCloud acepta el mensaje pero falla la persistencia local:
 
 - se marca `UNKNOWN`;
 - no se reintenta para evitar duplicar envío al cliente.
-

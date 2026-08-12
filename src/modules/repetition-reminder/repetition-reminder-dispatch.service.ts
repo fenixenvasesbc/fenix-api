@@ -85,6 +85,7 @@ export class RepetitionReminderDispatchService {
         dueAt: true,
         sentAt: true,
         canceledAt: true,
+        labelAssignmentId: true,
       },
     });
 
@@ -122,7 +123,28 @@ export class RepetitionReminderDispatchService {
       return;
     }
 
-    if (lead.currentLabel !== LeadLabel.REPETICIONES) {
+    const activeRepetitionAssignment = reminder.labelAssignmentId
+      ? await this.prisma.leadLabelAssignment.findFirst({
+          where: {
+            id: reminder.labelAssignmentId,
+            leadId: lead.id,
+            accountId: lead.accountId,
+            label: LeadLabel.REPETICIONES,
+            removedAt: null,
+          },
+          select: { id: true },
+        })
+      : await this.prisma.leadLabelAssignment.findFirst({
+          where: {
+            leadId: lead.id,
+            accountId: lead.accountId,
+            label: LeadLabel.REPETICIONES,
+            removedAt: null,
+          },
+          select: { id: true },
+        });
+
+    if (!activeRepetitionAssignment) {
       await this.markSkipped(
         leadCampaignId,
         RepetitionReminderSkipReason.LEAD_LABEL_CHANGED,

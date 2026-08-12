@@ -70,6 +70,16 @@ export class SetLeadLabelDto {
   reminderDays?: number;
 }
 
+export class RemoveLeadLabelDto {
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' && value.trim() === '' ? undefined : value,
+  )
+  @IsString()
+  @MaxLength(240)
+  reason?: string;
+}
+
 export class DueRepetitionRemindersQueryDto {
   @IsOptional()
   @Transform(({ value }) => emptyToUndefined(value))

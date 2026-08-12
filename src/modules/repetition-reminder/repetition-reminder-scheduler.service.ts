@@ -29,8 +29,26 @@ export class RepetitionReminderSchedulerService {
         dueAt: { lte: new Date() },
         sentAt: null,
         canceledAt: null,
+        OR: [
+          {
+            labelAssignment: {
+              label: LeadLabel.REPETICIONES,
+              removedAt: null,
+            },
+          },
+          {
+            labelAssignmentId: null,
+            lead: {
+              labelAssignments: {
+                some: {
+                  label: LeadLabel.REPETICIONES,
+                  removedAt: null,
+                },
+              },
+            },
+          },
+        ],
         lead: {
-          currentLabel: LeadLabel.REPETICIONES,
           accountId: { not: null },
         },
       },
@@ -45,7 +63,6 @@ export class RepetitionReminderSchedulerService {
           select: {
             id: true,
             accountId: true,
-            currentLabel: true,
           },
         },
       },

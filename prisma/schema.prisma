@@ -176,6 +176,7 @@ model Account {
   leadCampaigns        LeadCampaign[]
   campaignTemplates    AccountCampaignTemplate[]
   leadLabelHistory     LeadLabelHistory[]
+  leadLabelAssignments LeadLabelAssignment[]
   repetitionReminders  LeadRepetitionReminder[]
   notifications        AppNotification[]
   mediaUploads         MediaUpload[]
@@ -235,6 +236,7 @@ model Lead {
   leadCampaigns       LeadCampaign[]
   conversations       Conversation[]
   labelHistory        LeadLabelHistory[]
+  labelAssignments    LeadLabelAssignment[]
   repetitionReminders LeadRepetitionReminder[]
   notifications       AppNotification[]
   assistantSessions   AssistantSession[]
@@ -269,11 +271,37 @@ model LeadLabelHistory {
   @@index([leadId, changedAt])
 }
 
+model LeadLabelAssignment {
+  id               String    @id @default(uuid())
+  leadId           String
+  accountId        String
+  label            LeadLabel
+  assignedAt       DateTime  @default(now())
+  assignedByUserId String?
+  removedAt        DateTime?
+  removedByUserId  String?
+  reason           String?
+  metadata         Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lead    Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  repetitionReminders LeadRepetitionReminder[]
+
+  @@index([accountId, label, removedAt, assignedAt])
+  @@index([leadId, removedAt])
+  @@index([leadId, label])
+}
+
 model LeadRepetitionReminder {
-  id             String  @id @default(uuid())
-  leadId         String
-  accountId      String
-  labelHistoryId String?
+  id                String  @id @default(uuid())
+  leadId            String
+  accountId         String
+  labelHistoryId    String?
+  labelAssignmentId String?
 
   markedAt     DateTime
   dueAt        DateTime
@@ -286,12 +314,14 @@ model LeadRepetitionReminder {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  lead    Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  lead            Lead                 @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  account         Account              @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  labelAssignment LeadLabelAssignment? @relation(fields: [labelAssignmentId], references: [id], onDelete: SetNull)
 
   @@index([accountId, dueAt, sentAt, canceledAt])
   @@index([leadId, markedAt])
   @@index([labelHistoryId])
+  @@index([labelAssignmentId])
 }
 
 model AppNotification {
@@ -916,9 +946,9 @@ model TimeEntry {
   // Fracciones >= 30 min cuentan como 1 hora completa; < 30 min no se pagan ni se redondean.
   payableHours Int?
 
-  rateType     TimeEntryRateType?
-  rateApplied  Decimal?           @db.Decimal(10, 2)
-  amount       Decimal?           @db.Decimal(10, 2)
+  rateType    TimeEntryRateType?
+  rateApplied Decimal?           @db.Decimal(10, 2)
+  amount      Decimal?           @db.Decimal(10, 2)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -930,9 +960,9 @@ model TimeEntry {
 model TimeTrackingRate {
   id String @id @default("default")
 
-  overtimeWeekdayRate  Decimal @db.Decimal(10, 2) @default(10)
-  overtimeSaturdayRate Decimal @db.Decimal(10, 2) @default(15)
-  hourlyRate           Decimal @db.Decimal(10, 2) @default(8)
+  overtimeWeekdayRate  Decimal @default(10) @db.Decimal(10, 2)
+  overtimeSaturdayRate Decimal @default(15) @db.Decimal(10, 2)
+  hourlyRate           Decimal @default(8) @db.Decimal(10, 2)
 
   updatedByUserId String?
 

@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Param,
+  ParseEnumPipe,
   ParseUUIDPipe,
   Patch,
   Post,
@@ -11,13 +13,14 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { LeadLabel, Role } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import {
   DueRepetitionRemindersQueryDto,
   ListLeadsQueryDto,
+  RemoveLeadLabelDto,
   SetLeadLabelDto,
 } from './dto/lead.dto';
 import { LeadsService } from './leads.service';
@@ -74,6 +77,26 @@ export class LeadsController {
   }
 
   @Roles(Role.ADMIN, Role.SALES)
+  @Delete(':leadId/labels/:label')
+  async removeLabel(
+    @Param('leadId', new ParseUUIDPipe()) leadId: string,
+    @Param('label', new ParseEnumPipe(LeadLabel)) label: LeadLabel,
+    @Query('accountId') accountIdFromQuery: string | undefined,
+    @Body() body: RemoveLeadLabelDto,
+    @Req() req: { user: AuthUser },
+  ) {
+    const accountId = this.resolveAccountId(req.user, accountIdFromQuery);
+
+    return this.leadsService.removeLabel({
+      accountId,
+      leadId,
+      label,
+      changedByUserId: req.user.userId,
+      reason: body.reason ?? null,
+    });
+  }
+
+  @Roles(Role.ADMIN, Role.SALES)
   @Get(':leadId/label-history')
   async getLabelHistory(
     @Param('leadId', new ParseUUIDPipe()) leadId: string,
@@ -84,6 +107,19 @@ export class LeadsController {
     const history = await this.leadsService.getHistory(accountId, leadId);
 
     return { data: history };
+  }
+
+  @Roles(Role.ADMIN, Role.SALES)
+  @Get(':leadId/labels')
+  async getLabels(
+    @Param('leadId', new ParseUUIDPipe()) leadId: string,
+    @Query('accountId') accountIdFromQuery: string | undefined,
+    @Req() req: { user: AuthUser },
+  ) {
+    const accountId = this.resolveAccountId(req.user, accountIdFromQuery);
+    const labels = await this.leadsService.getLabels(accountId, leadId);
+
+    return { data: labels };
   }
 
   @Roles(Role.ADMIN, Role.SALES)

@@ -267,7 +267,7 @@ Para nuevas pantallas usar preferentemente `GET /conversations`, porque incluye 
 
 ## Lead Labels
 
-Cada lead puede tener una sola label activa, usada como estado actual del flujo comercial.
+Cada lead puede tener varias labels activas. `currentLabel` queda como compatibilidad/label principal visual, pero filtros, alertas y jobs deben basarse en `LeadLabelAssignment` activa.
 
 Labels soportadas:
 
@@ -343,7 +343,7 @@ Paginacion:
 
 ### Set Lead Label
 
-Cambia la label activa del lead, registra historial y crea/cancela recordatorios de repeticion.
+Activa/agrega una label al lead, registra historial legacy y crea recordatorio si la label agregada es `REPETICIONES`. No elimina otras labels activas.
 
 ```http
 PATCH /leads/:leadId/label?accountId=<accountId>
@@ -365,7 +365,24 @@ Reglas de `REPETICIONES`:
 - Segunda vez o posteriores: si no se envia `reminderDays`, calcula los dias transcurridos desde la repeticion anterior y lo guarda como nuevo periodo personalizado del lead.
 - Si la fecha cae fin de semana, `nextRepetitionReminderAt` se mueve al siguiente lunes.
 - Cada ciclo crea un `LeadRepetitionReminder`.
-- Al cambiar a cualquier label, se cancelan recordatorios pendientes previos para evitar avisos duplicados o desfasados.
+- Al agregar una label distinta a `REPETICIONES`, no se cancelan recordatorios ni otras labels activas.
+- Al agregar `REPETICIONES`, el recordatorio queda vinculado a esa asignacion concreta.
+
+### Remove Lead Label
+
+```http
+DELETE /leads/:leadId/labels/:label?accountId=<accountId>
+```
+
+Quita una label activa marcando `removedAt`. Si se quita `REPETICIONES`, cancela los recordatorios pendientes de esa asignacion.
+
+### Lead Labels
+
+```http
+GET /leads/:leadId/labels?accountId=<accountId>
+```
+
+Devuelve asignaciones activas e historicas recientes del lead.
 
 Response:
 

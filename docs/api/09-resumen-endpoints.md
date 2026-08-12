@@ -31,6 +31,8 @@
 |---|---|---|---|
 | `GET` | `/leads` | `ADMIN`, `SALES` | Listar leads por cuenta/filtros. |
 | `PATCH` | `/leads/:leadId/label` | `ADMIN`, `SALES` | Cambiar label. |
+| `DELETE` | `/leads/:leadId/labels/:label` | `ADMIN`, `SALES` | Quitar label activa. |
+| `GET` | `/leads/:leadId/labels` | `ADMIN`, `SALES` | Listar labels activas/historicas. |
 | `GET` | `/leads/:leadId/label-history` | `ADMIN`, `SALES` | Historial de labels. |
 | `GET` | `/leads/repetition-reminders/due` | `ADMIN`, `SALES` | Recordatorios vencidos manuales. |
 | `POST` | `/leads/repetition-reminders/:reminderId/sent` | `ADMIN`, `SALES` | Marcar reminder como enviado. |

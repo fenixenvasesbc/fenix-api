@@ -205,46 +205,56 @@ export class NotificationsService {
 
     for (const rule of rules) {
       const cutoff = new Date(now.getTime() - rule.days * 24 * 60 * 60 * 1000);
-      const staleLeads = await this.prisma.lead.findMany({
+      const staleAssignments = await this.prisma.leadLabelAssignment.findMany({
         where: {
-          accountId: { not: null },
-          currentLabel: rule.label,
-          currentLabelChangedAt: {
+          label: rule.label,
+          removedAt: null,
+          assignedAt: {
             lte: cutoff,
+          },
+          lead: {
+            accountId: { not: null },
           },
         },
         orderBy: {
-          currentLabelChangedAt: 'asc',
+          assignedAt: 'asc',
         },
         take: limit,
         select: {
           id: true,
           accountId: true,
-          phoneE164: true,
-          name: true,
-          ycloudNickname: true,
-          whatsappContactName: true,
-          whatsappProfileName: true,
-          whatsappUsername: true,
-          currentLabel: true,
-          currentLabelChangedAt: true,
+          label: true,
+          assignedAt: true,
+          lead: {
+            select: {
+              id: true,
+              accountId: true,
+              phoneE164: true,
+              name: true,
+              ycloudNickname: true,
+              whatsappContactName: true,
+              whatsappProfileName: true,
+              whatsappUsername: true,
+            },
+          },
         },
       });
 
-      inspectedCount += staleLeads.length;
+      inspectedCount += staleAssignments.length;
 
-      for (const lead of staleLeads) {
-        if (!lead.accountId || !lead.currentLabelChangedAt) continue;
+      for (const assignment of staleAssignments) {
+        const lead = assignment.lead;
+        if (!lead.accountId) continue;
 
         const dedupeKey = this.labelStaleDedupeKey({
           leadId: lead.id,
           label: rule.label,
-          changedAt: lead.currentLabelChangedAt,
+          changedAt: assignment.assignedAt,
         });
         const leadName = this.leadDisplayName(lead);
         const labelName = LABEL_DISPLAY_NAMES[rule.label];
         const daysInLabel = Math.floor(
-          (now.getTime() - lead.currentLabelChangedAt.getTime()) /
+          (now.getTime() - assignment.assignedAt.getTime()) /
             (24 * 60 * 60 * 1000),
         );
 
@@ -254,11 +264,12 @@ export class NotificationsService {
           dedupeKey,
           label: rule.label,
           title: `${leadName} lleva ${daysInLabel} dias en ${labelName}`,
-          message: `El lead ${leadName} permanece en ${labelName} desde ${lead.currentLabelChangedAt.toISOString()}. Umbral configurado: ${rule.days} dias.`,
+          message: `El lead ${leadName} permanece en ${labelName} desde ${assignment.assignedAt.toISOString()}. Umbral configurado: ${rule.days} dias.`,
           triggeredAt: now,
           metadata: {
+            labelAssignmentId: assignment.id,
             leadPhoneE164: lead.phoneE164,
-            labelChangedAt: lead.currentLabelChangedAt.toISOString(),
+            labelChangedAt: assignment.assignedAt.toISOString(),
             thresholdDays: rule.days,
             daysInLabel,
           },

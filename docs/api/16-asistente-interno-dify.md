@@ -268,9 +268,14 @@ Implementado en API:
 - auditoría;
 - integración con Dify por variables de entorno.
 
-Pendiente de siguiente fase:
+Implementado en SPA:
 
 - pantalla SPA `/dashboard/asistente`;
 - panel admin de subida de PDFs desde SPA;
 - visualización de citas;
+- chat flotante contextual en `/dashboard/messages` para usuarios `SALES`;
+- el chat flotante puede abrirse sin abandonar la conversación activa y no envía mensajes al cliente.
+
+Pendiente de siguiente fase:
+
 - métricas agregadas de consumo por usuario/periodo.

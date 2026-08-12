@@ -323,7 +323,20 @@ export class ConversationService {
         },
       },
       include: {
-        lead: true,
+        lead: {
+          include: {
+            labelAssignments: {
+              where: { removedAt: null },
+              orderBy: { assignedAt: 'desc' },
+              select: {
+                id: true,
+                label: true,
+                assignedAt: true,
+                assignedByUserId: true,
+              },
+            },
+          },
+        },
         lastMessage: true,
         lastInboundMessage: true,
         lastOutboundMessage: true,
@@ -373,7 +386,16 @@ export class ConversationService {
         ...(search || label
           ? {
               lead: {
-                ...(label ? { currentLabel: label } : {}),
+                ...(label
+                  ? {
+                      labelAssignments: {
+                        some: {
+                          label,
+                          removedAt: null,
+                        },
+                      },
+                    }
+                  : {}),
                 ...(search
                   ? {
                       OR: [

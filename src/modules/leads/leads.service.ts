@@ -26,6 +26,14 @@ type SetLabelInput = {
   reminderDays?: number;
 };
 
+type RemoveLabelInput = {
+  accountId: string;
+  leadId: string;
+  label: LeadLabel;
+  changedByUserId?: string | null;
+  reason?: string | null;
+};
+
 type EnsureLeadByPhoneInput = {
   accountId: string;
   countryCode: string;
@@ -52,25 +60,25 @@ export class LeadsService {
       labelChangedOrder = 'desc',
       labelStaleDays,
     } = input;
-    const sortByLabelChangedAt = Boolean(label);
-    const sortDirection = sortByLabelChangedAt
-      ? labelChangedOrder
-      : ('desc' as const);
     const staleCutoff =
       label && labelStaleDays
         ? this.addDays(new Date(), -labelStaleDays)
         : null;
 
+    if (label) {
+      return this.listByAccountAndActiveLabel({
+        accountId,
+        label,
+        search,
+        limit,
+        beforeLeadId,
+        labelChangedOrder,
+        staleCutoff,
+      });
+    }
+
     const baseWhere: Prisma.LeadWhereInput = {
       accountId,
-      ...(label
-        ? {
-            currentLabel: label,
-            currentLabelChangedAt: staleCutoff
-              ? { not: null, lte: staleCutoff }
-              : { not: null },
-          }
-        : {}),
       ...(search
         ? {
             OR: [
@@ -110,7 +118,6 @@ export class LeadsService {
           select: {
             id: true,
             updatedAt: true,
-            currentLabelChangedAt: true,
           },
         })
       : null;
@@ -119,25 +126,7 @@ export class LeadsService {
       throw new NotFoundException('Lead cursor not found for these filters');
     }
 
-    const cursorDate = beforeLead
-      ? sortByLabelChangedAt
-        ? beforeLead.currentLabelChangedAt
-        : beforeLead.updatedAt
-      : null;
-
-    if (beforeLead && !cursorDate) {
-      throw new NotFoundException('Lead cursor has no sortable date');
-    }
-
-    const dateField = sortByLabelChangedAt
-      ? 'currentLabelChangedAt'
-      : 'updatedAt';
-    const dateComparator =
-      sortDirection === 'desc' ? { lt: cursorDate! } : { gt: cursorDate! };
-    const idComparator =
-      sortDirection === 'desc'
-        ? { lt: beforeLead?.id }
-        : { gt: beforeLead?.id };
+    const cursorDate = beforeLead?.updatedAt;
 
     const leads = await this.prisma.lead.findMany({
       where: beforeLead
@@ -147,20 +136,18 @@ export class LeadsService {
               {
                 OR: [
                   {
-                    [dateField]: dateComparator,
+                    updatedAt: { lt: cursorDate },
                   },
                   {
-                    [dateField]: cursorDate,
-                    id: idComparator,
+                    updatedAt: cursorDate,
+                    id: { lt: beforeLead.id },
                   },
                 ],
               },
             ],
           }
         : baseWhere,
-      orderBy: sortByLabelChangedAt
-        ? [{ currentLabelChangedAt: sortDirection }, { id: sortDirection }]
-        : [{ updatedAt: 'desc' }, { id: 'desc' }],
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
       select: this.leadSelect(),
     });
@@ -168,6 +155,99 @@ export class LeadsService {
     const hasMore = leads.length > limit;
     const page = hasMore ? leads.slice(0, limit) : leads;
     const data = page.map(withLeadDisplayName);
+
+    return {
+      data,
+      pageInfo: {
+        hasMore,
+        nextBefore: hasMore ? (data.at(-1)?.id ?? null) : null,
+      },
+    };
+  }
+
+  private async listByAccountAndActiveLabel(input: {
+    accountId: string;
+    label: LeadLabel;
+    search?: string | null;
+    limit: number;
+    beforeLeadId?: string | null;
+    labelChangedOrder?: 'asc' | 'desc';
+    staleCutoff?: Date | null;
+  }) {
+    const sortDirection = input.labelChangedOrder ?? 'desc';
+    const leadWhere = this.leadSearchWhere(input.accountId, input.search);
+    const assignmentWhere: Prisma.LeadLabelAssignmentWhereInput = {
+      accountId: input.accountId,
+      label: input.label,
+      removedAt: null,
+      ...(input.staleCutoff ? { assignedAt: { lte: input.staleCutoff } } : {}),
+      lead: leadWhere,
+    };
+
+    const beforeAssignment = input.beforeLeadId
+      ? await this.prisma.leadLabelAssignment.findFirst({
+          where: {
+            ...assignmentWhere,
+            leadId: input.beforeLeadId,
+          },
+          select: {
+            id: true,
+            assignedAt: true,
+            leadId: true,
+          },
+        })
+      : null;
+
+    if (input.beforeLeadId && !beforeAssignment) {
+      throw new NotFoundException('Lead cursor not found for these filters');
+    }
+
+    const assignments = await this.prisma.leadLabelAssignment.findMany({
+      where: beforeAssignment
+        ? {
+            AND: [
+              assignmentWhere,
+              {
+                OR: [
+                  {
+                    assignedAt:
+                      sortDirection === 'desc'
+                        ? { lt: beforeAssignment.assignedAt }
+                        : { gt: beforeAssignment.assignedAt },
+                  },
+                  {
+                    assignedAt: beforeAssignment.assignedAt,
+                    id:
+                      sortDirection === 'desc'
+                        ? { lt: beforeAssignment.id }
+                        : { gt: beforeAssignment.id },
+                  },
+                ],
+              },
+            ],
+          }
+        : assignmentWhere,
+      orderBy: [{ assignedAt: sortDirection }, { id: sortDirection }],
+      take: input.limit + 1,
+      include: {
+        lead: {
+          select: this.leadSelect(),
+        },
+      },
+    });
+
+    const hasMore = assignments.length > input.limit;
+    const page = hasMore ? assignments.slice(0, input.limit) : assignments;
+    const data = page.map((assignment) =>
+      withLeadDisplayName({
+        ...assignment.lead,
+        currentLabel: assignment.lead.currentLabel ?? assignment.label,
+        currentLabelChangedAt:
+          assignment.lead.currentLabel === assignment.label
+            ? assignment.lead.currentLabelChangedAt
+            : assignment.assignedAt,
+      }),
+    );
 
     return {
       data,
@@ -211,6 +291,7 @@ export class LeadsService {
         id: true,
         accountId: true,
         currentLabel: true,
+        currentLabelChangedAt: true,
         repetitionReminderDays: true,
       },
     });
@@ -223,49 +304,66 @@ export class LeadsService {
       throw new BadRequestException('Lead has no accountId');
     }
 
-    if (lead.currentLabel === label) {
-      return this.getById(accountId, leadId);
-    }
-
     const markedAt = new Date();
 
     const result = await this.prisma.$transaction(async (tx) => {
-      const previousRepetition = await tx.leadLabelHistory.findFirst({
+      const existingAssignment = await tx.leadLabelAssignment.findFirst({
         where: {
           leadId,
-          toLabel: LeadLabel.REPETICIONES,
-        },
-        orderBy: { changedAt: 'desc' },
-        select: { changedAt: true },
-      });
-
-      const history = await tx.leadLabelHistory.create({
-        data: {
           accountId,
-          leadId,
-          fromLabel: lead.currentLabel,
-          toLabel: label,
-          changedAt: markedAt,
-          changedByUserId: changedByUserId ?? null,
+          label,
+          removedAt: null,
+        },
+        select: {
+          id: true,
+          assignedAt: true,
         },
       });
 
-      await tx.leadRepetitionReminder.updateMany({
+      const assignment =
+        existingAssignment ??
+        (await tx.leadLabelAssignment.create({
+          data: {
+            accountId,
+            leadId,
+            label,
+            assignedAt: markedAt,
+            assignedByUserId: changedByUserId ?? null,
+          },
+          select: {
+            id: true,
+            assignedAt: true,
+          },
+        }));
+
+      const previousRepetition = await tx.leadLabelAssignment.findFirst({
         where: {
           leadId,
-          sentAt: null,
-          canceledAt: null,
+          label: LeadLabel.REPETICIONES,
+          id: { not: assignment.id },
         },
-        data: {
-          canceledAt: markedAt,
-        },
+        orderBy: { assignedAt: 'desc' },
+        select: { assignedAt: true },
       });
+
+      const history = existingAssignment
+        ? null
+        : await tx.leadLabelHistory.create({
+            data: {
+              accountId,
+              leadId,
+              fromLabel: lead.currentLabel,
+              toLabel: label,
+              changedAt: assignment.assignedAt,
+              changedByUserId: changedByUserId ?? null,
+            },
+          });
 
       const repetitionPlan =
-        label === LeadLabel.REPETICIONES
+        !existingAssignment && label === LeadLabel.REPETICIONES
           ? this.buildRepetitionPlan({
-              markedAt,
-              previousRepetitionAt: previousRepetition?.changedAt ?? null,
+              markedAt: assignment.assignedAt,
+              previousRepetitionAt: previousRepetition?.assignedAt ?? null,
               currentReminderDays: lead.repetitionReminderDays,
               overrideReminderDays: reminderDays,
             })
@@ -278,8 +376,9 @@ export class LeadsService {
           data: {
             accountId,
             leadId,
-            labelHistoryId: history.id,
-            markedAt,
+            labelHistoryId: history?.id ?? null,
+            labelAssignmentId: assignment.id,
+            markedAt: assignment.assignedAt,
             dueAt: repetitionPlan.dueAt,
             reminderDays: repetitionPlan.reminderDays,
           },
@@ -293,14 +392,16 @@ export class LeadsService {
         where: { id: leadId },
         data: {
           currentLabel: label,
-          currentLabelChangedAt: markedAt,
+          currentLabelChangedAt: assignment.assignedAt,
           ...(repetitionPlan
             ? {
                 repetitionReminderDays: repetitionPlan.reminderDays,
                 nextRepetitionReminderAt: repetitionPlan.dueAt,
               }
             : {
-                nextRepetitionReminderAt: null,
+                ...(label === LeadLabel.REPETICIONES
+                  ? {}
+                  : {}),
               }),
         },
         select: this.leadSelect(),
@@ -308,10 +409,12 @@ export class LeadsService {
 
       return {
         lead: updatedLead,
-        labelHistoryId: history.id,
+        labelAssignmentId: assignment.id,
+        labelHistoryId: history?.id ?? null,
         repetitionReminderId: reminderId,
         nextRepetitionReminderAt: repetitionPlan?.dueAt ?? null,
-        repetitionReminderDays: repetitionPlan?.reminderDays ?? null,
+        repetitionReminderDays:
+          repetitionPlan?.reminderDays ?? lead.repetitionReminderDays,
       };
     });
 
@@ -321,7 +424,9 @@ export class LeadsService {
       leadId,
       payload: {
         reason: 'lead_label_changed',
+        action: 'added',
         label,
+        labelAssignmentId: result.labelAssignmentId,
         labelHistoryId: result.labelHistoryId,
         repetitionReminderId: result.repetitionReminderId,
         nextRepetitionReminderAt:
@@ -331,6 +436,131 @@ export class LeadsService {
     });
 
     return { ...result, lead: withLeadDisplayName(result.lead) };
+  }
+
+  async removeLabel(input: RemoveLabelInput) {
+    const { accountId, leadId, label, changedByUserId, reason } = input;
+    const removedAt = new Date();
+
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: leadId, accountId },
+      select: {
+        id: true,
+        accountId: true,
+        currentLabel: true,
+      },
+    });
+
+    if (!lead) {
+      throw new NotFoundException('Lead not found for this account');
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const assignment = await tx.leadLabelAssignment.findFirst({
+        where: {
+          accountId,
+          leadId,
+          label,
+          removedAt: null,
+        },
+        select: {
+          id: true,
+          assignedAt: true,
+        },
+      });
+
+      if (!assignment) {
+        return {
+          ...(await this.getLeadSnapshot(tx, accountId, leadId)),
+          labelAssignmentId: null,
+          removed: false,
+          canceledReminderCount: 0,
+        };
+      }
+
+      await tx.leadLabelAssignment.update({
+        where: { id: assignment.id },
+        data: {
+          removedAt,
+          removedByUserId: changedByUserId ?? null,
+          reason: reason ?? null,
+        },
+      });
+
+      const canceled =
+        label === LeadLabel.REPETICIONES
+          ? await tx.leadRepetitionReminder.updateMany({
+              where: {
+                leadId,
+                accountId,
+                labelAssignmentId: assignment.id,
+                sentAt: null,
+                canceledAt: null,
+              },
+              data: {
+                canceledAt: removedAt,
+              },
+            })
+          : { count: 0 };
+
+      const nextPrimary = await tx.leadLabelAssignment.findFirst({
+        where: {
+          leadId,
+          accountId,
+          removedAt: null,
+        },
+        orderBy: {
+          assignedAt: 'desc',
+        },
+        select: {
+          label: true,
+          assignedAt: true,
+        },
+      });
+
+      const updatedLead = await tx.lead.update({
+        where: { id: leadId },
+        data: {
+          ...(lead.currentLabel === label
+            ? {
+                currentLabel: nextPrimary?.label ?? null,
+                currentLabelChangedAt: nextPrimary?.assignedAt ?? null,
+              }
+            : {}),
+          ...(label === LeadLabel.REPETICIONES
+            ? {
+                nextRepetitionReminderAt: null,
+              }
+            : {}),
+        },
+        select: this.leadSelect(),
+      });
+
+      return {
+        lead: updatedLead,
+        labelAssignmentId: assignment.id,
+        removed: true,
+        canceledReminderCount: canceled.count,
+      };
+    });
+
+    await this.chatEvents.publish({
+      type: 'conversation.updated',
+      accountId,
+      leadId,
+      payload: {
+        reason: 'lead_label_changed',
+        action: 'removed',
+        label,
+        labelAssignmentId: result.labelAssignmentId,
+        canceledReminderCount: result.canceledReminderCount,
+      },
+    });
+
+    return {
+      ...result,
+      lead: withLeadDisplayName(result.lead),
+    };
   }
 
   async getHistory(accountId: string, leadId: string) {
@@ -343,6 +573,16 @@ export class LeadsService {
     });
   }
 
+  async getLabels(accountId: string, leadId: string) {
+    await this.assertLeadExists(accountId, leadId);
+
+    return this.prisma.leadLabelAssignment.findMany({
+      where: { accountId, leadId },
+      orderBy: [{ removedAt: 'asc' }, { assignedAt: 'desc' }],
+      take: 200,
+    });
+  }
+
   async listDueRepetitionReminders(accountId: string, limit: number) {
     const reminders = await this.prisma.leadRepetitionReminder.findMany({
       where: {
@@ -352,6 +592,25 @@ export class LeadsService {
         },
         sentAt: null,
         canceledAt: null,
+        OR: [
+          {
+            labelAssignment: {
+              label: LeadLabel.REPETICIONES,
+              removedAt: null,
+            },
+          },
+          {
+            labelAssignmentId: null,
+            lead: {
+              labelAssignments: {
+                some: {
+                  label: LeadLabel.REPETICIONES,
+                  removedAt: null,
+                },
+              },
+            },
+          },
+        ],
       },
       orderBy: { dueAt: 'asc' },
       take: limit,
@@ -429,6 +688,62 @@ export class LeadsService {
     };
   }
 
+  private async getLeadSnapshot(
+    tx: Prisma.TransactionClient,
+    accountId: string,
+    leadId: string,
+  ) {
+    const lead = await tx.lead.findFirst({
+      where: { id: leadId, accountId },
+      select: this.leadSelect(),
+    });
+
+    if (!lead) {
+      throw new NotFoundException('Lead not found for this account');
+    }
+
+    return {
+      lead,
+    };
+  }
+
+  private leadSearchWhere(
+    accountId: string,
+    search?: string | null,
+  ): Prisma.LeadWhereInput {
+    return {
+      accountId,
+      ...(search
+        ? {
+            OR: [
+              {
+                whatsappContactName: {
+                  contains: search,
+                  mode: 'insensitive',
+                },
+              },
+              { ycloudNickname: { contains: search, mode: 'insensitive' } },
+              {
+                whatsappProfileName: {
+                  contains: search,
+                  mode: 'insensitive',
+                },
+              },
+              { name: { contains: search, mode: 'insensitive' } },
+              { phoneE164: { contains: search, mode: 'insensitive' } },
+              { email: { contains: search, mode: 'insensitive' } },
+              {
+                whatsappUsername: {
+                  contains: search,
+                  mode: 'insensitive',
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+  }
+
   private async assertLeadExists(accountId: string, leadId: string) {
     const lead = await this.prisma.lead.findFirst({
       where: { id: leadId, accountId },
@@ -499,6 +814,20 @@ export class LeadsService {
       status: true,
       currentLabel: true,
       currentLabelChangedAt: true,
+      labelAssignments: {
+        where: {
+          removedAt: null,
+        },
+        orderBy: {
+          assignedAt: 'desc',
+        },
+        select: {
+          id: true,
+          label: true,
+          assignedAt: true,
+          assignedByUserId: true,
+        },
+      },
       repetitionReminderDays: true,
       nextRepetitionReminderAt: true,
       preferredLanguage: true,

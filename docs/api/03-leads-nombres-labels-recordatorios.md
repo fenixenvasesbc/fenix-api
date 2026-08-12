@@ -99,6 +99,23 @@ Valores:
 | `REPETICIONES` | Cliente listo para recordatorio de repetición. |
 | `BOCETOS_ATRASADOS` | Bocetos atrasados. |
 
+### Modelo de multiples labels
+
+Un lead puede tener varias labels activas a la vez. La fuente real es `LeadLabelAssignment`.
+
+Cada asignacion guarda:
+
+- `label`: label asignada;
+- `assignedAt`: fecha de entrada a esa label;
+- `removedAt`: `null` si sigue activa;
+- `assignedByUserId` / `removedByUserId`: auditoria de usuario cuando aplica.
+
+Reglas:
+
+- `Lead.currentLabel` y `Lead.currentLabelChangedAt` quedan como compatibilidad/label principal visual.
+- Jobs, alertas y filtros por label usan asignaciones activas (`removedAt IS NULL`).
+- Un lead puede estar, por ejemplo, en `REPETICIONES` y `MUESTRAS` al mismo tiempo.
+
 ## Cambiar label
 
 Endpoint:
@@ -125,6 +142,35 @@ Reglas:
    - `repetitionReminderDays`;
    - `nextRepetitionReminderAt`.
 7. Se publica `conversation.updated`.
+
+Nota multi-label:
+
+- Desde `LeadLabelAssignment`, `PATCH /leads/:leadId/label` activa/agrega una label y no elimina las demas labels activas.
+- Si la label ya estaba activa, la operacion es idempotente.
+- Si la label es `REPETICIONES`, el recordatorio queda asociado a esa asignacion concreta.
+- Los campos `currentLabel` y `currentLabelChangedAt` se mantienen por compatibilidad visual.
+
+## Quitar label
+
+Endpoint:
+
+```http
+DELETE /leads/:leadId/labels/:label
+```
+
+Reglas:
+
+- Quita una label activa marcando `LeadLabelAssignment.removedAt`.
+- Si se quita `REPETICIONES`, cancela solo los recordatorios pendientes asociados a esa asignacion.
+- Si la label quitada era `currentLabel`, se usa como principal la label activa mas reciente.
+
+## Consultar labels de un lead
+
+```http
+GET /leads/:leadId/labels
+```
+
+Devuelve asignaciones activas e historicas recientes.
 
 ## Cálculo de repetición
 
@@ -214,7 +260,7 @@ Reglas:
 Idempotencia:
 
 ```txt
-dedupeKey = label-stale:{leadId}:{label}:{currentLabelChangedAt}
+dedupeKey = label-stale:{leadId}:{label}:{LeadLabelAssignment.assignedAt}
 ```
 
 Esto evita duplicados aunque el scheduler corra varias veces.

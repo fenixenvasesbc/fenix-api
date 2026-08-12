@@ -151,6 +151,26 @@ Evita duplicados con:
 - `externalId`;
 - `leadId + type + businessWindowKey`.
 
+### LeadLabelAssignment
+
+Fuente real de labels activas e historicas desde el modelo multi-label.
+
+| Campo | Uso |
+|---|---|
+| `leadId` | Lead etiquetado. |
+| `accountId` | Cuenta del lead. |
+| `label` | Label asignada. |
+| `assignedAt` | Fecha de entrada a la label. |
+| `removedAt` | `null` si la label sigue activa. |
+| `assignedByUserId` | Usuario que agrego la label, si aplica. |
+| `removedByUserId` | Usuario que quito la label, si aplica. |
+
+Reglas:
+
+- Solo puede existir una asignacion activa por `leadId + label`.
+- Jobs y alertas leen asignaciones activas (`removedAt IS NULL`).
+- `Lead.currentLabel` queda como compatibilidad/label principal visual.
+
 ### LeadRepetitionReminder
 
 Recordatorio de repetición creado cuando un lead entra en label `REPETICIONES`.
@@ -203,4 +223,3 @@ La API resuelve idioma por:
 | `+39` | `it` |
 | `+49` | `de` |
 | `+41` | `en` |
-
