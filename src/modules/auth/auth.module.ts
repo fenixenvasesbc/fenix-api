@@ -7,10 +7,13 @@ import { UsersModule } from '../users/users.module';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { RolesGuard } from './guards/roles.guard';
 import { RefreshTokensModule } from '../refresh-tokens/refresh-tokens.module';
+import { PrismaModule } from '../../prisma/prisma.module';
+import { PasswordResetMailService } from './password-reset-mail.service';
 
 @Module({
   imports: [
     ConfigModule,
+    PrismaModule,
     UsersModule,
     RefreshTokensModule,
     JwtModule.registerAsync({
@@ -30,6 +33,6 @@ import { RefreshTokensModule } from '../refresh-tokens/refresh-tokens.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, RolesGuard],
+  providers: [AuthService, JwtStrategy, RolesGuard, PasswordResetMailService],
 })
 export class AuthModule {}

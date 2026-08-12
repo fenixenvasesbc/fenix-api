@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
@@ -10,14 +11,20 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { randomBytes, createHash } from 'crypto';
 import { Role } from '@prisma/client';
+import { PrismaService } from '../../prisma/prisma.service';
+import { PasswordResetMailService } from './password-reset-mail.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly users: UsersService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly refreshTokens: RefreshTokensService,
+    private readonly prisma: PrismaService,
+    private readonly passwordResetMail: PasswordResetMailService,
   ) {}
 
   private refreshTokenExpiresAt() {
@@ -75,6 +82,111 @@ export class AuthService {
 
     return { accessToken, refreshToken };
   }
+
+  async requestPasswordReset(email: string) {
+    const normalizedEmail = email.trim().toLowerCase();
+    const genericResponse = {
+      message:
+        'Si el correo existe y esta activo, enviaremos un enlace para cambiar la contrasena.',
+    };
+
+    const user = await this.prisma.user.findFirst({
+      where: { email: { equals: normalizedEmail, mode: 'insensitive' } },
+    });
+    if (!user || !user.isActive) return genericResponse;
+
+    const token = randomBytes(32).toString('hex');
+    const tokenHash = this.hashToken(token);
+    const expiresAt = this.passwordResetExpiresAt();
+
+    await this.prisma.$transaction([
+      this.prisma.passwordResetToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() },
+      }),
+      this.prisma.passwordResetToken.create({
+        data: { userId: user.id, tokenHash, expiresAt },
+      }),
+    ]);
+
+    const resetUrl = this.buildPasswordResetUrl(token);
+
+    try {
+      await this.passwordResetMail.sendPasswordResetEmail({
+        email: user.email,
+        resetUrl,
+      });
+    } catch (cause) {
+      this.logger.error(
+        `Password reset email failed userId=${user.id} email=${user.email}`,
+        cause instanceof Error ? cause.stack : String(cause),
+      );
+    }
+
+    return genericResponse;
+  }
+
+  async resetPassword(token: string, password: string) {
+    const tokenHash = this.hashToken(token.trim());
+    const resetToken = await this.prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
+      include: { user: true },
+    });
+
+    if (
+      !resetToken ||
+      resetToken.usedAt ||
+      resetToken.expiresAt < new Date() ||
+      !resetToken.user.isActive
+    ) {
+      throw new BadRequestException('El enlace no es valido o ya expiro');
+    }
+
+    const passwordHash = await this.hashPassword(password);
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: resetToken.userId },
+        data: { passwordHash },
+      }),
+      this.prisma.passwordResetToken.update({
+        where: { id: resetToken.id },
+        data: { usedAt: new Date() },
+      }),
+      this.prisma.passwordResetToken.updateMany({
+        where: {
+          userId: resetToken.userId,
+          usedAt: null,
+          id: { not: resetToken.id },
+        },
+        data: { usedAt: new Date() },
+      }),
+    ]);
+
+    await this.refreshTokens.revokeAllForUser(resetToken.userId);
+
+    return { message: 'Contrasena actualizada correctamente' };
+  }
+
+  private passwordResetExpiresAt() {
+    const minutes = Number(
+      this.config.get<string>('PASSWORD_RESET_TOKEN_TTL_MINUTES') ?? '30',
+    );
+    const d = new Date();
+    d.setMinutes(d.getMinutes() + minutes);
+    return d;
+  }
+
+  private buildPasswordResetUrl(token: string) {
+    const baseUrl =
+      this.config.get<string>('PASSWORD_RESET_BASE_URL') ||
+      this.config.get<string>('SPA_PUBLIC_URL') ||
+      this.config.get<string>('CORS_ORIGIN') ||
+      'https://app.fenixcrm.site';
+    const normalizedBaseUrl = baseUrl.replace(/\/$/, '');
+    return `${normalizedBaseUrl}/reset-password?token=${encodeURIComponent(token)}`;
+  }
+
   async logout(refreshToken: string) {
     if (!refreshToken) throw new BadRequestException('Missing refresh token');
 
