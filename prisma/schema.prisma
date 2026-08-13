@@ -512,28 +512,31 @@ model AssistantAuditEvent {
 }
 
 model AssistantKnowledgeImport {
-  id               String                         @id @default(uuid())
-  userId           String
-  user             User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  accountId        String?
-  account          Account?                       @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  datasetId        String
-  datasetName      String
-  documentName     String
-  sourceFileName   String
-  sourceMimeType   String
-  sourceSizeBytes  Int
-  markdown         String
-  validationPoints Json
-  status           AssistantKnowledgeImportStatus @default(PENDING_APPROVAL)
-  difyDocumentId   String?
-  difyBatch        String?
-  difyResponse     Json?
-  errorMessage     String?
-  createdAt        DateTime                       @default(now())
-  updatedAt        DateTime                       @updatedAt
-  approvedAt       DateTime?
-  discardedAt      DateTime?
+  id                       String                         @id @default(uuid())
+  userId                   String
+  user                     User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId                String?
+  account                  Account?                       @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  datasetId                String
+  datasetName              String
+  documentName             String
+  sourceFileName           String
+  sourceMimeType           String
+  sourceSizeBytes          Int
+  markdown                 String
+  validationPoints         Json
+  status                   AssistantKnowledgeImportStatus @default(PENDING_APPROVAL)
+  difyDocumentId           String?
+  difyBatch                String?
+  replacesDifyDocumentId   String?
+  replacesDifyDocumentName String?
+  replacementAction        String?
+  difyResponse             Json?
+  errorMessage             String?
+  createdAt                DateTime                       @default(now())
+  updatedAt                DateTime                       @updatedAt
+  approvedAt               DateTime?
+  discardedAt              DateTime?
 
   @@index([userId])
   @@index([accountId])

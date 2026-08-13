@@ -307,13 +307,16 @@ export class AssistantService {
     page: number;
     limit: number;
     keyword?: string | null;
+    datasetId?: string | null;
   }) {
     this.assertAdmin(input.user);
+    const datasetId = input.datasetId ? this.getDatasetOrThrow(input.datasetId).id : undefined;
     const startedAt = Date.now();
     const response = await this.difyClient.listKnowledgeDocuments({
       page: input.page,
       limit: input.limit,
       keyword: input.keyword,
+      datasetId,
     });
     await this.prisma.assistantAuditEvent.create({
       data: {
@@ -325,6 +328,7 @@ export class AssistantService {
           page: input.page,
           limit: input.limit,
           keyword: input.keyword ?? null,
+          datasetId: datasetId ?? null,
         } as Prisma.InputJsonValue,
       },
     });
@@ -401,6 +405,8 @@ export class AssistantService {
     file: Express.Multer.File;
     datasetId: string;
     documentName?: string | null;
+    replaceDocumentId?: string | null;
+    replaceDocumentName?: string | null;
   }) {
     this.assertAdmin(input.user);
     this.assertKnowledgePdf(input.file);
@@ -410,6 +416,8 @@ export class AssistantService {
       this.cleanDocumentName(input.documentName) ??
       this.cleanDocumentName(input.file.originalname.replace(/\.pdf$/i, '')) ??
       input.file.originalname;
+    const replaceDocumentId = this.cleanDocumentName(input.replaceDocumentId);
+    const replaceDocumentName = this.cleanDocumentName(input.replaceDocumentName);
     const startedAt = Date.now();
 
     try {
@@ -434,10 +442,14 @@ export class AssistantService {
             markdown: transformed.markdown,
             validationPoints: transformed.validationPoints,
             status: AssistantKnowledgeImportStatus.NEEDS_MANUAL_REVIEW,
+            replacesDifyDocumentId: replaceDocumentId,
+            replacesDifyDocumentName: replaceDocumentName,
             errorMessage: `Hay subsecciones ### con mas de ${process.env.ASSISTANT_KNOWLEDGE_MAX_SUBSECTION_CHARS ?? '1000'} caracteres.`,
-            difyResponse: {
-              oversizeBlocks: transformed.oversizeBlocks,
-            } as Prisma.InputJsonValue,
+          difyResponse: {
+            oversizeBlocks: transformed.oversizeBlocks,
+            replacesDifyDocumentId: replaceDocumentId,
+            replacesDifyDocumentName: replaceDocumentName,
+          } as Prisma.InputJsonValue,
           },
         });
 
@@ -464,6 +476,8 @@ export class AssistantService {
             oversizeBlocks: transformed.oversizeBlocks,
             dataset,
             documentName,
+            replacesDifyDocumentId: replaceDocumentId,
+            replacesDifyDocumentName: replaceDocumentName,
           },
         };
       }
@@ -499,6 +513,8 @@ export class AssistantService {
           status: AssistantKnowledgeImportStatus.PENDING_APPROVAL,
           difyDocumentId,
           difyBatch,
+          replacesDifyDocumentId: replaceDocumentId,
+          replacesDifyDocumentName: replaceDocumentName,
           difyResponse: difyResponse as Prisma.InputJsonValue,
         },
       });
@@ -513,6 +529,8 @@ export class AssistantService {
           datasetId: dataset.id,
           documentName,
           difyBatch,
+          replacesDifyDocumentId: replaceDocumentId,
+          replacesDifyDocumentName: replaceDocumentName,
           validationPointCount: transformed.validationPoints.length,
         },
       });
@@ -528,6 +546,8 @@ export class AssistantService {
           documentName,
           difyDocumentId,
           difyBatch,
+          replacesDifyDocumentId: replaceDocumentId,
+          replacesDifyDocumentName: replaceDocumentName,
         },
       };
     } catch (error: any) {
@@ -571,12 +591,25 @@ export class AssistantService {
       documentId: knowledgeImport.difyDocumentId,
       action: 'enable',
     });
+    let replacementResponse: Record<string, any> | null = null;
+    const replacementAction = this.getReplacementAction();
+
+    if (knowledgeImport.replacesDifyDocumentId) {
+      replacementResponse = await this.difyClient.updateKnowledgeDocumentStatus({
+        datasetId: knowledgeImport.datasetId,
+        documentId: knowledgeImport.replacesDifyDocumentId,
+        action: replacementAction,
+      });
+    }
 
     const updated = await this.prisma.assistantKnowledgeImport.update({
       where: { id: knowledgeImport.id },
       data: {
         status: AssistantKnowledgeImportStatus.APPROVED,
         approvedAt: new Date(),
+        replacementAction: knowledgeImport.replacesDifyDocumentId
+          ? replacementAction
+          : null,
       },
     });
 
@@ -593,6 +626,12 @@ export class AssistantService {
           importId: knowledgeImport.id,
           datasetId: knowledgeImport.datasetId,
           response,
+          replacesDifyDocumentId: knowledgeImport.replacesDifyDocumentId,
+          replacesDifyDocumentName: knowledgeImport.replacesDifyDocumentName,
+          replacementAction: knowledgeImport.replacesDifyDocumentId
+            ? replacementAction
+            : null,
+          replacementResponse,
         } as Prisma.InputJsonValue,
       },
     });
@@ -611,6 +650,16 @@ export class AssistantService {
       knowledgeImport.status !== AssistantKnowledgeImportStatus.NEEDS_MANUAL_REVIEW
     ) {
       throw new BadRequestException('Only pending imports can be discarded');
+    }
+
+    let discardedDocumentResponse: Record<string, any> | null = null;
+
+    if (knowledgeImport.difyDocumentId) {
+      discardedDocumentResponse = await this.difyClient.updateKnowledgeDocumentStatus({
+        datasetId: knowledgeImport.datasetId,
+        documentId: knowledgeImport.difyDocumentId,
+        action: 'archive',
+      });
     }
 
     const updated = await this.prisma.assistantKnowledgeImport.update({
@@ -632,6 +681,11 @@ export class AssistantService {
         metadata: {
           importId: knowledgeImport.id,
           datasetId: knowledgeImport.datasetId,
+          difyDocumentId: knowledgeImport.difyDocumentId,
+          discardedDocumentAction: knowledgeImport.difyDocumentId ? 'archive' : null,
+          discardedDocumentResponse,
+          replacesDifyDocumentId: knowledgeImport.replacesDifyDocumentId,
+          replacesDifyDocumentName: knowledgeImport.replacesDifyDocumentName,
         } as Prisma.InputJsonValue,
       },
     });
@@ -752,6 +806,13 @@ export class AssistantService {
       this.stringOrNull(response.id) ??
       this.stringOrNull(response.document_id)
     );
+  }
+
+  private getReplacementAction(): 'archive' | 'disable' {
+    const value = (process.env.DIFY_KNOWLEDGE_REPLACE_OLD_ACTION ?? 'archive')
+      .trim()
+      .toLowerCase();
+    return value === 'disable' ? 'disable' : 'archive';
   }
 
   private async auditKnowledgeProcess(input: {

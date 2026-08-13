@@ -117,6 +117,8 @@ export class AssistantController {
       file,
       datasetId: body.datasetId,
       documentName: body.documentName ?? null,
+      replaceDocumentId: body.replaceDocumentId ?? null,
+      replaceDocumentName: body.replaceDocumentName ?? null,
     });
   }
 
@@ -155,6 +157,7 @@ export class AssistantController {
       page: query.page ?? 1,
       limit: query.limit ?? 20,
       keyword: query.keyword ?? null,
+      datasetId: query.datasetId ?? null,
     });
   }
 

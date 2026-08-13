@@ -89,6 +89,12 @@ export class AssistantKnowledgeQueryDto {
   @IsString()
   @MaxLength(120)
   keyword?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(trimString(value)))
+  @IsString()
+  @MaxLength(120)
+  datasetId?: string;
 }
 
 export class AssistantKnowledgeUploadDto {
@@ -103,4 +109,16 @@ export class AssistantKnowledgeUploadDto {
   @IsString()
   @MaxLength(180)
   documentName?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(trimString(value)))
+  @IsString()
+  @MaxLength(120)
+  replaceDocumentId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(trimString(value)))
+  @IsString()
+  @MaxLength(240)
+  replaceDocumentName?: string;
 }

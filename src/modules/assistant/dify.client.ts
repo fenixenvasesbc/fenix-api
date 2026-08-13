@@ -76,10 +76,11 @@ export class DifyClient {
     page: number;
     limit: number;
     keyword?: string | null;
+    datasetId?: string | null;
   }) {
     this.assertEnabled();
     const apiKey = this.getKnowledgeApiKey();
-    const datasetId = this.getDatasetId();
+    const datasetId = input.datasetId || this.getDatasetId();
     const params = new URLSearchParams({
       page: String(input.page),
       limit: String(input.limit),
