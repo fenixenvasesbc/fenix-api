@@ -90,3 +90,17 @@ export class AssistantKnowledgeQueryDto {
   @MaxLength(120)
   keyword?: string;
 }
+
+export class AssistantKnowledgeUploadDto {
+  @Transform(({ value }) => trimString(value))
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  datasetId: string;
+
+  @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(trimString(value)))
+  @IsString()
+  @MaxLength(180)
+  documentName?: string;
+}

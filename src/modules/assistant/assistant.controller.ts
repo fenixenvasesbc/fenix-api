@@ -21,6 +21,7 @@ import { AssistantService } from './assistant.service';
 import {
   AssistantFeedbackDto,
   AssistantKnowledgeQueryDto,
+  AssistantKnowledgeUploadDto,
   AssistantQueryDto,
   AssistantSessionsQueryDto,
 } from './dto/assistant.dto';
@@ -82,6 +83,64 @@ export class AssistantController {
       rating: body.rating,
       reason: body.reason ?? null,
       editedText: body.editedText ?? null,
+    });
+  }
+
+  @Roles(Role.ADMIN)
+  @Get('knowledge/datasets')
+  listKnowledgeDatasets(@Req() req: { user: AuthUser }) {
+    return this.assistantService.listConfiguredKnowledgeDatasets({
+      user: req.user,
+    });
+  }
+
+  @Roles(Role.ADMIN)
+  @Post('knowledge/imports')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: {
+        fileSize:
+          Number(process.env.ASSISTANT_KNOWLEDGE_MAX_FILE_MB ?? '25') *
+          1024 *
+          1024,
+      },
+    }),
+  )
+  processKnowledgePdf(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: AssistantKnowledgeUploadDto,
+    @Req() req: { user: AuthUser },
+  ) {
+    return this.assistantService.processKnowledgePdf({
+      user: req.user,
+      file,
+      datasetId: body.datasetId,
+      documentName: body.documentName ?? null,
+    });
+  }
+
+  @Roles(Role.ADMIN)
+  @Post('knowledge/imports/:importId/approve')
+  approveKnowledgeImport(
+    @Param('importId', new ParseUUIDPipe()) importId: string,
+    @Req() req: { user: AuthUser },
+  ) {
+    return this.assistantService.approveKnowledgeImport({
+      user: req.user,
+      importId,
+    });
+  }
+
+  @Roles(Role.ADMIN)
+  @Post('knowledge/imports/:importId/discard')
+  discardKnowledgeImport(
+    @Param('importId', new ParseUUIDPipe()) importId: string,
+    @Req() req: { user: AuthUser },
+  ) {
+    return this.assistantService.discardKnowledgeImport({
+      user: req.user,
+      importId,
     });
   }
 

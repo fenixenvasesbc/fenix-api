@@ -29,6 +29,12 @@ type DifyUploadDocumentInput = {
   file: Express.Multer.File;
 };
 
+type DifyCreateDocumentByTextInput = {
+  datasetId: string;
+  name: string;
+  text: string;
+};
+
 @Injectable()
 export class DifyClient {
   private readonly logger = new Logger(DifyClient.name);
@@ -131,6 +137,54 @@ export class DifyClient {
     }
   }
 
+  async createKnowledgeDocumentByText(input: DifyCreateDocumentByTextInput) {
+    this.assertEnabled();
+    const apiKey = this.getKnowledgeApiKey();
+
+    return this.postJson<Record<string, any>>({
+      path: `/v1/datasets/${input.datasetId}/document/create-by-text`,
+      apiKey,
+      operation: 'createKnowledgeDocumentByText',
+      body: {
+        name: input.name,
+        text: input.text,
+        indexing_technique:
+          process.env.DIFY_KNOWLEDGE_INDEXING_TECHNIQUE ?? 'high_quality',
+        process_rule: {
+          mode: 'custom',
+          rules: {
+            pre_processing_rules: [
+              { id: 'remove_extra_spaces', enabled: true },
+              { id: 'remove_urls_emails', enabled: false },
+            ],
+            segmentation: {
+              separator: process.env.DIFY_KNOWLEDGE_SEGMENT_SEPARATOR ?? '\n###',
+              max_tokens: Number(process.env.DIFY_KNOWLEDGE_SEGMENT_MAX_TOKENS ?? '800'),
+            },
+          },
+        },
+      },
+    });
+  }
+
+  async updateKnowledgeDocumentStatus(input: {
+    datasetId: string;
+    documentId: string;
+    action: 'enable' | 'disable' | 'archive' | 'un_archive';
+  }) {
+    this.assertEnabled();
+    const apiKey = this.getKnowledgeApiKey();
+
+    return this.patchJson<Record<string, any>>({
+      path: `/v1/datasets/${input.datasetId}/documents/status/${input.action}`,
+      apiKey,
+      operation: `knowledgeDocumentStatus:${input.action}`,
+      body: {
+        document_ids: [input.documentId],
+      },
+    });
+  }
+
   private async postJson<T>(input: {
     path: string;
     apiKey: string;
@@ -163,6 +217,28 @@ export class DifyClient {
         this.httpService.get(`${this.baseUrl}${input.path}`, {
           headers: {
             Authorization: `Bearer ${input.apiKey}`,
+          },
+          timeout: this.timeoutMs,
+        }),
+      );
+      return response.data as T;
+    } catch (error: any) {
+      throw this.toDifyError(input.operation, error);
+    }
+  }
+
+  private async patchJson<T>(input: {
+    path: string;
+    apiKey: string;
+    body: unknown;
+    operation: string;
+  }): Promise<T> {
+    try {
+      const response = await firstValueFrom(
+        this.httpService.patch(`${this.baseUrl}${input.path}`, input.body, {
+          headers: {
+            Authorization: `Bearer ${input.apiKey}`,
+            'Content-Type': 'application/json',
           },
           timeout: this.timeoutMs,
         }),
