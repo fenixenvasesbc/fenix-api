@@ -1,5 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  IsDateString,
   IsEnum,
   IsInt,
   IsIn,
@@ -92,4 +93,38 @@ export class DueRepetitionRemindersQueryDto {
   @Min(1)
   @Max(500)
   limit?: number = 100;
+}
+
+export class ExportLeadsQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(value))
+  @IsDateString()
+  from?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(value))
+  @IsDateString()
+  to?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  pageSize?: number = 50;
+
+  @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(value))
+  @IsUUID()
+  accountId?: string;
+
+  @IsOptional()
+  @IsEnum(LeadLabel)
+  label?: LeadLabel;
 }

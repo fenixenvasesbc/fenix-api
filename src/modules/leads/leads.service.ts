@@ -41,6 +41,15 @@ type EnsureLeadByPhoneInput = {
   name?: string | null;
 };
 
+type ExportLeadsInput = {
+  from?: Date;
+  to?: Date;
+  page: number;
+  pageSize: number;
+  accountId?: string;
+  label?: LeadLabel;
+};
+
 const DEFAULT_REPETITION_REMINDER_DAYS = 90;
 
 @Injectable()
@@ -874,5 +883,76 @@ export class LeadsService {
     }
 
     return e164;
+  }
+
+  /**
+   * Exporta leads en JSON paginado, filtrando por rango de fechas de creación.
+   * Pensado para integraciones externas (n8n) vía LeadsExportController
+   * (protegido con ApiKeyGuard, no requiere JWT).
+   */
+  async exportLeads(input: ExportLeadsInput) {
+    const { from, to, page, pageSize, accountId, label } = input;
+
+    const where: Prisma.LeadWhereInput = {
+      ...(accountId ? { accountId } : {}),
+      ...(label ? { currentLabel: label } : {}),
+      ...(from || to
+        ? {
+            createdAt: {
+              ...(from ? { gte: from } : {}),
+              ...(to ? { lte: to } : {}),
+            },
+          }
+        : {}),
+    };
+
+    const skip = (page - 1) * pageSize;
+
+    const [total, leads] = await this.prisma.$transaction([
+      this.prisma.lead.count({ where }),
+      this.prisma.lead.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        skip,
+        take: pageSize,
+        select: {
+          id: true,
+          name: true,
+          whatsappContactName: true,
+          whatsappProfileName: true,
+          phoneE164: true,
+          email: true,
+          status: true,
+          currentLabel: true,
+          accountId: true,
+          account: { select: { id: true, name: true } },
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+    ]);
+
+    return {
+      data: leads.map((lead) => ({
+        id: lead.id,
+        name: lead.name,
+        whatsappContactName: lead.whatsappContactName,
+        whatsappProfileName: lead.whatsappProfileName,
+        phoneE164: lead.phoneE164,
+        email: lead.email,
+        status: lead.status,
+        currentLabel: lead.currentLabel,
+        accountId: lead.accountId,
+        comercial: lead.account?.name ?? null,
+        createdAt: lead.createdAt,
+        updatedAt: lead.updatedAt,
+      })),
+      meta: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+    };
   }
 }
