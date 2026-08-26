@@ -80,6 +80,17 @@ jobs:
           printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
+      - name: Debug SSH key fingerprint (temporal)
+        run: |
+          echo "Fingerprint de la llave escrita en el runner:"
+          ssh-keygen -lf ~/.ssh/id_ed25519 || echo "ssh-keygen fallo al leer el archivo (formato invalido)"
+          echo "Numero de lineas / caracteres del archivo (sin mostrar contenido):"
+          wc -l ~/.ssh/id_ed25519
+          wc -c ~/.ssh/id_ed25519
+          echo "Primera y ultima linea (deben ser BEGIN/END, no contienen la clave):"
+          head -n 1 ~/.ssh/id_ed25519
+          tail -n 1 ~/.ssh/id_ed25519
+
       - name: Upload deployment definition
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
