@@ -753,6 +753,118 @@ export class AssistantService {
     return { data: updated };
   }
 
+  async listKnowledgeImports(input: {
+    user: AuthUser;
+    status?: AssistantKnowledgeImportStatus;
+    datasetId?: string | null;
+    page: number;
+    limit: number;
+  }) {
+    this.assertAdmin(input.user);
+
+    const where: Prisma.AssistantKnowledgeImportWhereInput = {};
+    if (input.status) {
+      where.status = input.status;
+    } else {
+      where.status = {
+        in: [
+          AssistantKnowledgeImportStatus.PENDING_APPROVAL,
+          AssistantKnowledgeImportStatus.NEEDS_MANUAL_REVIEW,
+        ],
+      };
+    }
+    if (input.datasetId) {
+      where.datasetId = this.getDatasetOrThrow(input.datasetId).id;
+    }
+
+    const [total, imports] = await this.prisma.$transaction([
+      this.prisma.assistantKnowledgeImport.count({ where }),
+      this.prisma.assistantKnowledgeImport.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (input.page - 1) * input.limit,
+        take: input.limit,
+        select: {
+          id: true,
+          datasetId: true,
+          datasetName: true,
+          documentName: true,
+          sourceFileName: true,
+          sourceSizeBytes: true,
+          status: true,
+          errorMessage: true,
+          replacesDifyDocumentId: true,
+          replacesDifyDocumentName: true,
+          createdAt: true,
+          updatedAt: true,
+          approvedAt: true,
+          discardedAt: true,
+          user: { select: { email: true } },
+        },
+      }),
+    ]);
+
+    return {
+      data: imports,
+      meta: {
+        page: input.page,
+        limit: input.limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / input.limit)),
+      },
+    };
+  }
+
+  async getKnowledgeImport(input: { user: AuthUser; importId: string }) {
+    this.assertAdmin(input.user);
+    const knowledgeImport = await this.prisma.assistantKnowledgeImport.findUnique({
+      where: { id: input.importId },
+      include: { user: { select: { email: true } } },
+    });
+    if (!knowledgeImport) throw new NotFoundException('Knowledge import not found');
+
+    const dataset = this.getConfiguredDatasets().find(
+      (item) => item.id === knowledgeImport.datasetId,
+    ) ?? {
+      id: knowledgeImport.datasetId,
+      key: knowledgeImport.datasetId,
+      name: knowledgeImport.datasetName,
+      description: null,
+    };
+
+    const difyResponse = (knowledgeImport.difyResponse ?? null) as Record<string, any> | null;
+    const oversizeBlocks =
+      knowledgeImport.status === AssistantKnowledgeImportStatus.NEEDS_MANUAL_REVIEW
+        ? (difyResponse?.oversizeBlocks ?? [])
+        : [];
+
+    return {
+      data: {
+        importId: knowledgeImport.id,
+        status: knowledgeImport.status,
+        markdown: knowledgeImport.markdown,
+        validationPoints: knowledgeImport.validationPoints,
+        oversizeBlocks,
+        dataset,
+        documentName: knowledgeImport.documentName,
+        sourceFileName: knowledgeImport.sourceFileName,
+        sourceMimeType: knowledgeImport.sourceMimeType,
+        sourceSizeBytes: knowledgeImport.sourceSizeBytes,
+        difyDocumentId: knowledgeImport.difyDocumentId,
+        difyBatch: knowledgeImport.difyBatch,
+        replacesDifyDocumentId: knowledgeImport.replacesDifyDocumentId,
+        replacesDifyDocumentName: knowledgeImport.replacesDifyDocumentName,
+        replacementAction: knowledgeImport.replacementAction,
+        errorMessage: knowledgeImport.errorMessage,
+        uploadedBy: knowledgeImport.user?.email ?? null,
+        createdAt: knowledgeImport.createdAt,
+        updatedAt: knowledgeImport.updatedAt,
+        approvedAt: knowledgeImport.approvedAt,
+        discardedAt: knowledgeImport.discardedAt,
+      },
+    };
+  }
+
   private async getOwnedSession(user: AuthUser, sessionId: string) {
     const session = await this.prisma.assistantSession.findUnique({
       where: { id: sessionId },

@@ -21,6 +21,7 @@ import { AssistantService } from './assistant.service';
 import {
   AssistantFeedbackDto,
   AssistantKnowledgeDatasetsQueryDto,
+  AssistantKnowledgeImportsQueryDto,
   AssistantKnowledgeQueryDto,
   AssistantKnowledgeUploadDto,
   AssistantQueryDto,
@@ -124,6 +125,33 @@ export class AssistantController {
       documentName: body.documentName ?? null,
       replaceDocumentId: body.replaceDocumentId ?? null,
       replaceDocumentName: body.replaceDocumentName ?? null,
+    });
+  }
+
+  @Roles(Role.ADMIN)
+  @Get('knowledge/imports')
+  listKnowledgeImports(
+    @Query() query: AssistantKnowledgeImportsQueryDto,
+    @Req() req: { user: AuthUser },
+  ) {
+    return this.assistantService.listKnowledgeImports({
+      user: req.user,
+      status: query.status,
+      datasetId: query.datasetId ?? null,
+      page: query.page ?? 1,
+      limit: query.limit ?? 20,
+    });
+  }
+
+  @Roles(Role.ADMIN)
+  @Get('knowledge/imports/:importId')
+  getKnowledgeImport(
+    @Param('importId', new ParseUUIDPipe()) importId: string,
+    @Req() req: { user: AuthUser },
+  ) {
+    return this.assistantService.getKnowledgeImport({
+      user: req.user,
+      importId,
     });
   }
 

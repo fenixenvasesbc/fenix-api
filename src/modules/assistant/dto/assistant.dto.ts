@@ -10,7 +10,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { AssistantFeedbackRating } from '@prisma/client';
+import { AssistantFeedbackRating, AssistantKnowledgeImportStatus } from '@prisma/client';
 
 function emptyToUndefined(value: unknown) {
   return value === '' ? undefined : value;
@@ -132,4 +132,31 @@ export class AssistantKnowledgeDatasetsQueryDto {
   @Min(1)
   @Max(100)
   documentsLimit?: number;
+}
+
+export class AssistantKnowledgeImportsQueryDto {
+  @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(value))
+  @IsEnum(AssistantKnowledgeImportStatus)
+  status?: AssistantKnowledgeImportStatus;
+
+  @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(trimString(value)))
+  @IsString()
+  @MaxLength(120)
+  datasetId?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
 }
