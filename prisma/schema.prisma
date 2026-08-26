@@ -282,6 +282,7 @@ model Lead {
   @@index([accountId, lastOutboundAt])
   @@index([accountId, currentLabel, updatedAt])
   @@index([accountId, nextRepetitionReminderAt])
+  @@index([createdAt])
 }
 
 model LeadLabelHistory {

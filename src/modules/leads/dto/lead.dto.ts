@@ -1,5 +1,8 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsDateString,
   IsEnum,
   IsInt,
@@ -127,4 +130,16 @@ export class ExportLeadsQueryDto {
   @IsOptional()
   @IsEnum(LeadLabel)
   label?: LeadLabel;
+}
+
+export class LookupLeadsByPhoneDto {
+  // Búsqueda puntual (indexada) de leads por teléfono E.164, en vez de
+  // exportar por rango de fechas: pensada para que n8n compruebe qué
+  // números ya pertenecen a una comercial antes de repartir un lote.
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @IsString({ each: true })
+  @MaxLength(20, { each: true })
+  phones: string[];
 }

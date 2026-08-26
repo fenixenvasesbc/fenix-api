@@ -395,9 +395,69 @@ export class AssistantService {
     }
   }
 
-  listConfiguredKnowledgeDatasets(input: { user: AuthUser }) {
+  async listConfiguredKnowledgeDatasets(input: {
+    user: AuthUser;
+    documentsLimit?: number;
+  }) {
     this.assertAdmin(input.user);
-    return { data: this.getConfiguredDatasets() };
+    const datasets = this.getConfiguredDatasets();
+    const documentsLimit = input.documentsLimit ?? 20;
+
+    // Por cada base de conocimiento configurada, traemos tambien sus
+    // documentos actuales en Dify: asi, al elegir donde subir uno nuevo,
+    // el admin ve de una vez que dataset es cada uno y que hay ya dentro
+    // (sin tener que entrar a la interfaz de Dify).
+    const datasetsWithDocuments = await Promise.all(
+      datasets.map(async (dataset) => {
+        try {
+          const response = await this.difyClient.listKnowledgeDocuments({
+            page: 1,
+            limit: documentsLimit,
+            datasetId: dataset.id,
+          });
+
+          const rawDocuments = Array.isArray((response as any)?.data)
+            ? (response as any).data
+            : [];
+
+          const documents = rawDocuments.map((doc: any) => ({
+            id: this.stringOrNull(doc?.id),
+            name: this.stringOrNull(doc?.name),
+            enabled: Boolean(doc?.enabled),
+            wordCount:
+              typeof doc?.word_count === 'number' ? doc.word_count : null,
+            createdAt:
+              typeof doc?.created_at === 'number'
+                ? new Date(doc.created_at * 1000).toISOString()
+                : null,
+          }));
+
+          const total = (response as any)?.total;
+
+          return {
+            ...dataset,
+            documentCount: typeof total === 'number' ? total : documents.length,
+            documents,
+            documentsError: null as string | null,
+          };
+        } catch (error: any) {
+          this.logger.error(
+            `No se pudieron listar documentos del dataset ${dataset.id}: ${error?.message ?? error}`,
+          );
+          return {
+            ...dataset,
+            documentCount: null as number | null,
+            documents: [] as unknown[],
+            documentsError:
+              error instanceof DifyRequestError
+                ? error.providerMessage ?? error.message
+                : 'No se pudo consultar Dify para este dataset',
+          };
+        }
+      }),
+    );
+
+    return { data: datasetsWithDocuments };
   }
 
   async processKnowledgePdf(input: {

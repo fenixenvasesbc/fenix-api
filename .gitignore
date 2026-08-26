@@ -63,3 +63,6 @@ storage/
 *.sqlite
 pgdata
 *.tsbuildinfo
+
+# Script de escritorio con credenciales de ADMIN en texto plano
+/scripts/desktop-purge-fichajes/

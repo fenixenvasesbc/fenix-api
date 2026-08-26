@@ -1,6 +1,6 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiKeyGuard } from '../auth/guards/api-key.guard';
-import { ExportLeadsQueryDto } from './dto/lead.dto';
+import { ExportLeadsQueryDto, LookupLeadsByPhoneDto } from './dto/lead.dto';
 import { LeadsService } from './leads.service';
 
 /**
@@ -27,5 +27,16 @@ export class LeadsExportController {
       accountId: query.accountId,
       label: query.label,
     });
+  }
+
+  /**
+   * Lookup puntual por teléfono. Úsalo (en vez de /leads/export) cuando lo
+   * que necesitas es saber si un lote concreto de números ya pertenece a
+   * una comercial — es una consulta indexada sobre una lista acotada de
+   * teléfonos, no un escaneo por rango de fechas.
+   */
+  @Post('lookup-by-phone')
+  async lookupByPhone(@Body() body: LookupLeadsByPhoneDto) {
+    return this.leadsService.lookupByPhones(body.phones);
   }
 }

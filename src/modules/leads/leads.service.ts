@@ -955,4 +955,59 @@ export class LeadsService {
       },
     };
   }
+
+  /**
+   * Búsqueda puntual por teléfono (usa el índice existente en phoneE164).
+   * Pensado para que n8n, antes de repartir un lote de leads del día,
+   * compruebe con UNA sola llamada (batch de teléfonos, no por fecha)
+   * si alguno ya pertenece a una comercial. Es una consulta indexada y
+   * barata: no compite de forma relevante con el tráfico de webhooks
+   * en tiempo real (inbound/outbound de YCloud) que también atiende esta API.
+   */
+  async lookupByPhones(phones: string[]) {
+    const normalized = Array.from(
+      new Set(
+        phones
+          .map((p) => (p ?? '').trim())
+          .filter((p) => p.length > 0),
+      ),
+    );
+
+    if (normalized.length === 0) {
+      return { data: [] };
+    }
+
+    const rows = await this.prisma.lead.findMany({
+      where: {
+        phoneE164: { in: normalized },
+        accountId: { not: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        phoneE164: true,
+        accountId: true,
+        account: { select: { name: true } },
+      },
+    });
+
+    // Un mismo teléfono puede tener varias filas históricas (si cambió de
+    // cuenta); al venir ordenado por createdAt desc, nos quedamos con la
+    // primera ocurrencia = la asignación más reciente.
+    const latestByPhone = new Map<
+      string,
+      { phone: string; accountId: string; comercial: string | null }
+    >();
+
+    for (const r of rows) {
+      if (!latestByPhone.has(r.phoneE164)) {
+        latestByPhone.set(r.phoneE164, {
+          phone: r.phoneE164,
+          accountId: r.accountId as string,
+          comercial: r.account?.name ?? null,
+        });
+      }
+    }
+
+    return { data: Array.from(latestByPhone.values()) };
+  }
 }

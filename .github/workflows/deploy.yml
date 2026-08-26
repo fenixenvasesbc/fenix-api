@@ -1,0 +1,132 @@
+name: Deploy API to production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: fenix-api-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: fenixenvasesbc/fenix-api
+
+jobs:
+  build:
+    name: Validate, build and publish
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image: ${{ steps.image.outputs.value }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set image reference
+        id: image
+        run: echo "value=${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.image.outputs.value }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy on VPS
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Check out deployment files
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Upload deployment definition
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          SSH="ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o ConnectTimeout=20 -p ${VPS_PORT}"
+          SCP="scp -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o ConnectTimeout=20 -P ${VPS_PORT}"
+
+          $SSH "${VPS_USER}@${VPS_HOST}" "mkdir -p ~/apps/fenix-api-ci"
+
+          $SCP \
+            deploy/docker-compose.yml \
+            deploy/deploy.sh \
+            "${VPS_USER}@${VPS_HOST}:~/apps/fenix-api-ci/"
+
+      - name: Log in to GHCR on VPS
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" |
+            ssh \
+              -i ~/.ssh/id_ed25519 \
+              -o IdentitiesOnly=yes \
+              -o ConnectTimeout=20 \
+              -p "$VPS_PORT" \
+              "${VPS_USER}@${VPS_HOST}" \
+              "docker login ghcr.io --username '$GHCR_USER' --password-stdin"
+
+      - name: Deploy exact image
+        env:
+          DEPLOY_IMAGE: ${{ needs.build.outputs.image }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          echo "Deploying $DEPLOY_IMAGE"
+
+          ssh \
+            -i ~/.ssh/id_ed25519 \
+            -o IdentitiesOnly=yes \
+            -o ConnectTimeout=20 \
+            -p "$VPS_PORT" \
+            "${VPS_USER}@${VPS_HOST}" \
+            "printf 'API_IMAGE=%s\n' '$DEPLOY_IMAGE' > ~/apps/fenix-api-ci/.env.image &&
+             sh ~/apps/fenix-api-ci/deploy.sh"

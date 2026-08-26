@@ -20,6 +20,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { AssistantService } from './assistant.service';
 import {
   AssistantFeedbackDto,
+  AssistantKnowledgeDatasetsQueryDto,
   AssistantKnowledgeQueryDto,
   AssistantKnowledgeUploadDto,
   AssistantQueryDto,
@@ -88,9 +89,13 @@ export class AssistantController {
 
   @Roles(Role.ADMIN)
   @Get('knowledge/datasets')
-  listKnowledgeDatasets(@Req() req: { user: AuthUser }) {
+  listKnowledgeDatasets(
+    @Query() query: AssistantKnowledgeDatasetsQueryDto,
+    @Req() req: { user: AuthUser },
+  ) {
     return this.assistantService.listConfiguredKnowledgeDatasets({
       user: req.user,
+      documentsLimit: query.documentsLimit,
     });
   }
 
@@ -158,29 +163,6 @@ export class AssistantController {
       limit: query.limit ?? 20,
       keyword: query.keyword ?? null,
       datasetId: query.datasetId ?? null,
-    });
-  }
-
-  @Roles(Role.ADMIN)
-  @Post('knowledge/documents')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: memoryStorage(),
-      limits: {
-        fileSize:
-          Number(process.env.ASSISTANT_KNOWLEDGE_MAX_FILE_MB ?? '25') *
-          1024 *
-          1024,
-      },
-    }),
-  )
-  uploadKnowledgeDocument(
-    @UploadedFile() file: Express.Multer.File,
-    @Req() req: { user: AuthUser },
-  ) {
-    return this.assistantService.uploadKnowledgeDocument({
-      user: req.user,
-      file,
     });
   }
 }

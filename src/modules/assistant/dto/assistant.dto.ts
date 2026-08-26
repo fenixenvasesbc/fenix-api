@@ -122,3 +122,14 @@ export class AssistantKnowledgeUploadDto {
   @MaxLength(240)
   replaceDocumentName?: string;
 }
+
+export class AssistantKnowledgeDatasetsQueryDto {
+  // Cuantos documentos de Dify traer por cada base de conocimiento (para saber
+  // que hay ya subido en cada dataset antes de elegir donde subir uno nuevo).
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  documentsLimit?: number;
+}
