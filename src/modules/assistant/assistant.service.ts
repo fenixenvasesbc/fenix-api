@@ -423,7 +423,13 @@ export class AssistantService {
           const documents = rawDocuments.map((doc: any) => ({
             id: this.stringOrNull(doc?.id),
             name: this.stringOrNull(doc?.name),
-            enabled: Boolean(doc?.enabled),
+            // "enabled" de Dify no baja a false cuando un documento se
+            // archiva (queda con el ultimo valor que tenia); hay que
+            // combinarlo con "archived" para saber si de verdad esta
+            // activo, si no la SPA lo muestra como activo cuando en
+            // realidad esta archivado y no responde en el asistente.
+            enabled: Boolean(doc?.enabled) && !Boolean(doc?.archived),
+            archived: Boolean(doc?.archived),
             wordCount:
               typeof doc?.word_count === 'number' ? doc.word_count : null,
             createdAt:
@@ -1063,7 +1069,12 @@ export class AssistantService {
   private async getDatasetDocumentOrThrow(input: {
     datasetId: string;
     documentId: string;
-  }): Promise<{ id: string; name: string | null; enabled: boolean }> {
+  }): Promise<{
+    id: string;
+    name: string | null;
+    enabled: boolean;
+    archived: boolean;
+  }> {
     const maxPages = 5;
     const limit = 100;
     for (let page = 1; page <= maxPages; page += 1) {
@@ -1083,12 +1094,13 @@ export class AssistantService {
           id: input.documentId,
           name: this.stringOrNull(match?.name),
           enabled: Boolean(match?.enabled),
+          archived: Boolean(match?.archived),
         };
       }
       if (!(response as any)?.has_more) break;
     }
     throw new BadRequestException(
-      'El documento no existe en el dataset seleccionado (puede haber sido eliminado o archivado en Dify). Actualiza la lista de documentos e intenta de nuevo.',
+      'El documento no existe en el dataset seleccionado (puede haber sido eliminado en Dify). Actualiza la lista de documentos e intenta de nuevo.',
     );
   }
 
@@ -1119,6 +1131,17 @@ export class AssistantService {
       datasetId: dataset.id,
       documentId: input.documentId,
     });
+
+    if (document.archived) {
+      // Un documento archivado (por ejemplo, el que quedo reemplazado en
+      // una aprobacion anterior) no se puede activar/desactivar con
+      // enable/disable: Dify simplemente ignora la llamada y el documento
+      // sigue archivado. Sin este chequeo la SPA mostraba el boton como si
+      // hubiera funcionado, sin que en realidad cambiara nada.
+      throw new BadRequestException(
+        `El documento "${document.name ?? input.documentId}" esta archivado en Dify y no se puede activar ni desactivar directamente. Debe des-archivarse en Dify primero.`,
+      );
+    }
 
     const startedAt = Date.now();
     const action = input.enabled ? 'enable' : 'disable';
