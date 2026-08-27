@@ -532,6 +532,8 @@ model AssistantKnowledgeImport {
   replacesDifyDocumentId   String?
   replacesDifyDocumentName String?
   replacementAction        String?
+  newDocumentEnabledAt     DateTime?
+  replacementError         String?
   difyResponse             Json?
   errorMessage             String?
   createdAt                DateTime                       @default(now())

@@ -477,10 +477,20 @@ export class AssistantService {
       this.cleanDocumentName(input.file.originalname.replace(/\.pdf$/i, '')) ??
       input.file.originalname;
     const replaceDocumentId = this.cleanDocumentName(input.replaceDocumentId);
-    const replaceDocumentName = this.cleanDocumentName(input.replaceDocumentName);
+    let replaceDocumentName = this.cleanDocumentName(input.replaceDocumentName);
     const startedAt = Date.now();
 
     try {
+      if (replaceDocumentId) {
+        // Falla rapido (antes de gastar la llamada a OpenAI) si el documento
+        // que se quiere reemplazar ya no existe en el dataset destino.
+        const confirmedName = await this.assertReplaceDocumentInDataset({
+          datasetId: dataset.id,
+          documentId: replaceDocumentId,
+        });
+        replaceDocumentName = confirmedName ?? replaceDocumentName;
+      }
+
       const rawText = await this.extractPdfText(input.file.buffer);
       const transformed = await this.transformService.transformPdfText({
         rawText,
@@ -655,20 +665,80 @@ export class AssistantService {
     }
 
     const startedAt = Date.now();
-    const response = await this.difyClient.updateKnowledgeDocumentStatus({
-      datasetId: knowledgeImport.datasetId,
-      documentId: knowledgeImport.difyDocumentId,
-      action: 'enable',
-    });
-    let replacementResponse: Record<string, any> | null = null;
     const replacementAction = this.getReplacementAction();
 
-    if (knowledgeImport.replacesDifyDocumentId) {
-      replacementResponse = await this.difyClient.updateKnowledgeDocumentStatus({
+    // El "enable" del documento nuevo y el "archive/disable" del documento
+    // viejo son dos llamadas separadas a Dify: no son atomicas. Por eso
+    // persistimos newDocumentEnabledAt apenas la primera tiene exito, ANTES
+    // de intentar la segunda. Asi, si el archivado del viejo falla (o el
+    // proceso se cae en el medio), un reintento de este mismo metodo sabe
+    // que no debe volver a llamar "enable" (Dify ya lo tiene publicado) y
+    // el admin puede ver en el import que el documento nuevo ya esta en
+    // vivo aunque el reemplazo no se haya completado.
+    let response: Record<string, any> | null = null;
+    if (!knowledgeImport.newDocumentEnabledAt) {
+      response = await this.difyClient.updateKnowledgeDocumentStatus({
         datasetId: knowledgeImport.datasetId,
-        documentId: knowledgeImport.replacesDifyDocumentId,
-        action: replacementAction,
+        documentId: knowledgeImport.difyDocumentId,
+        action: 'enable',
       });
+      await this.prisma.assistantKnowledgeImport.update({
+        where: { id: knowledgeImport.id },
+        data: { newDocumentEnabledAt: new Date() },
+      });
+    }
+
+    let replacementResponse: Record<string, any> | null = null;
+    if (knowledgeImport.replacesDifyDocumentId) {
+      try {
+        replacementResponse = await this.difyClient.updateKnowledgeDocumentStatus({
+          datasetId: knowledgeImport.datasetId,
+          documentId: knowledgeImport.replacesDifyDocumentId,
+          action: replacementAction,
+        });
+      } catch (error: any) {
+        const replacementErrorMessage =
+          error?.message ?? 'No se pudo archivar el documento anterior en Dify';
+
+        // El documento nuevo ya quedo publicado (ver arriba). Dejamos el
+        // import en PENDING_APPROVAL -no APPROVED-, pero guardamos el error
+        // para que quede visible: el admin necesita saber que hay dos
+        // documentos activos a la vez y puede reintentar la aprobacion
+        // (el "enable" no se repetira) o resolverlo manualmente en Dify.
+        await this.prisma.assistantKnowledgeImport.update({
+          where: { id: knowledgeImport.id },
+          data: { replacementError: String(replacementErrorMessage).slice(0, 500) },
+        });
+
+        await this.prisma.assistantAuditEvent.create({
+          data: {
+            userId: input.user.userId,
+            accountId: input.user.accountId ?? null,
+            action: AssistantAuditAction.KNOWLEDGE_APPROVE,
+            success: false,
+            latencyMs: Date.now() - startedAt,
+            provider: 'DIFY',
+            providerId: knowledgeImport.difyDocumentId,
+            errorCode:
+              error instanceof DifyRequestError
+                ? String(error.statusCode ?? 'DIFY_ERROR')
+                : 'REPLACEMENT_ARCHIVE_FAILED',
+            errorMessage: replacementErrorMessage,
+            metadata: {
+              importId: knowledgeImport.id,
+              datasetId: knowledgeImport.datasetId,
+              newDocumentAlreadyEnabled: true,
+              replacesDifyDocumentId: knowledgeImport.replacesDifyDocumentId,
+              replacesDifyDocumentName: knowledgeImport.replacesDifyDocumentName,
+              replacementAction,
+            } as Prisma.InputJsonValue,
+          },
+        });
+
+        throw new BadRequestException(
+          `El documento nuevo ya quedo publicado en Dify, pero no se pudo archivar el documento anterior (${knowledgeImport.replacesDifyDocumentName ?? knowledgeImport.replacesDifyDocumentId}): ${replacementErrorMessage}. Puedes reintentar la aprobacion o archivar el documento anterior manualmente en Dify.`,
+        );
+      }
     }
 
     const updated = await this.prisma.assistantKnowledgeImport.update({
@@ -679,6 +749,7 @@ export class AssistantService {
         replacementAction: knowledgeImport.replacesDifyDocumentId
           ? replacementAction
           : null,
+        replacementError: null,
       },
     });
 
@@ -804,6 +875,8 @@ export class AssistantService {
           errorMessage: true,
           replacesDifyDocumentId: true,
           replacesDifyDocumentName: true,
+          newDocumentEnabledAt: true,
+          replacementError: true,
           createdAt: true,
           updatedAt: true,
           approvedAt: true,
@@ -864,6 +937,8 @@ export class AssistantService {
         replacesDifyDocumentId: knowledgeImport.replacesDifyDocumentId,
         replacesDifyDocumentName: knowledgeImport.replacesDifyDocumentName,
         replacementAction: knowledgeImport.replacementAction,
+        newDocumentEnabledAt: knowledgeImport.newDocumentEnabledAt,
+        replacementError: knowledgeImport.replacementError,
         errorMessage: knowledgeImport.errorMessage,
         uploadedBy: knowledgeImport.user?.email ?? null,
         createdAt: knowledgeImport.createdAt,
@@ -978,6 +1053,41 @@ export class AssistantService {
   private cleanDocumentName(value?: string | null) {
     const clean = value?.replace(/\s+/g, ' ').trim();
     return clean || null;
+  }
+
+  // Verifica contra Dify que el documento a reemplazar realmente exista
+  // dentro del dataset destino, para no confiar unicamente en lo que envia
+  // el frontend (que podria quedar desactualizado, o llegar manipulado via
+  // una llamada directa a la API). Recorre unas pocas paginas de Dify
+  // (suficiente para el volumen de documentos que maneja Fenix hoy) y
+  // devuelve el nombre real que tiene el documento en Dify, para no confiar
+  // tampoco en el nombre que mando el cliente.
+  private async assertReplaceDocumentInDataset(input: {
+    datasetId: string;
+    documentId: string;
+  }): Promise<string | null> {
+    const maxPages = 5;
+    const limit = 100;
+    for (let page = 1; page <= maxPages; page += 1) {
+      const response = await this.difyClient.listKnowledgeDocuments({
+        page,
+        limit,
+        datasetId: input.datasetId,
+      });
+      const rawDocuments = Array.isArray((response as any)?.data)
+        ? (response as any).data
+        : [];
+      const match = rawDocuments.find(
+        (doc: any) => this.stringOrNull(doc?.id) === input.documentId,
+      );
+      if (match) {
+        return this.stringOrNull(match?.name);
+      }
+      if (!(response as any)?.has_more) break;
+    }
+    throw new BadRequestException(
+      'El documento que se intenta reemplazar no existe en el dataset seleccionado (puede haber sido eliminado o archivado en Dify). Actualiza la lista de documentos e intenta de nuevo.',
+    );
   }
 
   private extractDifyDocumentId(response: Record<string, any>) {
