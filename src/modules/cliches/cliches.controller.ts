@@ -30,7 +30,7 @@ import {
 
 @Controller('cliches')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.ADMIN, Role.FACTORY)
+@Roles(Role.ADMIN, Role.FACTORY_MANAGER)
 export class ClichesController {
   constructor(
     private readonly cliches: ClichesService,
