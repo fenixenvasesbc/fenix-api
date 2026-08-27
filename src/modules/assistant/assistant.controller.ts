@@ -21,6 +21,7 @@ import { AssistantService } from './assistant.service';
 import {
   AssistantFeedbackDto,
   AssistantKnowledgeDatasetsQueryDto,
+  AssistantKnowledgeDocumentStatusDto,
   AssistantKnowledgeImportsQueryDto,
   AssistantKnowledgeQueryDto,
   AssistantKnowledgeUploadDto,
@@ -191,6 +192,21 @@ export class AssistantController {
       limit: query.limit ?? 20,
       keyword: query.keyword ?? null,
       datasetId: query.datasetId ?? null,
+    });
+  }
+
+  @Roles(Role.ADMIN)
+  @Post('knowledge/documents/:documentId/status')
+  setKnowledgeDocumentStatus(
+    @Param('documentId') documentId: string,
+    @Body() body: AssistantKnowledgeDocumentStatusDto,
+    @Req() req: { user: AuthUser },
+  ) {
+    return this.assistantService.setKnowledgeDocumentStatus({
+      user: req.user,
+      datasetId: body.datasetId,
+      documentId,
+      enabled: body.enabled,
     });
   }
 }

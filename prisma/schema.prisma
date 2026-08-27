@@ -95,6 +95,7 @@ enum AssistantAuditAction {
   KNOWLEDGE_PROCESS
   KNOWLEDGE_APPROVE
   KNOWLEDGE_DISCARD
+  KNOWLEDGE_DOCUMENT_STATUS
 }
 
 enum AssistantKnowledgeImportStatus {

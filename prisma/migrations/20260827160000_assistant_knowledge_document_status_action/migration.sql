@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "AssistantAuditAction" ADD VALUE 'KNOWLEDGE_DOCUMENT_STATUS';

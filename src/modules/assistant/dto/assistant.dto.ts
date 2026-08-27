@@ -1,5 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -121,6 +122,18 @@ export class AssistantKnowledgeUploadDto {
   @IsString()
   @MaxLength(240)
   replaceDocumentName?: string;
+}
+
+export class AssistantKnowledgeDocumentStatusDto {
+  @Transform(({ value }) => trimString(value))
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  datasetId: string;
+
+  @Transform(({ value }) => (typeof value === 'string' ? value === 'true' : value))
+  @IsBoolean()
+  enabled: boolean;
 }
 
 export class AssistantKnowledgeDatasetsQueryDto {

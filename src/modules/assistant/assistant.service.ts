@@ -1055,17 +1055,15 @@ export class AssistantService {
     return clean || null;
   }
 
-  // Verifica contra Dify que el documento a reemplazar realmente exista
-  // dentro del dataset destino, para no confiar unicamente en lo que envia
-  // el frontend (que podria quedar desactualizado, o llegar manipulado via
-  // una llamada directa a la API). Recorre unas pocas paginas de Dify
-  // (suficiente para el volumen de documentos que maneja Fenix hoy) y
-  // devuelve el nombre real que tiene el documento en Dify, para no confiar
-  // tampoco en el nombre que mando el cliente.
-  private async assertReplaceDocumentInDataset(input: {
+  // Busca un documento dentro de un dataset consultando Dify directamente
+  // (no confia en lo que manda el frontend, que podria estar desactualizado
+  // o llegar manipulado via una llamada directa a la API). Recorre unas
+  // pocas paginas de Dify, suficiente para el volumen de documentos que
+  // maneja Fenix hoy.
+  private async getDatasetDocumentOrThrow(input: {
     datasetId: string;
     documentId: string;
-  }): Promise<string | null> {
+  }): Promise<{ id: string; name: string | null; enabled: boolean }> {
     const maxPages = 5;
     const limit = 100;
     for (let page = 1; page <= maxPages; page += 1) {
@@ -1081,13 +1079,107 @@ export class AssistantService {
         (doc: any) => this.stringOrNull(doc?.id) === input.documentId,
       );
       if (match) {
-        return this.stringOrNull(match?.name);
+        return {
+          id: input.documentId,
+          name: this.stringOrNull(match?.name),
+          enabled: Boolean(match?.enabled),
+        };
       }
       if (!(response as any)?.has_more) break;
     }
     throw new BadRequestException(
-      'El documento que se intenta reemplazar no existe en el dataset seleccionado (puede haber sido eliminado o archivado en Dify). Actualiza la lista de documentos e intenta de nuevo.',
+      'El documento no existe en el dataset seleccionado (puede haber sido eliminado o archivado en Dify). Actualiza la lista de documentos e intenta de nuevo.',
     );
+  }
+
+  // Verifica contra Dify que el documento a reemplazar realmente exista
+  // dentro del dataset destino, y devuelve el nombre real que tiene en Dify
+  // (para no confiar tampoco en el nombre que mando el cliente).
+  private async assertReplaceDocumentInDataset(input: {
+    datasetId: string;
+    documentId: string;
+  }): Promise<string | null> {
+    const document = await this.getDatasetDocumentOrThrow(input);
+    return document.name;
+  }
+
+  // Activa o desactiva un documento existente en un dataset (sin pasar por
+  // el flujo de aprobacion/reemplazo). Se usa desde el listado de
+  // documentos de la SPA para que el admin pueda apagar temporalmente un
+  // documento sin tener que ir a Dify directamente.
+  async setKnowledgeDocumentStatus(input: {
+    user: AuthUser;
+    datasetId: string;
+    documentId: string;
+    enabled: boolean;
+  }) {
+    this.assertAdmin(input.user);
+    const dataset = this.getDatasetOrThrow(input.datasetId);
+    const document = await this.getDatasetDocumentOrThrow({
+      datasetId: dataset.id,
+      documentId: input.documentId,
+    });
+
+    const startedAt = Date.now();
+    const action = input.enabled ? 'enable' : 'disable';
+
+    try {
+      const response = await this.difyClient.updateKnowledgeDocumentStatus({
+        datasetId: dataset.id,
+        documentId: input.documentId,
+        action,
+      });
+
+      await this.prisma.assistantAuditEvent.create({
+        data: {
+          userId: input.user.userId,
+          accountId: input.user.accountId ?? null,
+          action: AssistantAuditAction.KNOWLEDGE_DOCUMENT_STATUS,
+          success: true,
+          latencyMs: Date.now() - startedAt,
+          provider: 'DIFY',
+          providerId: input.documentId,
+          metadata: {
+            datasetId: dataset.id,
+            documentName: document.name,
+            action,
+            response,
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      return {
+        data: {
+          id: input.documentId,
+          name: document.name,
+          datasetId: dataset.id,
+          enabled: input.enabled,
+        },
+      };
+    } catch (error: any) {
+      await this.prisma.assistantAuditEvent.create({
+        data: {
+          userId: input.user.userId,
+          accountId: input.user.accountId ?? null,
+          action: AssistantAuditAction.KNOWLEDGE_DOCUMENT_STATUS,
+          success: false,
+          latencyMs: Date.now() - startedAt,
+          provider: 'DIFY',
+          providerId: input.documentId,
+          errorCode:
+            error instanceof DifyRequestError
+              ? String(error.statusCode ?? 'DIFY_ERROR')
+              : 'KNOWLEDGE_DOCUMENT_STATUS_ERROR',
+          errorMessage: error?.message ?? 'No se pudo actualizar el estado del documento',
+          metadata: {
+            datasetId: dataset.id,
+            documentId: input.documentId,
+            action,
+          } as Prisma.InputJsonValue,
+        },
+      });
+      throw error;
+    }
   }
 
   private extractDifyDocumentId(response: Record<string, any>) {
