@@ -35,6 +35,8 @@ type DifyCreateDocumentByTextInput = {
   text: string;
 };
 
+type DifyDocForm = 'text_model' | 'hierarchical_model';
+
 @Injectable()
 export class DifyClient {
   private readonly logger = new Logger(DifyClient.name);
@@ -151,21 +153,70 @@ export class DifyClient {
         text: input.text,
         indexing_technique:
           process.env.DIFY_KNOWLEDGE_INDEXING_TECHNIQUE ?? 'high_quality',
+        ...this.buildProcessRuleBody(),
+      },
+    });
+  }
+
+  /**
+   * El "doc_form" es una propiedad fija por dataset en Dify (Parent-child /
+   * Jerarquico vs. General). Si no coincide con lo que espera el dataset,
+   * Dify responde 400 "doc_form is different from the dataset doc_form".
+   * Todos los datasets configurados de Fenix estan en modo Parent-child, asi
+   * que por defecto usamos hierarchical_model. Se puede volver a text_model
+   * con DIFY_KNOWLEDGE_DOC_FORM=text_model si algun dataset futuro no usa
+   * fragmentacion jerarquica.
+   */
+  private buildProcessRuleBody(): {
+    doc_form: DifyDocForm;
+    process_rule: Record<string, any>;
+  } {
+    const docForm = (process.env.DIFY_KNOWLEDGE_DOC_FORM ??
+      'hierarchical_model') as DifyDocForm;
+
+    const preProcessingRules = [
+      { id: 'remove_extra_spaces', enabled: true },
+      { id: 'remove_urls_emails', enabled: false },
+    ];
+
+    if (docForm === 'hierarchical_model') {
+      return {
+        doc_form: docForm,
         process_rule: {
-          mode: 'custom',
+          mode: 'hierarchical',
           rules: {
-            pre_processing_rules: [
-              { id: 'remove_extra_spaces', enabled: true },
-              { id: 'remove_urls_emails', enabled: false },
-            ],
+            pre_processing_rules: preProcessingRules,
+            // Nivel padre: un chunk padre por subseccion "### ...", para que
+            // el asistente reciba el bloque completo del tema al recuperar.
             segmentation: {
               separator: process.env.DIFY_KNOWLEDGE_SEGMENT_SEPARATOR ?? '\n###',
               max_tokens: Number(process.env.DIFY_KNOWLEDGE_SEGMENT_MAX_TOKENS ?? '800'),
             },
+            parent_mode: process.env.DIFY_KNOWLEDGE_PARENT_MODE ?? 'paragraph',
+            // Nivel hijo: fragmentos mas pequenos dentro de cada padre, usados
+            // para el matching semantico en la busqueda.
+            subchunk_segmentation: {
+              separator: process.env.DIFY_KNOWLEDGE_SUBCHUNK_SEPARATOR ?? '\n',
+              max_tokens: Number(process.env.DIFY_KNOWLEDGE_SUBCHUNK_MAX_TOKENS ?? '200'),
+            },
+          },
+        },
+      };
+    }
+
+    return {
+      doc_form: docForm,
+      process_rule: {
+        mode: 'custom',
+        rules: {
+          pre_processing_rules: preProcessingRules,
+          segmentation: {
+            separator: process.env.DIFY_KNOWLEDGE_SEGMENT_SEPARATOR ?? '\n###',
+            max_tokens: Number(process.env.DIFY_KNOWLEDGE_SEGMENT_MAX_TOKENS ?? '800'),
           },
         },
       },
-    });
+    };
   }
 
   async updateKnowledgeDocumentStatus(input: {
