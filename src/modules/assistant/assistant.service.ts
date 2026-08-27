@@ -550,7 +550,16 @@ export class AssistantService {
       const difyDocumentId = this.extractDifyDocumentId(difyResponse);
       const difyBatch = this.stringOrNull(difyResponse.batch);
 
-      if (difyDocumentId) {
+      if (difyDocumentId && difyBatch) {
+        // Dify indexa el documento en segundo plano; hay que esperar a que
+        // termine antes de poder deshabilitarlo (si no, Dify responde 400
+        // "is not completed"). Con datasets Parent-child esto puede tardar
+        // mas que en modo General por el paso adicional de sub-chunks.
+        await this.difyClient.waitForKnowledgeDocumentIndexing({
+          datasetId: dataset.id,
+          batch: difyBatch,
+          documentId: difyDocumentId,
+        });
         await this.difyClient.updateKnowledgeDocumentStatus({
           datasetId: dataset.id,
           documentId: difyDocumentId,

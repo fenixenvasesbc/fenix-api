@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -36,6 +37,14 @@ type DifyCreateDocumentByTextInput = {
 };
 
 type DifyDocForm = 'text_model' | 'hierarchical_model';
+
+type DifyIndexingStatusEntry = {
+  id: string;
+  indexing_status: string;
+  error: string | null;
+  completed_segments?: number;
+  total_segments?: number;
+};
 
 @Injectable()
 export class DifyClient {
@@ -217,6 +226,69 @@ export class DifyClient {
         },
       },
     };
+  }
+
+  async getKnowledgeDocumentIndexingStatus(input: {
+    datasetId: string;
+    batch: string;
+  }): Promise<{ data: DifyIndexingStatusEntry[] }> {
+    this.assertEnabled();
+    const apiKey = this.getKnowledgeApiKey();
+
+    return this.getJson<{ data: DifyIndexingStatusEntry[] }>({
+      path: `/v1/datasets/${input.datasetId}/documents/${input.batch}/indexing-status`,
+      apiKey,
+      operation: 'getKnowledgeDocumentIndexingStatus',
+    });
+  }
+
+  /**
+   * Dify indexa el documento en segundo plano (waiting -> parsing -> cleaning
+   * -> splitting -> indexing -> completed/error). Con parent-child esto puede
+   * tardar mas que con el modo General por el paso adicional de sub-chunks.
+   * Hay que esperar a "completed" antes de poder deshabilitarlo (enable/disable
+   * fallan con 400 "is not completed" mientras sigue indexando).
+   */
+  async waitForKnowledgeDocumentIndexing(input: {
+    datasetId: string;
+    batch: string;
+    documentId: string;
+  }): Promise<void> {
+    const pollIntervalMs = Number(
+      process.env.ASSISTANT_KNOWLEDGE_INDEXING_POLL_INTERVAL_MS ?? '3000',
+    );
+    const timeoutMs = Number(
+      process.env.ASSISTANT_KNOWLEDGE_INDEXING_TIMEOUT_MS ?? '120000',
+    );
+    const startedAt = Date.now();
+
+    for (;;) {
+      const response = await this.getKnowledgeDocumentIndexingStatus({
+        datasetId: input.datasetId,
+        batch: input.batch,
+      });
+      const entries = response.data ?? [];
+      const entry =
+        entries.find((item) => item.id === input.documentId) ?? entries[0];
+
+      if (entry?.indexing_status === 'completed') return;
+
+      if (entry?.indexing_status === 'error') {
+        throw new BadRequestException(
+          `Dify no pudo indexar el documento: ${entry.error ?? 'error desconocido'}`,
+        );
+      }
+
+      if (Date.now() - startedAt >= timeoutMs) {
+        throw new BadRequestException(
+          `El documento sigue indexandose en Dify despues de ${Math.round(
+            timeoutMs / 1000,
+          )}s (estado: ${entry?.indexing_status ?? 'desconocido'}). Revisa el dataset en Dify antes de reintentar.`,
+        );
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
   }
 
   async updateKnowledgeDocumentStatus(input: {
