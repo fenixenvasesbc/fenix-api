@@ -83,6 +83,31 @@ export class DifyClient {
     });
   }
 
+  // Reenvia a Dify el like/dislike que se da en la SPA, usando el mismo
+  // "user" con el que se genero el mensaje original. Asi, la calificacion
+  // tambien aparece en Logs & Annotations dentro de Dify y un admin puede
+  // convertir esa respuesta en una anotacion (capa de FAQ) desde ahi.
+  async sendMessageFeedback(input: {
+    messageId: string;
+    rating: 'like' | 'dislike' | null;
+    user: string;
+    content?: string | null;
+  }) {
+    this.assertEnabled();
+    const apiKey = this.getAppApiKey();
+
+    return this.postJson<Record<string, any>>({
+      path: `/v1/messages/${input.messageId}/feedbacks`,
+      apiKey,
+      body: {
+        rating: input.rating,
+        user: input.user,
+        ...(input.content ? { content: input.content } : {}),
+      },
+      operation: 'sendMessageFeedback',
+    });
+  }
+
   async listKnowledgeDocuments(input: {
     page: number;
     limit: number;

@@ -285,16 +285,42 @@ export class AssistantService {
       },
     });
 
+    // Reenvia la calificacion a Dify (best-effort: si Dify no responde, el
+    // feedback ya quedo guardado en Fenix, asi que no se le muestra un
+    // error al usuario por esto). Se necesita el mismo "user" con el que
+    // se genero el mensaje original -el dueno de la sesion, no quien
+    // califica- porque Dify exige que coincidan.
+    let difySyncError: string | null = null;
+    if (message.providerMessageId) {
+      try {
+        await this.difyClient.sendMessageFeedback({
+          messageId: message.providerMessageId,
+          rating: input.rating === AssistantFeedbackRating.HELPFUL ? 'like' : 'dislike',
+          user: `fenix:${message.session.userId}`,
+          content: input.reason ?? null,
+        });
+      } catch (error: any) {
+        difySyncError = error?.message ?? 'No se pudo sincronizar el feedback con Dify';
+        this.logger.warn(
+          `No se pudo sincronizar feedback con Dify (messageId=${input.messageId}): ${difySyncError}`,
+        );
+      }
+    }
+
     await this.prisma.assistantAuditEvent.create({
       data: {
         userId: input.user.userId,
         accountId: message.session.accountId,
         action: AssistantAuditAction.FEEDBACK,
         success: true,
+        provider: message.providerMessageId ? 'DIFY' : undefined,
+        providerId: message.providerMessageId,
+        errorMessage: difySyncError,
         metadata: {
           sessionId: message.sessionId,
           messageId: input.messageId,
           rating: input.rating,
+          difySynced: Boolean(message.providerMessageId) && !difySyncError,
         } as Prisma.InputJsonValue,
       },
     });
