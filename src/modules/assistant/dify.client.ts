@@ -108,6 +108,33 @@ export class DifyClient {
     });
   }
 
+  // Crea una anotacion (par pregunta/respuesta) directamente en Dify vía API,
+  // sin pasar por el icono "Edit annotation" de Logs (que siempre precarga
+  // la respuesta original de la IA). Se usa desde el flujo de revision de
+  // feedback: el admin aprueba la respuesta sugerida y queda registrada acá
+  // como una anotacion real, lista para servir si "Annotation Reply" esta
+  // activo en el asistente.
+  async createAnnotation(input: { question: string; answer: string }) {
+    this.assertEnabled();
+    const apiKey = this.getAppApiKey();
+
+    return this.postJson<{
+      id: string;
+      question: string;
+      answer: string;
+      hit_count: number;
+      created_at: number;
+    }>({
+      path: '/v1/apps/annotations',
+      apiKey,
+      body: {
+        question: input.question,
+        answer: input.answer,
+      },
+      operation: 'createAnnotation',
+    });
+  }
+
   async listKnowledgeDocuments(input: {
     page: number;
     limit: number;

@@ -8,6 +8,7 @@ import {
 import {
   AssistantAuditAction,
   AssistantFeedbackRating,
+  AssistantFeedbackReviewStatus,
   AssistantKnowledgeImportStatus,
   AssistantMessageRole,
   AssistantMessageStatus,
@@ -326,6 +327,195 @@ export class AssistantService {
     });
 
     return { data: feedback };
+  }
+
+  // Cola de revision de "sugerencias": mensajes que un usuario marco como
+  // NOT_HELPFUL, con la pregunta original (el mensaje anterior del usuario
+  // en la misma sesion), la respuesta que dio el asistente y la respuesta
+  // sugerida (el comentario opcional que el usuario escribio al calificar).
+  // El admin decide desde aca si la convierte en anotacion de Dify o la
+  // descarta por no aplicar.
+  async listFeedbackForReview(input: {
+    user: AuthUser;
+    status?: AssistantFeedbackReviewStatus;
+    page?: number;
+    limit?: number;
+  }) {
+    this.assertAdmin(input.user);
+    const page = input.page ?? 1;
+    const limit = input.limit ?? 20;
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.assistantFeedback.findMany({
+        where: {
+          rating: AssistantFeedbackRating.NOT_HELPFUL,
+          status: input.status,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          message: { include: { session: true } },
+          reviewedByUser: { select: { id: true, name: true, email: true } },
+        },
+      }),
+      this.prisma.assistantFeedback.count({
+        where: {
+          rating: AssistantFeedbackRating.NOT_HELPFUL,
+          status: input.status,
+        },
+      }),
+    ]);
+
+    const data = await Promise.all(
+      items.map(async (item) => {
+        const question = await this.prisma.assistantMessage.findFirst({
+          where: {
+            sessionId: item.message.sessionId,
+            role: AssistantMessageRole.USER,
+            createdAt: { lt: item.message.createdAt },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, content: true, createdAt: true },
+        });
+
+        return {
+          id: item.id,
+          rating: item.rating,
+          reason: item.reason,
+          editedText: item.editedText,
+          status: item.status,
+          createdAt: item.createdAt,
+          reviewedAt: item.reviewedAt,
+          reviewedBy: item.reviewedByUser,
+          difyAnnotationId: item.difyAnnotationId,
+          message: {
+            id: item.message.id,
+            content: item.message.content,
+            createdAt: item.message.createdAt,
+          },
+          question,
+          session: {
+            id: item.message.session.id,
+            title: item.message.session.title,
+          },
+        };
+      }),
+    );
+
+    return { data, meta: { page, limit, total } };
+  }
+
+  async annotateFeedback(input: {
+    user: AuthUser;
+    feedbackId: string;
+    question?: string | null;
+    answer: string;
+  }) {
+    this.assertAdmin(input.user);
+
+    const feedback = await this.prisma.assistantFeedback.findUnique({
+      where: { id: input.feedbackId },
+      include: { message: { include: { session: true } } },
+    });
+    if (!feedback) throw new NotFoundException('Feedback not found');
+    if (feedback.status === AssistantFeedbackReviewStatus.ANNOTATED) {
+      throw new BadRequestException('Este feedback ya fue convertido en anotacion');
+    }
+
+    let question = input.question?.trim();
+    if (!question) {
+      const previousUserMessage = await this.prisma.assistantMessage.findFirst({
+        where: {
+          sessionId: feedback.message.sessionId,
+          role: AssistantMessageRole.USER,
+          createdAt: { lt: feedback.message.createdAt },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      question = previousUserMessage?.content?.trim();
+    }
+    if (!question) {
+      throw new BadRequestException(
+        'No se encontro la pregunta original del usuario; especifiquela manualmente',
+      );
+    }
+
+    const answer = input.answer.trim();
+    if (!answer) throw new BadRequestException('answer is required');
+
+    let annotation: { id: string } | null = null;
+    try {
+      annotation = await this.difyClient.createAnnotation({ question, answer });
+    } catch (error: any) {
+      const errorMessage = error?.message ?? 'No se pudo crear la anotacion en Dify';
+      await this.prisma.assistantAuditEvent.create({
+        data: {
+          userId: input.user.userId,
+          accountId: feedback.message.session.accountId,
+          action: AssistantAuditAction.FEEDBACK_ANNOTATE,
+          success: false,
+          provider: 'DIFY',
+          errorMessage,
+          metadata: { feedbackId: input.feedbackId, question, answer } as Prisma.InputJsonValue,
+        },
+      });
+      throw new BadRequestException(errorMessage);
+    }
+
+    const updated = await this.prisma.assistantFeedback.update({
+      where: { id: input.feedbackId },
+      data: {
+        status: AssistantFeedbackReviewStatus.ANNOTATED,
+        reviewedAt: new Date(),
+        reviewedByUserId: input.user.userId,
+        difyAnnotationId: annotation.id,
+        editedText: answer,
+      },
+    });
+
+    await this.prisma.assistantAuditEvent.create({
+      data: {
+        userId: input.user.userId,
+        accountId: feedback.message.session.accountId,
+        action: AssistantAuditAction.FEEDBACK_ANNOTATE,
+        success: true,
+        provider: 'DIFY',
+        providerId: annotation.id,
+        metadata: { feedbackId: input.feedbackId, question, answer } as Prisma.InputJsonValue,
+      },
+    });
+
+    return { data: updated };
+  }
+
+  async dismissFeedback(input: { user: AuthUser; feedbackId: string }) {
+    this.assertAdmin(input.user);
+
+    const feedback = await this.prisma.assistantFeedback.findUnique({
+      where: { id: input.feedbackId },
+    });
+    if (!feedback) throw new NotFoundException('Feedback not found');
+
+    const updated = await this.prisma.assistantFeedback.update({
+      where: { id: input.feedbackId },
+      data: {
+        status: AssistantFeedbackReviewStatus.DISMISSED,
+        reviewedAt: new Date(),
+        reviewedByUserId: input.user.userId,
+      },
+    });
+
+    await this.prisma.assistantAuditEvent.create({
+      data: {
+        userId: input.user.userId,
+        action: AssistantAuditAction.FEEDBACK_DISMISS,
+        success: true,
+        metadata: { feedbackId: input.feedbackId } as Prisma.InputJsonValue,
+      },
+    });
+
+    return { data: updated };
   }
 
   async listKnowledgeDocuments(input: {

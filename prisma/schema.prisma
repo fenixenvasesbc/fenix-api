@@ -87,6 +87,12 @@ enum AssistantFeedbackRating {
   NOT_HELPFUL
 }
 
+enum AssistantFeedbackReviewStatus {
+  PENDING
+  ANNOTATED
+  DISMISSED
+}
+
 enum AssistantAuditAction {
   QUERY
   FEEDBACK
@@ -96,6 +102,8 @@ enum AssistantAuditAction {
   KNOWLEDGE_APPROVE
   KNOWLEDGE_DISCARD
   KNOWLEDGE_DOCUMENT_STATUS
+  FEEDBACK_ANNOTATE
+  FEEDBACK_DISMISS
 }
 
 enum AssistantKnowledgeImportStatus {
@@ -143,6 +151,7 @@ model User {
   assistantSessions         AssistantSession[]
   assistantMessages         AssistantMessage[]
   assistantFeedback         AssistantFeedback[]
+  assistantFeedbackReviews  AssistantFeedback[] @relation("AssistantFeedbackReviewedBy")
   assistantAuditEvents      AssistantAuditEvent[]
   assistantKnowledgeImports AssistantKnowledgeImport[]
   createdAt                 DateTime                   @default(now())
@@ -481,10 +490,17 @@ model AssistantFeedback {
   reason     String?
   editedText String?
 
+  status           AssistantFeedbackReviewStatus @default(PENDING)
+  reviewedAt       DateTime?
+  reviewedByUserId String?
+  reviewedByUser   User?                          @relation("AssistantFeedbackReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  difyAnnotationId String?
+
   createdAt DateTime @default(now())
 
   @@unique([messageId, userId])
   @@index([userId, createdAt])
+  @@index([rating, status, createdAt])
 }
 
 model AssistantAuditEvent {

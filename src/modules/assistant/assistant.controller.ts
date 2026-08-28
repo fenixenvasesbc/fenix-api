@@ -19,7 +19,9 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { AssistantService } from './assistant.service';
 import {
+  AssistantFeedbackAnnotateDto,
   AssistantFeedbackDto,
+  AssistantFeedbackReviewQueryDto,
   AssistantKnowledgeDatasetsQueryDto,
   AssistantKnowledgeDocumentStatusDto,
   AssistantKnowledgeImportsQueryDto,
@@ -86,6 +88,47 @@ export class AssistantController {
       rating: body.rating,
       reason: body.reason ?? null,
       editedText: body.editedText ?? null,
+    });
+  }
+
+  @Roles(Role.ADMIN)
+  @Get('feedback/review')
+  listFeedbackForReview(
+    @Query() query: AssistantFeedbackReviewQueryDto,
+    @Req() req: { user: AuthUser },
+  ) {
+    return this.assistantService.listFeedbackForReview({
+      user: req.user,
+      status: query.status,
+      page: query.page,
+      limit: query.limit,
+    });
+  }
+
+  @Roles(Role.ADMIN)
+  @Post('feedback/:feedbackId/annotate')
+  annotateFeedback(
+    @Param('feedbackId', new ParseUUIDPipe()) feedbackId: string,
+    @Body() body: AssistantFeedbackAnnotateDto,
+    @Req() req: { user: AuthUser },
+  ) {
+    return this.assistantService.annotateFeedback({
+      user: req.user,
+      feedbackId,
+      question: body.question ?? null,
+      answer: body.answer,
+    });
+  }
+
+  @Roles(Role.ADMIN)
+  @Post('feedback/:feedbackId/dismiss')
+  dismissFeedback(
+    @Param('feedbackId', new ParseUUIDPipe()) feedbackId: string,
+    @Req() req: { user: AuthUser },
+  ) {
+    return this.assistantService.dismissFeedback({
+      user: req.user,
+      feedbackId,
     });
   }
 
