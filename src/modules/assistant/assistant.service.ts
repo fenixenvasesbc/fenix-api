@@ -357,7 +357,7 @@ export class AssistantService {
       take: limit,
       include: {
         message: { include: { session: true } },
-        reviewedByUser: { select: { id: true, name: true, email: true } },
+        reviewedByUser: { select: { id: true, email: true } },
       },
     });
     const total = await this.prisma.assistantFeedback.count({ where });
