@@ -345,27 +345,22 @@ export class AssistantService {
     const page = input.page ?? 1;
     const limit = input.limit ?? 20;
 
-    const [items, total] = await this.prisma.$transaction([
-      this.prisma.assistantFeedback.findMany({
-        where: {
-          rating: AssistantFeedbackRating.NOT_HELPFUL,
-          status: input.status,
-        },
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-        include: {
-          message: { include: { session: true } },
-          reviewedByUser: { select: { id: true, name: true, email: true } },
-        },
-      }),
-      this.prisma.assistantFeedback.count({
-        where: {
-          rating: AssistantFeedbackRating.NOT_HELPFUL,
-          status: input.status,
-        },
-      }),
-    ]);
+    const where = {
+      rating: AssistantFeedbackRating.NOT_HELPFUL,
+      status: input.status,
+    };
+
+    const items = await this.prisma.assistantFeedback.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit,
+      include: {
+        message: { include: { session: true } },
+        reviewedByUser: { select: { id: true, name: true, email: true } },
+      },
+    });
+    const total = await this.prisma.assistantFeedback.count({ where });
 
     const data = await Promise.all(
       items.map(async (item) => {
