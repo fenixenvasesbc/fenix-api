@@ -851,6 +851,8 @@ enum AccountGlobalTemplateStatus {
   REJECTED
   PAUSED
   DISABLED
+  IN_APPEAL
+  ARCHIVED
   ERROR
 }
 
