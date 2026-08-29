@@ -46,6 +46,30 @@ export class ChatEventsService {
     }
   }
 
+  private async resolveTemplatePayload(name: string, language: string | null) {
+    try {
+      if (language) {
+        const template = await this.prisma.globalWhatsappTemplate.findUnique({
+          where: { name_language: { name, language } },
+          select: { payload: true },
+        });
+        if (template) return template.payload;
+      }
+
+      const fallback = await this.prisma.globalWhatsappTemplate.findFirst({
+        where: { name },
+        orderBy: { updatedAt: 'desc' },
+        select: { payload: true },
+      });
+      return fallback?.payload ?? null;
+    } catch (error) {
+      this.logger.warn(
+        `Could not resolve template payload for name=${name} language=${language} error=${String(error)}`,
+      );
+      return null;
+    }
+  }
+
   private resolveRoutingKey() {
     return process.env.RABBITMQ_RK_CHAT_EVENTS ?? 'chat.events';
   }
@@ -77,6 +101,7 @@ export class ChatEventsService {
                 mimeType: true,
                 fileName: true,
                 templateName: true,
+                templateLang: true,
                 providerCreateTime: true,
                 providerSendTime: true,
                 deletedAt: true,
@@ -101,7 +126,15 @@ export class ChatEventsService {
         }),
       ]);
 
-      if (message) payload.message = message;
+      if (message) {
+        payload.message = {
+          ...message,
+          templatePayload:
+            message.type === 'TEMPLATE' && message.templateName
+              ? await this.resolveTemplatePayload(message.templateName, message.templateLang)
+              : null,
+        };
+      }
       if (conversation) {
         payload.conversation = {
           ...conversation,
