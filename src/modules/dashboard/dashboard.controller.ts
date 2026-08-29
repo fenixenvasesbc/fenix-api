@@ -11,6 +11,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { DashboardService } from './dashboard.service';
 import { FirstMessageMetricsDto } from './dto/first-message-metrics.dto';
 import { AccountFirstMessageMetricsDto } from './dto/first-message-metrics.dto';
+import { SpendMetricsDto } from './dto/spend-metrics.dto';
 
 @Controller('dashboard')
 @UseGuards(JwtAuthGuard)
@@ -58,5 +59,21 @@ export class DashboardController {
     @Req() req: any,
   ) {
     return this.dashboardService.getAccountFirstMessageResponses(dto, req.user);
+  }
+
+  /**
+   * GET /dashboard/metrics/spend
+   *
+   * Query params:
+   * - from
+   * - to
+   *
+   * Comportamiento:
+   * - ADMIN -> consumo agrupado por cuenta (todas las cuentas)
+   * - SALES/SALES_MANAGER -> consumo de su propia cuenta
+   */
+  @Get('metrics/spend')
+  getSpendMetrics(@Query() dto: SpendMetricsDto, @Req() req: any) {
+    return this.dashboardService.getSpendMetrics(dto, req.user);
   }
 }

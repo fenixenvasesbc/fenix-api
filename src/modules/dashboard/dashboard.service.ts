@@ -1,8 +1,9 @@
 import { Injectable, ForbiddenException } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
+import { MessageDirection, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FirstMessageMetricsDto } from './dto/first-message-metrics.dto';
 import { AccountFirstMessageMetricsDto } from './dto/first-message-metrics.dto';
+import { SpendMetricsDto } from './dto/spend-metrics.dto';
 
 type FirstMessageRow = {
   accountId?: string;
@@ -418,5 +419,118 @@ export class DashboardService {
       appliedAccountId: effectiveAccountId,
       groupedBy: ['template'],
     });
+  }
+
+  async getSpendMetrics(
+    dto: SpendMetricsDto,
+    user: { role: Role; accountId?: string | null },
+  ) {
+    const { from, to } = dto;
+    const { fromDate, toExclusiveDate } = this.buildInclusiveDateRange(
+      from,
+      to,
+    );
+
+    const isAdmin = user.role === Role.ADMIN;
+    const isSales = user.role === Role.SALES || user.role === Role.SALES_MANAGER;
+
+    let isGlobal = false;
+    let effectiveAccountId: string | null = null;
+
+    if (isAdmin) {
+      isGlobal = true;
+    } else if (isSales) {
+      if (!user.accountId) {
+        throw new ForbiddenException('User has no accountId');
+      }
+      effectiveAccountId = user.accountId;
+    } else {
+      throw new ForbiddenException('Invalid role');
+    }
+
+    const rows = await this.prisma.message.groupBy({
+      by: ['accountId', 'currency', 'pricingCategory'],
+      where: {
+        direction: MessageDirection.OUTBOUND,
+        totalPrice: { not: null },
+        createdAt: { gte: fromDate, lt: toExclusiveDate },
+        ...(isGlobal ? {} : { accountId: effectiveAccountId! }),
+      },
+      _sum: { totalPrice: true },
+      _count: { _all: true },
+    });
+
+    const accountIds = Array.from(new Set(rows.map((row) => row.accountId)));
+    const accounts = accountIds.length
+      ? await this.prisma.account.findMany({
+          where: { id: { in: accountIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const accountNameById = new Map(accounts.map((a) => [a.id, a.name]));
+
+    type AccountSpend = {
+      accountId: string;
+      accountName: string | null;
+      totalSpend: number;
+      messageCount: number;
+      currency: string | null;
+      byCategory: Array<{
+        pricingCategory: string | null;
+        totalSpend: number;
+        messageCount: number;
+      }>;
+    };
+
+    const byAccount = new Map<string, AccountSpend>();
+
+    for (const row of rows) {
+      const spend = Number(row._sum.totalPrice ?? 0);
+      const count = row._count._all;
+
+      const existing = byAccount.get(row.accountId);
+      const entry: AccountSpend =
+        existing ??
+        ({
+          accountId: row.accountId,
+          accountName: accountNameById.get(row.accountId) ?? null,
+          totalSpend: 0,
+          messageCount: 0,
+          currency: row.currency,
+          byCategory: [],
+        } satisfies AccountSpend);
+
+      entry.totalSpend = Number((entry.totalSpend + spend).toFixed(6));
+      entry.messageCount += count;
+      // Si una misma cuenta llegara a mezclar monedas, se conserva la primera
+      // vista y se deja constancia en el desglose por categoria.
+      entry.byCategory.push({
+        pricingCategory: row.pricingCategory,
+        totalSpend: spend,
+        messageCount: count,
+      });
+
+      byAccount.set(row.accountId, entry);
+    }
+
+    const data = Array.from(byAccount.values()).sort(
+      (a, b) => b.totalSpend - a.totalSpend,
+    );
+
+    const grandTotal = Number(
+      data.reduce((acc, item) => acc + item.totalSpend, 0).toFixed(6),
+    );
+    const totalMessages = data.reduce((acc, item) => acc + item.messageCount, 0);
+
+    return {
+      from,
+      to,
+      dateMode: 'INCLUSIVE',
+      scope: isGlobal ? 'GLOBAL_BY_ACCOUNT' : 'MY_ACCOUNT',
+      appliedAccountId: effectiveAccountId,
+      grandTotal,
+      totalMessages,
+      data,
+    };
   }
 }
