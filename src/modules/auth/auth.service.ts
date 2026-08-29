@@ -280,6 +280,24 @@ export class AuthService {
     return { id: user.id, email: user.email, role: user.role };
   }
 
+  // Rol de administracion: por ahora solo tiene acceso al modulo de
+  // facturacion (ver AdminGuard en la SPA). No hereda nada de SALES ni
+  // de ADMIN dentro de fenix-api -- RolesGuard deniega por defecto
+  // cualquier ruta que no lo liste explicitamente.
+  async createAdministration(email: string, password: string) {
+    const existing = await this.users.findByEmail(email);
+    if (existing) throw new BadRequestException('Email already registered');
+
+    const passwordHash = await this.hashPassword(password);
+    const user = await this.users.createUser({
+      email,
+      passwordHash,
+      role: Role.ADMINISTRATION,
+    });
+
+    return { id: user.id, email: user.email, role: user.role };
+  }
+
   async createFactory(email: string, password: string) {
     const existing = await this.users.findByEmail(email);
     if (existing) throw new BadRequestException('Email already registered');

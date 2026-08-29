@@ -4,6 +4,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterAdminDto } from './dto/register-admin.dto';
 import { RegisterSalesDto } from './dto/register-sales.dto';
 import { RegisterSalesManagerDto } from './dto/register-sales-manager.dto';
+import { RegisterAdministrationDto } from './dto/register-administration.dto';
 import { RegisterFactoryDto } from './dto/register-factory.dto';
 import { RegisterFactoryManagerDto } from './dto/register-factory-manager.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -63,6 +64,13 @@ export class AuthController {
   @Post('sales-managers')
   createSalesManager(@Body() dto: RegisterSalesManagerDto) {
     return this.auth.createSalesManager(dto.email, dto.password);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Post('administration')
+  createAdministration(@Body() dto: RegisterAdministrationDto) {
+    return this.auth.createAdministration(dto.email, dto.password);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

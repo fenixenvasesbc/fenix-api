@@ -91,7 +91,7 @@ export class AssistantController {
     });
   }
 
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER)
   @Get('feedback/review')
   listFeedbackForReview(
     @Query() query: AssistantFeedbackReviewQueryDto,
@@ -105,7 +105,7 @@ export class AssistantController {
     });
   }
 
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER)
   @Post('feedback/:feedbackId/annotate')
   annotateFeedback(
     @Param('feedbackId', new ParseUUIDPipe()) feedbackId: string,
@@ -120,7 +120,7 @@ export class AssistantController {
     });
   }
 
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER)
   @Post('feedback/:feedbackId/dismiss')
   dismissFeedback(
     @Param('feedbackId', new ParseUUIDPipe()) feedbackId: string,

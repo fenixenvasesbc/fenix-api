@@ -341,7 +341,7 @@ export class AssistantService {
     page?: number;
     limit?: number;
   }) {
-    this.assertAdmin(input.user);
+    this.assertAdminOrSalesManager(input.user);
     const page = input.page ?? 1;
     const limit = input.limit ?? 20;
 
@@ -407,7 +407,7 @@ export class AssistantService {
     question?: string | null;
     answer: string;
   }) {
-    this.assertAdmin(input.user);
+    this.assertAdminOrSalesManager(input.user);
 
     const feedback = await this.prisma.assistantFeedback.findUnique({
       where: { id: input.feedbackId },
@@ -485,7 +485,7 @@ export class AssistantService {
   }
 
   async dismissFeedback(input: { user: AuthUser; feedbackId: string }) {
-    this.assertAdmin(input.user);
+    this.assertAdminOrSalesManager(input.user);
 
     const feedback = await this.prisma.assistantFeedback.findUnique({
       where: { id: input.feedbackId },
@@ -1191,19 +1191,12 @@ export class AssistantService {
     }
   }
 
-  private assertAdmin(user: AuthUser) {
-    if (user.role !== Role.ADMIN) {
-      throw new ForbiddenException('Only admins can manage assistant knowledge');
-    }
-  }
-
-  // El modulo de gestion de conocimiento del asistente tambien lo puede
-  // administrar SALES_MANAGER, con los mismos permisos que ADMIN. El resto
-  // de metodos admin-only del asistente (revision de feedback -> anotaciones)
-  // se quedan solo para ADMIN via assertAdmin().
+  // Todo lo administrativo del asistente/Dify (conocimiento, importaciones,
+  // revision de feedback -> anotaciones) lo puede gestionar ADMIN o
+  // SALES_MANAGER por igual.
   private assertAdminOrSalesManager(user: AuthUser) {
     if (user.role !== Role.ADMIN && user.role !== Role.SALES_MANAGER) {
-      throw new ForbiddenException('Only admins can manage assistant knowledge');
+      throw new ForbiddenException('Only admins can manage the assistant');
     }
   }
 
