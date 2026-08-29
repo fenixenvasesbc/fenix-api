@@ -101,7 +101,7 @@ export class NotificationsController {
       return accountIdFromQuery;
     }
 
-    if (user.role === Role.SALES) {
+    if (user.role === Role.SALES || user.role === Role.SALES_MANAGER) {
       if (!user.accountId) {
         throw new ForbiddenException('User has no accountId');
       }
