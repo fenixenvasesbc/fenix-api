@@ -50,6 +50,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { MessageMediaModule } from './modules/message-media/message-media.module';
 import { AssistantModule } from './modules/assistant/assistant.module';
 import { TimeTrackingModule } from './modules/time-tracking/time-tracking.module';
+import { GlobalTemplatesModule } from './modules/global-templates/global-templates.module';
 
 @Module({
   imports: [
@@ -82,6 +83,7 @@ import { TimeTrackingModule } from './modules/time-tracking/time-tracking.module
     MessageMediaModule,
     AssistantModule,
     TimeTrackingModule,
+    GlobalTemplatesModule,
   ],
   controllers: [
     AppController,

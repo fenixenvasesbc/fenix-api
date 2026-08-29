@@ -61,3 +61,22 @@ export interface YcloudCreateTemplateResponse {
   status?: unknown;
   [key: string]: unknown;
 }
+
+
+export interface YcloudTemplateReviewedWebhook {
+  id?: unknown;
+  type?: unknown;
+  apiVersion?: unknown;
+  createTime?: unknown;
+  whatsappTemplate?: {
+    wabaId?: unknown;
+    name?: unknown;
+    language?: unknown;
+    category?: unknown;
+    status?: unknown;
+    reason?: unknown;
+    statusUpdateEvent?: unknown;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}

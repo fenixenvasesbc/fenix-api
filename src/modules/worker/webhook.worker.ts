@@ -147,6 +147,14 @@ export class WebhookWorker implements OnModuleInit {
       return;
     }
 
+    if (job.eventType === 'whatsapp.template.reviewed') {
+      await this.rabbit.publish(
+        process.env.RABBITMQ_RK_TEMPLATE_STATUS ?? 'whatsapp.template.reviewed',
+        job,
+      );
+      return;
+    }
+
     this.logger.warn(
       `No downstream route configured for eventType=${job.eventType} providerEventId=${job.providerEventId}`,
     );

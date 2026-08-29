@@ -154,6 +154,7 @@ model User {
   assistantMessages         AssistantMessage[]
   assistantFeedback         AssistantFeedback[]
   assistantFeedbackReviews  AssistantFeedback[] @relation("AssistantFeedbackReviewedBy")
+  createdGlobalWhatsappTemplates GlobalWhatsappTemplate[]
   assistantAuditEvents      AssistantAuditEvent[]
   assistantKnowledgeImports AssistantKnowledgeImport[]
   createdAt                 DateTime                   @default(now())
@@ -215,6 +216,7 @@ model Account {
 
   leadCampaigns             LeadCampaign[]
   campaignTemplates         AccountCampaignTemplate[]
+  globalWhatsappTemplateAccounts GlobalWhatsappTemplateAccount[]
   leadLabelHistory          LeadLabelHistory[]
   leadLabelAssignments      LeadLabelAssignment[]
   repetitionReminders       LeadRepetitionReminder[]
@@ -840,6 +842,67 @@ model AccountCampaignTemplate {
   @@index([accountId, status])
   @@index([campaignDefinitionId, status])
   @@index([wabaId])
+}
+
+enum AccountGlobalTemplateStatus {
+  PENDING
+  SUBMITTED
+  APPROVED
+  REJECTED
+  PAUSED
+  DISABLED
+  ERROR
+}
+
+// Plantilla de WhatsApp de gestion global: se crea una vez desde
+// Configuracion y se replica en el WABA de cada comercial (ver
+// GlobalWhatsappTemplateAccount). Independiente de CampaignDefinition,
+// que es lo que ya usan las automatizaciones de reenganche/recordatorio.
+model GlobalWhatsappTemplate {
+  id       String @id @default(uuid())
+  name     String
+  language String
+  category String
+  // Los "components" (header/body/footer/botones) tal como se enviaron a YCloud.
+  payload Json
+
+  createdByUserId String?
+  createdByUser   User?   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accountTemplates GlobalWhatsappTemplateAccount[]
+
+  @@unique([name, language])
+  @@index([createdAt])
+}
+
+// Copia por comercial de una GlobalWhatsappTemplate, con su propio estado de
+// aprobacion (cada WABA la aprueba/rechaza de forma independiente en Meta).
+model GlobalWhatsappTemplateAccount {
+  id String @id @default(uuid())
+
+  globalTemplateId String
+  globalTemplate   GlobalWhatsappTemplate @relation(fields: [globalTemplateId], references: [id], onDelete: Cascade)
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  wabaId             String
+  officialTemplateId String?
+  status             AccountGlobalTemplateStatus @default(PENDING)
+  statusDetail       String?
+
+  lastWebhookPayload Json?
+  lastSyncedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([globalTemplateId, accountId])
+  @@index([wabaId])
+  @@index([status])
 }
 
 model LeadCampaign {

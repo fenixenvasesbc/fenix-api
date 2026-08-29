@@ -143,6 +143,18 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     const qSmbHistoryRetry10m =
       process.env.RABBITMQ_QUEUE_SMB_HISTORY_RETRY_10M ??
       'q_smb_history_retry_10m';
+    const qTemplateStatus =
+      process.env.RABBITMQ_QUEUE_TEMPLATE_STATUS ?? 'q_template_status';
+    const qTemplateStatusRetry10s =
+      process.env.RABBITMQ_QUEUE_TEMPLATE_STATUS_RETRY_10S ??
+      'q_template_status_retry_10s';
+    const qTemplateStatusRetry1m =
+      process.env.RABBITMQ_QUEUE_TEMPLATE_STATUS_RETRY_1M ??
+      'q_template_status_retry_1m';
+    const qTemplateStatusRetry10m =
+      process.env.RABBITMQ_QUEUE_TEMPLATE_STATUS_RETRY_10M ??
+      'q_template_status_retry_10m';
+
     const qChatEvents =
       process.env.RABBITMQ_QUEUE_CHAT_EVENTS ?? 'chat.events.api';
     const qReengagement = process.env.RABBITMQ_QUEUE_REENGAGEMENT;
@@ -209,6 +221,18 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     const rkSmbHistoryRetry10m =
       process.env.RABBITMQ_RK_SMB_HISTORY_RETRY_10M ??
       'whatsapp.smb.history.retry.10m';
+    const rkTemplateStatus =
+      process.env.RABBITMQ_RK_TEMPLATE_STATUS ?? 'whatsapp.template.reviewed';
+    const rkTemplateStatusRetry10s =
+      process.env.RABBITMQ_RK_TEMPLATE_STATUS_RETRY_10S ??
+      'whatsapp.template.reviewed.retry.10s';
+    const rkTemplateStatusRetry1m =
+      process.env.RABBITMQ_RK_TEMPLATE_STATUS_RETRY_1M ??
+      'whatsapp.template.reviewed.retry.1m';
+    const rkTemplateStatusRetry10m =
+      process.env.RABBITMQ_RK_TEMPLATE_STATUS_RETRY_10M ??
+      'whatsapp.template.reviewed.retry.10m';
+
     const rkChatEvents = process.env.RABBITMQ_RK_CHAT_EVENTS ?? 'chat.events';
     const rkReengagement = process.env.RABBITMQ_RK_REENGAGEMENT;
     const rkReengagementRetry10s =
@@ -467,6 +491,48 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
       qSmbHistoryRetry10m,
       dlx!,
       rkSmbHistoryRetry10m,
+    );
+
+    await this.ch!.assertQueue(qTemplateStatus, { durable: true });
+    await this.ch!.bindQueue(qTemplateStatus, exchange!, rkTemplateStatus);
+    await this.ch!.assertQueue(qTemplateStatusRetry10s, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 10_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkTemplateStatus,
+      },
+    });
+    await this.ch!.bindQueue(
+      qTemplateStatusRetry10s,
+      dlx!,
+      rkTemplateStatusRetry10s,
+    );
+    await this.ch!.assertQueue(qTemplateStatusRetry1m, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 60_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkTemplateStatus,
+      },
+    });
+    await this.ch!.bindQueue(
+      qTemplateStatusRetry1m,
+      dlx!,
+      rkTemplateStatusRetry1m,
+    );
+    await this.ch!.assertQueue(qTemplateStatusRetry10m, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 600_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkTemplateStatus,
+      },
+    });
+    await this.ch!.bindQueue(
+      qTemplateStatusRetry10m,
+      dlx!,
+      rkTemplateStatusRetry10m,
     );
 
     await this.ch!.assertQueue(qChatEvents, { durable: true });

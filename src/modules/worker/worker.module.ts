@@ -21,6 +21,8 @@ import { SmbMessageEchoesModule } from '../smb-message-echoes/smb-message-echoes
 import { SmbMessageEchoesWorker } from './smb-message-echoes.worker';
 import { SmbHistoryModule } from '../smb-history/smb-history.module';
 import { SmbHistoryWorker } from './smb-history.worker';
+import { TemplateStatusModule } from '../template-status/template-status.module';
+import { TemplateStatusWorker } from './template-status.worker';
 
 @Module({
   imports: [
@@ -37,6 +39,7 @@ import { SmbHistoryWorker } from './smb-history.worker';
     SmbMessageEchoesModule,
     SmbHistoryModule,
     RepetitionReminderModule,
+    TemplateStatusModule,
   ],
   providers: [
     WebhookWorker,
@@ -48,6 +51,7 @@ import { SmbHistoryWorker } from './smb-history.worker';
     SmbMessageEchoesWorker,
     SmbHistoryWorker,
     RepetitionReminderWorker,
+    TemplateStatusWorker,
   ],
 })
 export class WorkerModule {}
