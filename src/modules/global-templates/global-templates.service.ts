@@ -211,6 +211,7 @@ export class GlobalTemplatesService {
     name: string;
     language: string;
     category: string;
+    payload: Prisma.JsonValue;
     createdAt: Date;
     updatedAt: Date;
     createdByUser: { id: string; email: string } | null;
@@ -242,6 +243,7 @@ export class GlobalTemplatesService {
       name: template.name,
       language: template.language,
       category: template.category,
+      payload: template.payload,
       createdBy: template.createdByUser,
       createdAt: template.createdAt,
       updatedAt: template.updatedAt,
