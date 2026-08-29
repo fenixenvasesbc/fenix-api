@@ -1,10 +1,8 @@
 import {
   Body,
   Controller,
-  Delete,
   ForbiddenException,
   Get,
-  Param,
   Post,
   Query,
   Req,
@@ -16,8 +14,6 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { OutboundService } from './outbound.service';
 import {
-  CreateTemplateDto,
-  DeleteTemplateQueryDto,
   ListOutboundTemplatesQueryDto,
   SendMediaDto,
   SendTemplateDto,
@@ -98,51 +94,6 @@ export class OutboundController {
       mediaExpiresAt: body.mediaExpiresAt ?? null,
       caption: body.caption ?? null,
       fileName: body.fileName ?? null,
-    });
-  }
-
-  // Gestion de plantillas de WhatsApp (crear/borrar). Solo ADMIN y
-  // SALES_MANAGER pueden gestionarlas; un SALES normal solo puede listarlas
-  // y usarlas para enviar (ver @Roles arriba en listTemplates/sendTemplate).
-  @Roles(Role.ADMIN, Role.SALES_MANAGER)
-  @Post('templates')
-  createTemplate(@Body() body: CreateTemplateDto, @Req() req: { user: AuthUser }) {
-    const accountId = this.resolveAccountId(req.user, body.accountId);
-
-    return this.outboundMessageService.createTemplate({
-      accountId,
-      name: body.name,
-      language: body.language,
-      category: body.category,
-      headerText: body.headerText ?? null,
-      headerFormat: body.headerFormat ?? null,
-      headerMediaUrl: body.headerMediaUrl ?? null,
-      bodyText: body.bodyText,
-      bodyExamples: body.bodyExamples ?? null,
-      footerText: body.footerText ?? null,
-      buttons:
-        body.buttons?.map((button) => ({
-          type: button.type,
-          text: button.text,
-          url: button.url ?? null,
-          phoneNumber: button.phoneNumber ?? null,
-        })) ?? null,
-    });
-  }
-
-  @Roles(Role.ADMIN, Role.SALES_MANAGER)
-  @Delete('templates/:name')
-  deleteTemplate(
-    @Param('name') name: string,
-    @Query() query: DeleteTemplateQueryDto,
-    @Req() req: { user: AuthUser },
-  ) {
-    const accountId = this.resolveAccountId(req.user, query.accountId);
-
-    return this.outboundMessageService.deleteTemplate({
-      accountId,
-      name,
-      language: query.language,
     });
   }
 

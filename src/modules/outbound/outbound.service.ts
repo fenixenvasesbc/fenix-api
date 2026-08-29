@@ -18,7 +18,6 @@ import { ConversationService } from '../conversation/conversation.service';
 import { YcloudService } from '../ycloud/ycloud.service';
 import { ChatPolicyService } from './chat-policy.service';
 import { ChatEventsService } from '../chat-events/chat-events.service';
-import { buildWhatsappTemplateComponents } from 'src/common/utils/whatsapp-template-components';
 
 type IdempotencyExpectation = {
   leadId: string;
@@ -121,69 +120,6 @@ export class OutboundService {
         ),
       },
     };
-  }
-
-  private async getAccountWabaId(accountId: string): Promise<string> {
-    const account = await this.prisma.account.findUnique({
-      where: { id: accountId },
-      select: { wabaId: true },
-    });
-
-    if (!account) {
-      throw new NotFoundException('Account not found');
-    }
-
-    return account.wabaId;
-  }
-
-  async createTemplate(input: {
-    accountId: string;
-    name: string;
-    language: string;
-    category: string;
-    headerText?: string | null;
-    headerFormat?: 'IMAGE' | 'VIDEO' | 'DOCUMENT' | null;
-    headerMediaUrl?: string | null;
-    bodyText: string;
-    bodyExamples?: string[] | null;
-    footerText?: string | null;
-    buttons?: Array<{
-      type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER';
-      text: string;
-      url?: string | null;
-      phoneNumber?: string | null;
-    }> | null;
-  }) {
-    const wabaId = await this.getAccountWabaId(input.accountId);
-    const components = buildWhatsappTemplateComponents(input);
-
-    const result = await this.ycloudService.createTemplate({
-      accountId: input.accountId,
-      wabaId,
-      name: input.name,
-      language: input.language,
-      category: input.category as 'AUTHENTICATION' | 'MARKETING' | 'UTILITY',
-      components,
-    });
-
-    return this.normalizeTemplate(result as YcloudWhatsappTemplate);
-  }
-
-  async deleteTemplate(input: {
-    accountId: string;
-    name: string;
-    language: string;
-  }) {
-    const wabaId = await this.getAccountWabaId(input.accountId);
-
-    await this.ycloudService.deleteTemplate({
-      accountId: input.accountId,
-      wabaId,
-      name: input.name,
-      language: input.language,
-    });
-
-    return { message: 'Plantilla eliminada correctamente' };
   }
 
   // =========================

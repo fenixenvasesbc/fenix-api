@@ -1,6 +1,5 @@
 import { Transform, Type } from 'class-transformer';
 import {
-  ArrayMaxSize,
   IsArray,
   IsEnum,
   IsIn,
@@ -9,12 +8,10 @@ import {
   IsOptional,
   IsString,
   IsUUID,
-  Matches,
   Max,
   MaxLength,
   Min,
   ValidateIf,
-  ValidateNested,
 } from 'class-validator';
 
 function emptyToUndefined(value: unknown) {
@@ -184,110 +181,3 @@ export class ListOutboundTemplatesQueryDto {
   offset?: number = 0;
 }
 
-export enum TemplateCategoryDto {
-  AUTHENTICATION = 'AUTHENTICATION',
-  MARKETING = 'MARKETING',
-  UTILITY = 'UTILITY',
-}
-
-export class TemplateButtonDto {
-  @IsIn(['QUICK_REPLY', 'URL', 'PHONE_NUMBER'])
-  type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER';
-
-  @Transform(({ value }) => trimString(value))
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(25)
-  text: string;
-
-  @ValidateIf((dto: TemplateButtonDto) => dto.type === 'URL')
-  @Transform(({ value }) => trimString(value))
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(2000)
-  url?: string;
-
-  @ValidateIf((dto: TemplateButtonDto) => dto.type === 'PHONE_NUMBER')
-  @Transform(({ value }) => trimString(value))
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(20)
-  phoneNumber?: string;
-}
-
-export class CreateTemplateDto {
-  @IsOptional()
-  @Transform(({ value }) => emptyToUndefined(value))
-  @IsUUID()
-  accountId?: string;
-
-  // Meta exige minusculas, numeros y guiones bajos.
-  @Transform(({ value }) => trimString(value))
-  @IsString()
-  @Matches(/^[a-z0-9_]{1,512}$/, {
-    message: 'name solo puede tener minusculas, numeros y guion bajo (_)',
-  })
-  name: string;
-
-  @Transform(({ value }) => trimString(value))
-  @IsString()
-  @MaxLength(20)
-  language: string;
-
-  @IsEnum(TemplateCategoryDto)
-  category: TemplateCategoryDto;
-
-  @IsOptional()
-  @Transform(({ value }) => emptyToUndefined(trimString(value)))
-  @IsString()
-  @MaxLength(60)
-  headerText?: string;
-
-  @IsOptional()
-  @IsIn(['IMAGE', 'VIDEO', 'DOCUMENT'])
-  headerFormat?: 'IMAGE' | 'VIDEO' | 'DOCUMENT';
-
-  @ValidateIf((dto: CreateTemplateDto) => !!dto.headerFormat)
-  @Transform(({ value }) => trimString(value))
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(2048)
-  headerMediaUrl?: string;
-
-  @Transform(({ value }) => trimString(value))
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(1024)
-  bodyText: string;
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(10)
-  @IsString({ each: true })
-  bodyExamples?: string[];
-
-  @IsOptional()
-  @Transform(({ value }) => emptyToUndefined(trimString(value)))
-  @IsString()
-  @MaxLength(60)
-  footerText?: string;
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(10)
-  @ValidateNested({ each: true })
-  @Type(() => TemplateButtonDto)
-  buttons?: TemplateButtonDto[];
-}
-
-export class DeleteTemplateQueryDto {
-  @IsOptional()
-  @Transform(({ value }) => emptyToUndefined(value))
-  @IsUUID()
-  accountId?: string;
-
-  @Transform(({ value }) => trimString(value))
-  @IsString()
-  @MaxLength(20)
-  language: string;
-}
