@@ -9,6 +9,7 @@ datasource db {
 enum Role {
   ADMIN
   SALES
+  SALES_MANAGER
   FACTORY
   FACTORY_MANAGER
 }

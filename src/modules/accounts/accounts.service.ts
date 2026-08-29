@@ -40,9 +40,9 @@ export class AccountsService {
 
       if (!user) throw new NotFoundException('User not found');
 
-      if (user.role !== Role.SALES) {
+      if (user.role !== Role.SALES && user.role !== Role.SALES_MANAGER) {
         throw new BadRequestException(
-          'Only SALES users can be assigned an account',
+          'Only SALES or SALES_MANAGER users can be assigned an account',
         );
       }
 
@@ -417,7 +417,7 @@ export class AccountsService {
       );
     }
 
-    if (user.role !== Role.SALES) {
+    if (user.role !== Role.SALES && user.role !== Role.SALES_MANAGER) {
       throw new ForbiddenException('Only SALES users can access their leads');
     }
 

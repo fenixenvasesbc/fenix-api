@@ -22,6 +22,8 @@ export class UsersService {
   }
 
   async getSales() {
-    return this.prisma.user.findMany({ where: { role: Role.SALES } });
+    return this.prisma.user.findMany({
+      where: { role: { in: [Role.SALES, Role.SALES_MANAGER] } },
+    });
   }
 }

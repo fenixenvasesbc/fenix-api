@@ -132,7 +132,7 @@ export class AssistantController {
     });
   }
 
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER)
   @Get('knowledge/datasets')
   listKnowledgeDatasets(
     @Query() query: AssistantKnowledgeDatasetsQueryDto,
@@ -144,7 +144,7 @@ export class AssistantController {
     });
   }
 
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER)
   @Post('knowledge/imports')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -172,7 +172,7 @@ export class AssistantController {
     });
   }
 
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER)
   @Get('knowledge/imports')
   listKnowledgeImports(
     @Query() query: AssistantKnowledgeImportsQueryDto,
@@ -187,7 +187,7 @@ export class AssistantController {
     });
   }
 
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER)
   @Get('knowledge/imports/:importId')
   getKnowledgeImport(
     @Param('importId', new ParseUUIDPipe()) importId: string,
@@ -199,7 +199,7 @@ export class AssistantController {
     });
   }
 
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER)
   @Post('knowledge/imports/:importId/approve')
   approveKnowledgeImport(
     @Param('importId', new ParseUUIDPipe()) importId: string,
@@ -211,7 +211,7 @@ export class AssistantController {
     });
   }
 
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER)
   @Post('knowledge/imports/:importId/discard')
   discardKnowledgeImport(
     @Param('importId', new ParseUUIDPipe()) importId: string,
@@ -223,7 +223,7 @@ export class AssistantController {
     });
   }
 
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER)
   @Get('knowledge/documents')
   listKnowledgeDocuments(
     @Query() query: AssistantKnowledgeQueryDto,
@@ -238,7 +238,7 @@ export class AssistantController {
     });
   }
 
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER)
   @Post('knowledge/documents/:documentId/status')
   setKnowledgeDocumentStatus(
     @Param('documentId') documentId: string,

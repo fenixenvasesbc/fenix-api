@@ -520,7 +520,7 @@ export class AssistantService {
     keyword?: string | null;
     datasetId?: string | null;
   }) {
-    this.assertAdmin(input.user);
+    this.assertAdminOrSalesManager(input.user);
     const datasetId = input.datasetId ? this.getDatasetOrThrow(input.datasetId).id : undefined;
     const startedAt = Date.now();
     const response = await this.difyClient.listKnowledgeDocuments({
@@ -550,7 +550,7 @@ export class AssistantService {
     user: AuthUser;
     file: Express.Multer.File;
   }) {
-    this.assertAdmin(input.user);
+    this.assertAdminOrSalesManager(input.user);
     if (!input.file) throw new BadRequestException('File is required');
     if (input.file.mimetype !== 'application/pdf') {
       throw new BadRequestException('Only PDF files are supported for now');
@@ -610,7 +610,7 @@ export class AssistantService {
     user: AuthUser;
     documentsLimit?: number;
   }) {
-    this.assertAdmin(input.user);
+    this.assertAdminOrSalesManager(input.user);
     const datasets = this.getConfiguredDatasets();
     const documentsLimit = input.documentsLimit ?? 20;
 
@@ -685,7 +685,7 @@ export class AssistantService {
     replaceDocumentId?: string | null;
     replaceDocumentName?: string | null;
   }) {
-    this.assertAdmin(input.user);
+    this.assertAdminOrSalesManager(input.user);
     this.assertKnowledgePdf(input.file);
 
     const dataset = this.getDatasetOrThrow(input.datasetId);
@@ -869,7 +869,7 @@ export class AssistantService {
   }
 
   async approveKnowledgeImport(input: { user: AuthUser; importId: string }) {
-    this.assertAdmin(input.user);
+    this.assertAdminOrSalesManager(input.user);
     const knowledgeImport = await this.prisma.assistantKnowledgeImport.findUnique({
       where: { id: input.importId },
     });
@@ -997,7 +997,7 @@ export class AssistantService {
   }
 
   async discardKnowledgeImport(input: { user: AuthUser; importId: string }) {
-    this.assertAdmin(input.user);
+    this.assertAdminOrSalesManager(input.user);
     const knowledgeImport = await this.prisma.assistantKnowledgeImport.findUnique({
       where: { id: input.importId },
     });
@@ -1057,7 +1057,7 @@ export class AssistantService {
     page: number;
     limit: number;
   }) {
-    this.assertAdmin(input.user);
+    this.assertAdminOrSalesManager(input.user);
 
     const where: Prisma.AssistantKnowledgeImportWhereInput = {};
     if (input.status) {
@@ -1115,7 +1115,7 @@ export class AssistantService {
   }
 
   async getKnowledgeImport(input: { user: AuthUser; importId: string }) {
-    this.assertAdmin(input.user);
+    this.assertAdminOrSalesManager(input.user);
     const knowledgeImport = await this.prisma.assistantKnowledgeImport.findUnique({
       where: { id: input.importId },
       include: { user: { select: { email: true } } },
@@ -1183,7 +1183,7 @@ export class AssistantService {
       throw new ForbiddenException('You cannot access this assistant session');
     }
     if (
-      user.role === Role.SALES &&
+      (user.role === Role.SALES || user.role === Role.SALES_MANAGER) &&
       session.accountId &&
       user.accountId !== session.accountId
     ) {
@@ -1193,6 +1193,16 @@ export class AssistantService {
 
   private assertAdmin(user: AuthUser) {
     if (user.role !== Role.ADMIN) {
+      throw new ForbiddenException('Only admins can manage assistant knowledge');
+    }
+  }
+
+  // El modulo de gestion de conocimiento del asistente tambien lo puede
+  // administrar SALES_MANAGER, con los mismos permisos que ADMIN. El resto
+  // de metodos admin-only del asistente (revision de feedback -> anotaciones)
+  // se quedan solo para ADMIN via assertAdmin().
+  private assertAdminOrSalesManager(user: AuthUser) {
+    if (user.role !== Role.ADMIN && user.role !== Role.SALES_MANAGER) {
       throw new ForbiddenException('Only admins can manage assistant knowledge');
     }
   }
@@ -1336,7 +1346,7 @@ export class AssistantService {
     documentId: string;
     enabled: boolean;
   }) {
-    this.assertAdmin(input.user);
+    this.assertAdminOrSalesManager(input.user);
     const dataset = this.getDatasetOrThrow(input.datasetId);
     const document = await this.getDatasetDocumentOrThrow({
       datasetId: dataset.id,
@@ -1461,7 +1471,7 @@ export class AssistantService {
     user: AuthUser,
     accountIdFromRequest?: string | null,
   ) {
-    if (user.role === Role.SALES) {
+    if (user.role === Role.SALES || user.role === Role.SALES_MANAGER) {
       if (accountIdFromRequest && accountIdFromRequest !== user.accountId) {
         throw new ForbiddenException('You cannot use another account context');
       }

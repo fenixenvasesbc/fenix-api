@@ -266,6 +266,20 @@ export class AuthService {
     return { id: user.id, email: user.email, role: user.role };
   }
 
+  async createSalesManager(email: string, password: string) {
+    const existing = await this.users.findByEmail(email);
+    if (existing) throw new BadRequestException('Email already registered');
+
+    const passwordHash = await this.hashPassword(password);
+    const user = await this.users.createUser({
+      email,
+      passwordHash,
+      role: Role.SALES_MANAGER,
+    });
+
+    return { id: user.id, email: user.email, role: user.role };
+  }
+
   async createFactory(email: string, password: string) {
     const existing = await this.users.findByEmail(email);
     if (existing) throw new BadRequestException('Email already registered');

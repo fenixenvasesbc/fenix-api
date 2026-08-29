@@ -269,7 +269,7 @@ export class DashboardService {
     );
 
     const isAdmin = user.role === Role.ADMIN;
-    const isSales = user.role === Role.SALES;
+    const isSales = user.role === Role.SALES || user.role === Role.SALES_MANAGER;
 
     let isGlobal = false;
     let effectiveAccountId: string | null = null;
