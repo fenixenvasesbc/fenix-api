@@ -192,10 +192,18 @@ export class MessageService {
 
     const hasMore = messages.length > limit;
     const pageMessages = hasMore ? messages.slice(0, limit) : messages;
+    const templatePayloadByKey = await this.getTemplatePayloadsForMessages(pageMessages);
     const orderedMessages = [...pageMessages].reverse().map((message) => {
       const { rawPayload, ...publicMessage } = message;
+      const templatePayload =
+        message.type === 'TEMPLATE' && message.templateName
+          ? (templatePayloadByKey.get(
+              this.templatePayloadKey(message.templateName, message.templateLang),
+            ) ?? null)
+          : null;
       return {
         ...publicMessage,
+        templatePayload,
         source: this.resolveMessageSource(rawPayload),
       };
     });
@@ -232,6 +240,59 @@ export class MessageService {
         nextBefore: hasMore ? (oldestMessage?.id ?? null) : null,
       },
     };
+  }
+
+  private templatePayloadKey(name: string, language: string | null) {
+    return `${name}\u0000${language ?? ''}`;
+  }
+
+  private async getTemplatePayloadsForMessages(
+    messages: { type: string; templateName: string | null; templateLang: string | null }[],
+  ) {
+    const payloadByKey = new Map<string, unknown>();
+
+    const withLang = new Map<string, { name: string; language: string }>();
+    const nameOnly = new Set<string>();
+    for (const message of messages) {
+      if (message.type !== 'TEMPLATE' || !message.templateName) continue;
+      if (message.templateLang) {
+        withLang.set(
+          this.templatePayloadKey(message.templateName, message.templateLang),
+          { name: message.templateName, language: message.templateLang },
+        );
+      } else {
+        nameOnly.add(message.templateName);
+      }
+    }
+
+    if (withLang.size > 0) {
+      const templates = await this.prisma.globalWhatsappTemplate.findMany({
+        where: { OR: Array.from(withLang.values()) },
+        select: { name: true, language: true, payload: true },
+      });
+      for (const template of templates) {
+        payloadByKey.set(
+          this.templatePayloadKey(template.name, template.language),
+          template.payload,
+        );
+      }
+    }
+
+    if (nameOnly.size > 0) {
+      const templates = await this.prisma.globalWhatsappTemplate.findMany({
+        where: { name: { in: Array.from(nameOnly) } },
+        select: { name: true, language: true, payload: true },
+        orderBy: { updatedAt: 'desc' },
+      });
+      for (const template of templates) {
+        const key = this.templatePayloadKey(template.name, null);
+        if (!payloadByKey.has(key)) {
+          payloadByKey.set(key, template.payload);
+        }
+      }
+    }
+
+    return payloadByKey;
   }
 
   private resolveMessageSource(rawPayload: unknown) {
