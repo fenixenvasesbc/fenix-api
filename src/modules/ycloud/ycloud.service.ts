@@ -2,7 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ProviderCredentialService } from '../credentials/provider-credential.service';
 import {
+  CreateYcloudTemplateInput,
   SendYcloudTemplateMessageInput,
+  YcloudCreateTemplateResponse,
   YcloudSendTemplateResponse,
   YcloudWhatsappTemplate,
   YcloudWhatsappTemplateListResponse,
@@ -453,6 +455,140 @@ export class YcloudService {
         providerMessage,
       );
     }
+  }
+
+  // Crea una plantilla de WhatsApp y la envia a aprobacion de Meta.
+  // El estado inicial normalmente viene como PENDING; el frontend
+  // debe volver a listar (GET /outbound/templates) para ver cuando
+  // Meta la aprueba, rechaza o pausa.
+  async createTemplate(
+    input: CreateYcloudTemplateInput & { accountId: string },
+  ): Promise<YcloudCreateTemplateResponse> {
+    const apiKey = await this.credentialService.getYcloudApiKey(
+      input.accountId,
+    );
+    const operation = 'createWhatsappTemplate';
+    const body = {
+      wabaId: input.wabaId,
+      name: input.name,
+      language: input.language,
+      category: input.category,
+      components: input.components,
+    };
+
+    try {
+      this.logger.log(
+        `YCLOUD request -> operation=${operation} baseUrl=${this.baseUrl} name=${input.name} language=${input.language}`,
+      );
+
+      const response = await firstValueFrom(
+        this.httpService.post(`${this.baseUrl}/whatsapp/templates`, body, {
+          headers: {
+            'X-API-Key': apiKey,
+            'Content-Type': 'application/json',
+          },
+          timeout: 20000,
+        }),
+      );
+
+      this.logger.log(
+        `YCLOUD response operation=${operation} status=${response.status}`,
+      );
+
+      return response.data as YcloudCreateTemplateResponse;
+    } catch (error: any) {
+      throw this.toYcloudError(operation, error);
+    }
+  }
+
+  // Borra una plantilla (por nombre + idioma) tanto de YCloud como del
+  // catalogo de plantillas de Meta.
+  async deleteTemplate(input: {
+    accountId: string;
+    wabaId: string;
+    name: string;
+    language: string;
+  }): Promise<void> {
+    const apiKey = await this.credentialService.getYcloudApiKey(
+      input.accountId,
+    );
+    const operation = 'deleteWhatsappTemplate';
+
+    try {
+      this.logger.log(
+        `YCLOUD request -> operation=${operation} baseUrl=${this.baseUrl} name=${input.name} language=${input.language}`,
+      );
+
+      const response = await firstValueFrom(
+        this.httpService.delete(
+          `${this.baseUrl}/whatsapp/templates/${encodeURIComponent(input.wabaId)}/${encodeURIComponent(input.name)}/${encodeURIComponent(input.language)}`,
+          {
+            headers: {
+              'X-API-Key': apiKey,
+              Accept: 'application/json',
+            },
+            timeout: 20000,
+          },
+        ),
+      );
+
+      this.logger.log(
+        `YCLOUD response operation=${operation} status=${response.status}`,
+      );
+    } catch (error: any) {
+      throw this.toYcloudError(operation, error);
+    }
+  }
+
+  // Extrae el manejo de error de YCLOUD (usado tambien por postToYcloud y
+  // getTemplatePage) para no repetirlo en cada metodo nuevo.
+  private toYcloudError(operation: string, error: any): YcloudRequestError {
+    const statusCode =
+      typeof error?.response?.status === 'number'
+        ? error.response.status
+        : undefined;
+
+    const providerMessage =
+      typeof error?.response?.data?.message === 'string'
+        ? error.response.data.message
+        : typeof error?.response?.data?.error?.message === 'string'
+          ? error.response.data.error.message
+          : typeof error?.message === 'string'
+            ? error.message
+            : 'Unknown YCloud error';
+
+    const retryable =
+      error?.code === 'ECONNABORTED' ||
+      error?.code === 'ETIMEDOUT' ||
+      error?.code === 'ECONNRESET' ||
+      error?.code === 'ENOTFOUND' ||
+      error?.code === 'EAI_AGAIN' ||
+      !statusCode ||
+      statusCode === 429 ||
+      statusCode === 500 ||
+      statusCode === 502 ||
+      statusCode === 503 ||
+      statusCode === 504;
+
+    this.logger.error(
+      `YCLOUD request failed operation=${operation} retryable=${retryable} status=${statusCode ?? 'n/a'} message=${providerMessage}`,
+    );
+
+    if (error?.response) {
+      this.logger.error(`YCLOUD response status=${error.response.status}`);
+      this.logger.error(JSON.stringify(error.response.data, null, 2));
+    } else if (error?.request) {
+      this.logger.error('YCLOUD request was sent but no response received');
+    } else {
+      this.logger.error('YCLOUD request could not be created');
+    }
+
+    return new YcloudRequestError(
+      `YCLOUD ${operation} failed: ${providerMessage}`,
+      retryable,
+      statusCode,
+      providerMessage,
+    );
   }
 
   private async getTemplatePage(params: {

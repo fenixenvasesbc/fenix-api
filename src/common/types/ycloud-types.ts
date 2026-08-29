@@ -43,3 +43,21 @@ export interface YcloudWhatsappTemplateListResponse {
   length?: unknown;
   items?: unknown;
 }
+
+export interface CreateYcloudTemplateInput {
+  wabaId: string;
+  name: string;
+  language: string;
+  category: 'AUTHENTICATION' | 'MARKETING' | 'UTILITY';
+  components: unknown[];
+}
+
+export interface YcloudCreateTemplateResponse {
+  id?: unknown;
+  officialTemplateId?: unknown;
+  name?: unknown;
+  language?: unknown;
+  category?: unknown;
+  status?: unknown;
+  [key: string]: unknown;
+}

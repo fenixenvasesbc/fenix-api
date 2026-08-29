@@ -122,6 +122,130 @@ export class OutboundService {
     };
   }
 
+  private async getAccountWabaId(accountId: string): Promise<string> {
+    const account = await this.prisma.account.findUnique({
+      where: { id: accountId },
+      select: { wabaId: true },
+    });
+
+    if (!account) {
+      throw new NotFoundException('Account not found');
+    }
+
+    return account.wabaId;
+  }
+
+  // Arma los "components" que espera Meta/YCloud a partir de los campos
+  // sueltos que llenan desde la SPA (header/body/footer/botones).
+  private buildTemplateComponents(input: {
+    headerText?: string | null;
+    headerFormat?: 'IMAGE' | 'VIDEO' | 'DOCUMENT' | null;
+    headerMediaUrl?: string | null;
+    bodyText: string;
+    bodyExamples?: string[] | null;
+    footerText?: string | null;
+    buttons?: Array<{
+      type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER';
+      text: string;
+      url?: string | null;
+      phoneNumber?: string | null;
+    }> | null;
+  }): unknown[] {
+    const components: Record<string, unknown>[] = [];
+
+    if (input.headerFormat && input.headerMediaUrl) {
+      components.push({
+        type: 'HEADER',
+        format: input.headerFormat,
+        example: { header_url: [input.headerMediaUrl] },
+      });
+    } else if (input.headerText) {
+      components.push({
+        type: 'HEADER',
+        format: 'TEXT',
+        text: input.headerText,
+      });
+    }
+
+    components.push({
+      type: 'BODY',
+      text: input.bodyText,
+      ...(input.bodyExamples?.length
+        ? { example: { body_text: [input.bodyExamples] } }
+        : {}),
+    });
+
+    if (input.footerText) {
+      components.push({ type: 'FOOTER', text: input.footerText });
+    }
+
+    if (input.buttons?.length) {
+      components.push({
+        type: 'BUTTONS',
+        buttons: input.buttons.map((button) => ({
+          type: button.type,
+          text: button.text,
+          ...(button.type === 'URL' && button.url ? { url: button.url } : {}),
+          ...(button.type === 'PHONE_NUMBER' && button.phoneNumber
+            ? { phone_number: button.phoneNumber }
+            : {}),
+        })),
+      });
+    }
+
+    return components;
+  }
+
+  async createTemplate(input: {
+    accountId: string;
+    name: string;
+    language: string;
+    category: string;
+    headerText?: string | null;
+    headerFormat?: 'IMAGE' | 'VIDEO' | 'DOCUMENT' | null;
+    headerMediaUrl?: string | null;
+    bodyText: string;
+    bodyExamples?: string[] | null;
+    footerText?: string | null;
+    buttons?: Array<{
+      type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER';
+      text: string;
+      url?: string | null;
+      phoneNumber?: string | null;
+    }> | null;
+  }) {
+    const wabaId = await this.getAccountWabaId(input.accountId);
+    const components = this.buildTemplateComponents(input);
+
+    const result = await this.ycloudService.createTemplate({
+      accountId: input.accountId,
+      wabaId,
+      name: input.name,
+      language: input.language,
+      category: input.category as 'AUTHENTICATION' | 'MARKETING' | 'UTILITY',
+      components,
+    });
+
+    return this.normalizeTemplate(result as YcloudWhatsappTemplate);
+  }
+
+  async deleteTemplate(input: {
+    accountId: string;
+    name: string;
+    language: string;
+  }) {
+    const wabaId = await this.getAccountWabaId(input.accountId);
+
+    await this.ycloudService.deleteTemplate({
+      accountId: input.accountId,
+      wabaId,
+      name: input.name,
+      language: input.language,
+    });
+
+    return { message: 'Plantilla eliminada correctamente' };
+  }
+
   // =========================
   // TEMPLATE MESSAGE
   // =========================
