@@ -27,7 +27,8 @@
     "chat:backfill-manual-outbound-from-updated": "ts-node src/scripts/backfill-manual-outbound-messages.ts",
     "notifications:run-label-alerts": "ts-node -r tsconfig-paths/register src/scripts/run-label-alert-notifications.ts",
     "ycloud:backfill-lead-names": "ts-node src/scripts/backfill-lead-names-from-ycloud.ts",
-    "ycloud:sync-repetition-templates": "ts-node src/scripts/sync-repetition-templates-from-ycloud.ts"
+    "ycloud:sync-repetition-templates": "ts-node src/scripts/sync-repetition-templates-from-ycloud.ts",
+    "templates:backfill-global": "ts-node src/scripts/backfill-global-templates.ts"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.1",
