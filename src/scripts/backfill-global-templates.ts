@@ -1,15 +1,19 @@
 // Backfill: importa a la gestion global de plantillas
 // (GlobalWhatsappTemplate / GlobalWhatsappTemplateAccount) las plantillas
-// que YA existen y estan APROBADAS en YCloud, creadas antes de que este
-// modulo existiera, para que aparezcan en el listado de /templates.
+// que YA existen en YCloud (en cualquier estado: aprobada, pendiente,
+// rechazada, etc.), creadas antes de que este modulo existiera o por fuera
+// de Fenix, para que aparezcan en el listado de /templates.
 //
 // Recorre todas las cuentas activas, agrupa lo que encuentra en YCloud por
 // (name, language), crea una GlobalWhatsappTemplate por cada combinacion
 // nueva (usa como "payload" los components de la primera cuenta en la que
 // aparece) y una GlobalWhatsappTemplateAccount por cada cuenta donde esa
 // plantilla existe, con su propio estado (la aprobacion es por WABA).
-// Idempotente: si (name, language) ya esta en GlobalWhatsappTemplate, se
-// omite por completo (no pisa nada de lo creado por el modulo nuevo).
+// Idempotente: si (name, language) ya esta en GlobalWhatsappTemplate, NO se
+// omite por completo -- se revisan las cuentas y se agregan solo las filas
+// de GlobalWhatsappTemplateAccount que falten (por ejemplo, una cuenta que
+// ya tenia la plantilla en YCloud pero quedo pendiente en el backfill
+// original por no estar aun aprobada).
 //
 // Uso (por defecto es DRY RUN, no escribe nada):
 //   npx ts-node src/scripts/backfill-global-templates.ts
@@ -87,10 +91,11 @@ type Summary = {
   accountsScanned: number;
   credentialErrors: number;
   requestErrors: number;
-  templatesApprovedSeen: number;
+  templatesSeen: number;
   templatesNew: number;
   templatesAlreadyRegistered: number;
   accountRowsWritten: number;
+  accountRowsAddedToExisting: number;
 };
 
 const VALID_STATUSES = new Set(Object.values(AccountGlobalTemplateStatus));
@@ -137,12 +142,6 @@ function errorMessage(error: unknown) {
 
 function wait(milliseconds: number) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-function isApproved(template: YcloudTemplate): boolean {
-  const status =
-    typeof template.status === 'string' ? template.status.toUpperCase() : '';
-  return status === 'APPROVED';
 }
 
 function mapStatus(value: unknown): AccountGlobalTemplateStatus {
@@ -294,10 +293,11 @@ function printSummary(summary: Summary, apply: boolean) {
   console.log(`Cuentas escaneadas                 : ${summary.accountsScanned}`);
   console.log(`Errores de credencial               : ${summary.credentialErrors}`);
   console.log(`Errores de request a YCloud          : ${summary.requestErrors}`);
-  console.log(`Plantillas APROBADAS vistas (total)  : ${summary.templatesApprovedSeen}`);
+  console.log(`Plantillas vistas en YCloud (total)  : ${summary.templatesSeen}`);
   console.log(`Plantillas nuevas (name+language)    : ${summary.templatesNew}`);
-  console.log(`Plantillas ya registradas (omitidas) : ${summary.templatesAlreadyRegistered}`);
-  console.log(`Filas por cuenta ${apply ? 'creadas' : 'que se crearian'}          : ${summary.accountRowsWritten}`);
+  console.log(`Plantillas ya al dia (sin cambios)   : ${summary.templatesAlreadyRegistered}`);
+  console.log(`Filas por cuenta ${apply ? 'creadas' : 'que se crearian'} (plantilla nueva)   : ${summary.accountRowsWritten}`);
+  console.log(`Filas por cuenta ${apply ? 'agregadas' : 'que se agregarian'} (plantilla existente): ${summary.accountRowsAddedToExisting}`);
   console.log('='.repeat(70));
 }
 
@@ -321,10 +321,11 @@ async function main() {
     accountsScanned: 0,
     credentialErrors: 0,
     requestErrors: 0,
-    templatesApprovedSeen: 0,
+    templatesSeen: 0,
     templatesNew: 0,
     templatesAlreadyRegistered: 0,
     accountRowsWritten: 0,
+    accountRowsAddedToExisting: 0,
   };
 
   console.log(
@@ -384,13 +385,12 @@ async function main() {
         continue;
       }
 
-      const approved = templates.filter(isApproved);
-      summary.templatesApprovedSeen += approved.length;
+      summary.templatesSeen += templates.length;
       console.log(
-        `  ${account.name} (${account.id}): ${templates.length} plantillas en YCloud, ${approved.length} aprobadas`,
+        `  ${account.name} (${account.id}): ${templates.length} plantillas en YCloud`,
       );
 
-      for (const template of approved) {
+      for (const template of templates) {
         const name = nonEmpty(template.name);
         const language = nonEmpty(template.language);
         if (!name || !language) {
@@ -433,15 +433,46 @@ async function main() {
     for (const [key, tpl] of canonical) {
       const existing = await prisma.globalWhatsappTemplate.findUnique({
         where: { name_language: { name: tpl.name, language: tpl.language } },
+        include: { accountTemplates: { select: { accountId: true } } },
       });
 
       const rows = accountRows.get(key) ?? [];
 
       if (existing) {
-        summary.templatesAlreadyRegistered += 1;
-        console.log(
-          `  [YA EXISTE] ${tpl.name} (${tpl.language}) -- se omite, ya esta en la gestion global`,
+        const alreadyHasAccountIds = new Set(
+          existing.accountTemplates.map((row) => row.accountId),
         );
+        const missingRows = rows.filter(
+          (row) => !alreadyHasAccountIds.has(row.accountId),
+        );
+
+        if (missingRows.length === 0) {
+          summary.templatesAlreadyRegistered += 1;
+          console.log(
+            `  [YA AL DIA] ${tpl.name} (${tpl.language}) -- ya esta en la gestion global y no hay cuentas nuevas que agregar`,
+          );
+          continue;
+        }
+
+        summary.accountRowsAddedToExisting += missingRows.length;
+        console.log(
+          `  [${args.apply ? 'AGREGAR CUENTAS' : 'DRY-RUN'}] ${tpl.name} (${tpl.language}) -- ya esta en la gestion global, ${missingRows.length} cuenta(s) faltante(s)`,
+        );
+
+        if (!args.apply) continue;
+
+        await prisma.globalWhatsappTemplateAccount.createMany({
+          data: missingRows.map((row) => ({
+            globalTemplateId: existing.id,
+            accountId: row.accountId,
+            wabaId: row.wabaId,
+            officialTemplateId: row.officialTemplateId,
+            status: row.status,
+            lastSyncedAt: new Date(),
+          })),
+          skipDuplicates: true,
+        });
+
         continue;
       }
 
