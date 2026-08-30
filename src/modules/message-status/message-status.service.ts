@@ -119,6 +119,17 @@ export class MessageStatusService {
 
           customerDisplayName:
             whatsappMessage.customerProfile?.name ?? undefined,
+          // YCloud suele informar el costo (totalPrice/currency/pricingCategory)
+          // recien en el evento de "delivered" (o incluso mas tarde), no en el
+          // primer "sent". Este es el camino que toman casi todos los mensajes
+          // (la fila ya existe porque Fenix la crea al enviar), asi que si no
+          // se persisten aca el costo se pierde silenciosamente.
+          pricingCategory: whatsappMessage.pricingCategory ?? undefined,
+          totalPrice:
+            typeof whatsappMessage.totalPrice === 'number'
+              ? whatsappMessage.totalPrice
+              : undefined,
+          currency: whatsappMessage.currency ?? undefined,
           errors: errorPayload ?? undefined,
           rawPayload: job.payload as Prisma.InputJsonValue,
           ycloudMessageId: whatsappMessage.id ?? message.ycloudMessageId,
