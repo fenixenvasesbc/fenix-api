@@ -7,8 +7,9 @@ import {
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
-import { Role, User } from '@prisma/client';
-import { UpdateUserDto } from './dto/user.dto';
+import { ProviderType, Role, User } from '@prisma/client';
+import { CredentialCryptoService } from '../credentials/credential-crypto.service';
+import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
 
 type AuthUser = {
   userId: string;
@@ -32,6 +33,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly credentialCrypto: CredentialCryptoService,
   ) {}
 
   findByEmail(email: string) {
@@ -122,16 +124,64 @@ export class UsersService {
     return user;
   }
 
-  async adminCreateUser(
-    actingUser: AuthUser,
-    dto: { email: string; password: string; role: Role },
-  ) {
+  async adminCreateUser(actingUser: AuthUser, dto: CreateUserDto) {
     this.assertCanManageRole(actingUser, dto.role);
 
     const existing = await this.findByEmail(dto.email);
     if (existing) throw new BadRequestException('Email already registered');
 
     const passwordHash = await this.hashPassword(dto.password);
+
+    // Un SALES siempre debe quedar asociado a su propia cuenta de YCloud
+    // (Account + credencial). Se crea todo en una unica transaccion: si
+    // algo falla, no debe quedar un User huerfano sin Account, ni un
+    // Account sin credencial.
+    if (dto.role === Role.SALES) {
+      const { accountName, wabaId, phoneE164, apiKey } = dto;
+      if (!accountName || !wabaId || !phoneE164 || !apiKey) {
+        throw new BadRequestException(
+          'accountName, wabaId, phoneE164 y apiKey son obligatorios para crear un usuario SALES',
+        );
+      }
+
+      return this.prisma.$transaction(async (tx) => {
+        const existingAccount = await tx.account.findUnique({
+          where: { wabaId_phoneE164: { wabaId, phoneE164 } },
+        });
+        if (existingAccount) {
+          throw new BadRequestException(
+            'An account with this wabaId and phone already exists',
+          );
+        }
+
+        const account = await tx.account.create({
+          data: { name: accountName, wabaId, phoneE164 },
+        });
+
+        const user = await tx.user.create({
+          data: {
+            email: dto.email,
+            passwordHash,
+            role: dto.role,
+            accountId: account.id,
+          },
+          select: SAFE_USER_SELECT,
+        });
+
+        await tx.accountProviderCredential.create({
+          data: {
+            accountId: account.id,
+            provider: ProviderType.YCLOUD,
+            apiKeyEncrypted: this.credentialCrypto.encrypt(apiKey),
+            apiKeyHint: this.credentialCrypto.buildHint(apiKey),
+            isActive: true,
+          },
+        });
+
+        return user;
+      });
+    }
+
     const user = await this.prisma.user.create({
       data: { email: dto.email, passwordHash, role: dto.role },
       select: SAFE_USER_SELECT,

@@ -5,8 +5,11 @@ import {
   IsEnum,
   IsBoolean,
   IsBooleanString,
+  IsNotEmpty,
+  Matches,
   MinLength,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 import { Role } from '@prisma/client';
 
@@ -21,6 +24,36 @@ export class CreateUserDto {
 
   @IsEnum(Role)
   role: Role;
+
+  // ==========================================
+  // Cuenta de YCloud asociada (solo aplica y es
+  // obligatorio cuando role === SALES). Se crea el
+  // Account + AccountProviderCredential en la misma
+  // transaccion que el User.
+  // ==========================================
+
+  @ValidateIf((dto: CreateUserDto) => dto.role === Role.SALES)
+  @IsString()
+  @IsNotEmpty()
+  accountName?: string;
+
+  @ValidateIf((dto: CreateUserDto) => dto.role === Role.SALES)
+  @IsString()
+  @IsNotEmpty()
+  wabaId?: string;
+
+  @ValidateIf((dto: CreateUserDto) => dto.role === Role.SALES)
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^\+\d+$/, {
+    message: 'phoneE164 must be in E.164 format (+123456789)',
+  })
+  phoneE164?: string;
+
+  @ValidateIf((dto: CreateUserDto) => dto.role === Role.SALES)
+  @IsString()
+  @IsNotEmpty()
+  apiKey?: string;
 }
 
 export class UpdateUserDto {
