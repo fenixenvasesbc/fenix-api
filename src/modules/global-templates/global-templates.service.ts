@@ -154,9 +154,21 @@ export class GlobalTemplatesService {
         },
       });
     if (existing) {
-      throw new BadRequestException(
-        'Esa cuenta comercial ya tiene esta plantilla',
-      );
+      // Un intento anterior que quedo en ERROR o REJECTED no representa una
+      // plantilla activa en Meta: se borra la fila local y se reintenta en
+      // vez de bloquear al admin para siempre con el mensaje generico.
+      const retryableStatuses = new Set<AccountGlobalTemplateStatus>([
+        AccountGlobalTemplateStatus.ERROR,
+        AccountGlobalTemplateStatus.REJECTED,
+      ]);
+      if (!retryableStatuses.has(existing.status)) {
+        throw new BadRequestException(
+          'Esa cuenta comercial ya tiene esta plantilla',
+        );
+      }
+      await this.prisma.globalWhatsappTemplateAccount.delete({
+        where: { id: existing.id },
+      });
     }
 
     await this.propagateToAccount({
