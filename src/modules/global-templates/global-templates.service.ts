@@ -119,6 +119,96 @@ export class GlobalTemplatesService {
     }
   }
 
+  async addAccount(templateId: string, accountId: string) {
+    const template = await this.prisma.globalWhatsappTemplate.findUnique({
+      where: { id: templateId },
+    });
+    if (!template) {
+      throw new NotFoundException('Plantilla no encontrada');
+    }
+
+    const account = await this.prisma.account.findUnique({
+      where: { id: accountId },
+      select: {
+        id: true,
+        wabaId: true,
+        user: { select: { isActive: true } },
+      },
+    });
+    if (!account) {
+      throw new NotFoundException('Cuenta comercial no encontrada');
+    }
+    if (!account.user?.isActive) {
+      throw new BadRequestException(
+        'La cuenta comercial no tiene un usuario activo',
+      );
+    }
+
+    const existing =
+      await this.prisma.globalWhatsappTemplateAccount.findUnique({
+        where: {
+          globalTemplateId_accountId: {
+            globalTemplateId: templateId,
+            accountId,
+          },
+        },
+      });
+    if (existing) {
+      throw new BadRequestException(
+        'Esa cuenta comercial ya tiene esta plantilla',
+      );
+    }
+
+    await this.propagateToAccount({
+      template,
+      components: template.payload as unknown[],
+      accountId: account.id,
+      wabaId: account.wabaId,
+    });
+
+    return this.getById(templateId);
+  }
+
+  async removeAccount(templateId: string, accountTemplateId: string) {
+    const row = await this.prisma.globalWhatsappTemplateAccount.findUnique({
+      where: { id: accountTemplateId },
+      include: { globalTemplate: true },
+    });
+
+    if (!row || row.globalTemplateId !== templateId) {
+      throw new NotFoundException(
+        'La cuenta no esta asociada a esta plantilla',
+      );
+    }
+
+    let ycloudError: string | null = null;
+    try {
+      await this.ycloudService.deleteTemplate({
+        accountId: row.accountId,
+        wabaId: row.wabaId,
+        name: row.globalTemplate.name,
+        language: row.globalTemplate.language,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `No se pudo borrar la plantilla en accountId=${row.accountId} wabaId=${row.wabaId}: ${String(error)}`,
+      );
+      ycloudError = this.errorMessage(error);
+    }
+
+    await this.prisma.globalWhatsappTemplateAccount.delete({
+      where: { id: accountTemplateId },
+    });
+
+    return {
+      message:
+        ycloudError === null
+          ? 'Plantilla eliminada de la cuenta comercial'
+          : `Se quito la plantilla de Fenix, pero no se pudo borrar en YCloud/Meta: ${ycloudError}`,
+      ycloudError,
+    };
+  }
+
   async list() {
     const templates = await this.prisma.globalWhatsappTemplate.findMany({
       orderBy: { createdAt: 'desc' },

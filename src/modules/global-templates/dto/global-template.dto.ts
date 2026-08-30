@@ -7,6 +7,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   ValidateIf,
@@ -110,4 +111,9 @@ export class CreateGlobalTemplateDto {
   @ValidateNested({ each: true })
   @Type(() => GlobalTemplateButtonDto)
   buttons?: GlobalTemplateButtonDto[];
+}
+
+export class AddGlobalTemplateAccountDto {
+  @IsUUID()
+  accountId: string;
 }

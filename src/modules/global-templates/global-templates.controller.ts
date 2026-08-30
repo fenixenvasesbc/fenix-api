@@ -14,7 +14,10 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { GlobalTemplatesService } from './global-templates.service';
-import { CreateGlobalTemplateDto } from './dto/global-template.dto';
+import {
+  AddGlobalTemplateAccountDto,
+  CreateGlobalTemplateDto,
+} from './dto/global-template.dto';
 
 type AuthUser = {
   userId: string;
@@ -49,5 +52,21 @@ export class GlobalTemplatesController {
   @Delete(':id')
   remove(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.globalTemplatesService.remove(id);
+  }
+
+  @Post(':id/accounts')
+  addAccount(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: AddGlobalTemplateAccountDto,
+  ) {
+    return this.globalTemplatesService.addAccount(id, dto.accountId);
+  }
+
+  @Delete(':id/accounts/:accountTemplateId')
+  removeAccount(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('accountTemplateId', new ParseUUIDPipe()) accountTemplateId: string,
+  ) {
+    return this.globalTemplatesService.removeAccount(id, accountTemplateId);
   }
 }
