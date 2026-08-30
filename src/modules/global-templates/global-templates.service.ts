@@ -7,7 +7,7 @@ import {
 import { AccountGlobalTemplateStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AccountsService } from '../accounts/accounts.service';
-import { YcloudService } from '../ycloud/ycloud.service';
+import { YcloudRequestError, YcloudService } from '../ycloud/ycloud.service';
 import { buildWhatsappTemplateComponents } from 'src/common/utils/whatsapp-template-components';
 import { CreateGlobalTemplateDto } from './dto/global-template.dto';
 
@@ -107,6 +107,17 @@ export class GlobalTemplatesService {
         `No se pudo crear la plantilla en accountId=${input.accountId} wabaId=${input.wabaId}: ${String(error)}`,
       );
 
+      // YCloud/Meta puede responder 409 ALREADY_EXISTS cuando la plantilla
+      // ya existe en ese WABA (por ejemplo, un intento anterior la creo en
+      // Meta pero fallo al guardar la fila local antes de terminar, o se
+      // creo por fuera de Fenix). En ese caso no es un error real: se
+      // reconcilia consultando el estado real en YCloud en vez de marcarla
+      // como ERROR.
+      if (error instanceof YcloudRequestError && error.statusCode === 409) {
+        const reconciled = await this.reconcileExistingAccountTemplate(input);
+        if (reconciled) return;
+      }
+
       await this.prisma.globalWhatsappTemplateAccount.create({
         data: {
           globalTemplateId: input.template.id,
@@ -116,6 +127,49 @@ export class GlobalTemplatesService {
           statusDetail: this.errorMessage(error),
         },
       });
+    }
+  }
+
+  // Busca en YCloud la plantilla que ya existe en el WABA (por nombre e
+  // idioma) y crea la fila local con su estado real. Devuelve false si no
+  // la encuentra, para que el llamador registre el ERROR original.
+  private async reconcileExistingAccountTemplate(input: {
+    template: { id: string; name: string; language: string; category: string };
+    accountId: string;
+    wabaId: string;
+  }): Promise<boolean> {
+    try {
+      const templates = await this.ycloudService.listWhatsappTemplates({
+        accountId: input.accountId,
+      });
+      const match = templates.find(
+        (item) =>
+          typeof item.name === 'string' &&
+          typeof item.language === 'string' &&
+          item.name === input.template.name &&
+          item.language === input.template.language,
+      );
+      if (!match) return false;
+
+      await this.prisma.globalWhatsappTemplateAccount.create({
+        data: {
+          globalTemplateId: input.template.id,
+          accountId: input.accountId,
+          wabaId: input.wabaId,
+          officialTemplateId: this.nonEmpty(
+            match.officialTemplateId ?? match.id,
+          ),
+          status: this.mapStatus(match.status),
+          statusDetail:
+            'Ya existia en YCloud/Meta; se reconcilio el estado automaticamente',
+        },
+      });
+      return true;
+    } catch (reconcileError) {
+      this.logger.warn(
+        `No se pudo reconciliar la plantilla existente en accountId=${input.accountId} wabaId=${input.wabaId}: ${String(reconcileError)}`,
+      );
+      return false;
     }
   }
 
