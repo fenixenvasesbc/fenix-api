@@ -13,6 +13,7 @@ enum Role {
   ADMINISTRATION
   FACTORY
   FACTORY_MANAGER
+  CLICHE_OPERATOR
 }
 
 enum EmployeeContractType {

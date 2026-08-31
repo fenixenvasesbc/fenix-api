@@ -7,6 +7,7 @@ import { RegisterSalesManagerDto } from './dto/register-sales-manager.dto';
 import { RegisterAdministrationDto } from './dto/register-administration.dto';
 import { RegisterFactoryDto } from './dto/register-factory.dto';
 import { RegisterFactoryManagerDto } from './dto/register-factory-manager.dto';
+import { RegisterClicheOperatorDto } from './dto/register-cliche-operator.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -85,6 +86,13 @@ export class AuthController {
   @Post('factory-managers')
   createFactoryManager(@Body() dto: RegisterFactoryManagerDto) {
     return this.auth.createFactoryManager(dto.email, dto.password);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Post('cliche-operators')
+  createClicheOperator(@Body() dto: RegisterClicheOperatorDto) {
+    return this.auth.createClicheOperator(dto.email, dto.password);
   }
 
   // Protegido: útil para validar token
