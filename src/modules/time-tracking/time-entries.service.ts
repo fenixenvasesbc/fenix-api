@@ -10,6 +10,8 @@ import { TimeTrackingRatesService } from './time-tracking-rates.service';
 const REGULAR_DAY_MINUTES = 8 * 60;
 const MADRID_TZ = 'Europe/Madrid';
 
+type DayType = 'HOLIDAY' | 'SUNDAY' | 'SATURDAY' | 'WEEKDAY';
+
 @Injectable()
 export class TimeEntriesService {
   constructor(
@@ -91,27 +93,49 @@ export class TimeEntriesService {
   ) {
     const clockOutAt = new Date();
     const rates = await this.rates.getRates();
-    const totalMinutes = Math.max(
+
+    // Duracion real del turno, sin capar: se guarda siempre tal cual para
+    // no perder el dato de auditoria, aunque el pago se calcule sobre el
+    // tope cuando corresponda.
+    const rawTotalMinutes = Math.max(
       0,
       Math.round(
         (clockOutAt.getTime() - openEntry.clockInAt.getTime()) / 60000,
       ),
     );
 
-    const isSaturday = this.isSaturday(openEntry.clockInAt);
+    // Tope configurable (TimeTrackingRate.maxShiftMinutes/maxShiftEnabled):
+    // cubre el caso del reloj dejado corriendo. Si se supera, el pago se
+    // calcula solo hasta el tope y la entrada queda marcada para revision.
+    const wasCapped =
+      rates.maxShiftEnabled && rawTotalMinutes > rates.maxShiftMinutes;
+    const payableMinutes = wasCapped ? rates.maxShiftMinutes : rawTotalMinutes;
+
+    const dayType = await this.resolveDayType(openEntry.clockInAt);
+
     let payableHours: number;
     let rateType: TimeEntryRateType;
     let rateApplied: number;
 
     if (contractType === 'FIJO') {
-      const extraMinutes = Math.max(0, totalMinutes - REGULAR_DAY_MINUTES);
-      payableHours = this.minutesToPayableHours(extraMinutes);
-      rateType = isSaturday ? 'OVERTIME_SATURDAY' : 'OVERTIME_WEEKDAY';
-      rateApplied = isSaturday
-        ? Number(rates.overtimeSaturdayRate)
-        : Number(rates.overtimeWeekdayRate);
+      if (dayType === 'WEEKDAY') {
+        // Entre semana: solo se paga como extra lo que supere las 8h.
+        const extraMinutes = Math.max(
+          0,
+          payableMinutes - REGULAR_DAY_MINUTES,
+        );
+        payableHours = this.minutesToPayableHours(extraMinutes);
+        rateType = 'OVERTIME_WEEKDAY';
+        rateApplied = Number(rates.overtimeWeekdayRate);
+      } else {
+        // Sabado, domingo y festivo: toda la jornada cuenta como extra
+        // desde la primera hora, cada uno a su propia tarifa.
+        payableHours = this.minutesToPayableHours(payableMinutes);
+        rateType = this.rateTypeForDay(dayType);
+        rateApplied = this.rateForDay(dayType, rates);
+      }
     } else {
-      payableHours = this.minutesToPayableHours(totalMinutes);
+      payableHours = this.minutesToPayableHours(payableMinutes);
       rateType = 'HOURLY';
       rateApplied = Number(rates.hourlyRate);
     }
@@ -123,7 +147,8 @@ export class TimeEntriesService {
       data: {
         clockOutAt,
         clockOutByUserId: userId,
-        totalMinutes,
+        totalMinutes: rawTotalMinutes,
+        wasCapped,
         payableHours,
         rateType,
         rateApplied,
@@ -139,11 +164,70 @@ export class TimeEntriesService {
     return fullHours + (remainder >= 30 ? 1 : 0);
   }
 
-  private isSaturday(date: Date): boolean {
+  private rateTypeForDay(dayType: DayType): TimeEntryRateType {
+    switch (dayType) {
+      case 'HOLIDAY':
+        return 'OVERTIME_HOLIDAY';
+      case 'SUNDAY':
+        return 'OVERTIME_SUNDAY';
+      case 'SATURDAY':
+        return 'OVERTIME_SATURDAY';
+      default:
+        return 'OVERTIME_WEEKDAY';
+    }
+  }
+
+  private rateForDay(
+    dayType: DayType,
+    rates: {
+      overtimeHolidayRate: unknown;
+      overtimeSundayRate: unknown;
+      overtimeSaturdayRate: unknown;
+      overtimeWeekdayRate: unknown;
+    },
+  ): number {
+    switch (dayType) {
+      case 'HOLIDAY':
+        return Number(rates.overtimeHolidayRate);
+      case 'SUNDAY':
+        return Number(rates.overtimeSundayRate);
+      case 'SATURDAY':
+        return Number(rates.overtimeSaturdayRate);
+      default:
+        return Number(rates.overtimeWeekdayRate);
+    }
+  }
+
+  // Festivo (si esta cargado en el calendario) > domingo > sabado > entre semana.
+  private async resolveDayType(date: Date): Promise<DayType> {
+    const dateOnly = this.toMadridDateOnly(date);
+    const holiday = await this.prisma.publicHoliday.findUnique({
+      where: { date: dateOnly },
+    });
+    if (holiday) return 'HOLIDAY';
+
     const weekday = new Intl.DateTimeFormat('en-US', {
       timeZone: MADRID_TZ,
       weekday: 'short',
     }).format(date);
-    return weekday === 'Sat';
+
+    if (weekday === 'Sun') return 'SUNDAY';
+    if (weekday === 'Sat') return 'SATURDAY';
+    return 'WEEKDAY';
+  }
+
+  // Normaliza una fecha/hora a la fecha civil (00:00 UTC de ese dia) segun
+  // el huso de Madrid, para poder comparar contra PublicHoliday.date (@db.Date).
+  private toMadridDateOnly(date: Date): Date {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: MADRID_TZ,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const year = parts.find((part) => part.type === 'year')!.value;
+    const month = parts.find((part) => part.type === 'month')!.value;
+    const day = parts.find((part) => part.type === 'day')!.value;
+    return new Date(`${year}-${month}-${day}T00:00:00.000Z`);
   }
 }

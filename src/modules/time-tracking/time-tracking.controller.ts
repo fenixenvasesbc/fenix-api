@@ -19,6 +19,7 @@ import { TimeEntriesService } from './time-entries.service';
 import { TimeTrackingPurgeService } from './time-tracking-purge.service';
 import { TimeTrackingRatesService } from './time-tracking-rates.service';
 import { TimeTrackingSummaryService } from './time-tracking-summary.service';
+import { TimeTrackingHolidaysService } from './time-tracking-holidays.service';
 import {
   CreateEmployeeDto,
   EmployeeIdParamDto,
@@ -29,10 +30,16 @@ import { ClockDto, ListEntriesQueryDto } from './dto/time-entry.dto';
 import { UpdateRatesDto } from './dto/rates.dto';
 import { TimeTrackingSummaryQueryDto } from './dto/summary.dto';
 import { PurgeTimeTrackingDto } from './dto/purge.dto';
+import {
+  BulkCreateHolidaysDto,
+  CreateHolidayDto,
+  HolidayIdParamDto,
+  ListHolidaysQueryDto,
+} from './dto/holiday.dto';
 
 // Módulo completo: ADMIN, FACTORY y FACTORY_MANAGER pueden fichar y consultar empleados.
 const MODULE_ROLES = [Role.ADMIN, Role.FACTORY, Role.FACTORY_MANAGER];
-// Gestión (CRUD empleados, tarifas, resúmenes): solo ADMIN y FACTORY_MANAGER.
+// Gestión (CRUD empleados, tarifas, resúmenes, festivos): solo ADMIN y FACTORY_MANAGER.
 const MANAGEMENT_ROLES = [Role.ADMIN, Role.FACTORY_MANAGER];
 
 @Controller('time-tracking')
@@ -45,6 +52,7 @@ export class TimeTrackingController {
     private readonly rates: TimeTrackingRatesService,
     private readonly summary: TimeTrackingSummaryService,
     private readonly purgeService: TimeTrackingPurgeService,
+    private readonly holidays: TimeTrackingHolidaysService,
   ) {}
 
   @Get('employees')
@@ -105,6 +113,42 @@ export class TimeTrackingController {
   @Get('summary')
   getSummary(@Query() query: TimeTrackingSummaryQueryDto) {
     return this.summary.summarize(query);
+  }
+
+  // ==========================================
+  // Festivos (nacionales / autonomicos / locales). El modulo de fichaje
+  // los usa para calcular horas extra a tarifa de festivo (ver
+  // TimeEntriesService.resolveDayType).
+  // ==========================================
+
+  @Roles(...MANAGEMENT_ROLES)
+  @Get('holidays')
+  listHolidays(@Query() query: ListHolidaysQueryDto) {
+    return this.holidays.list(query.year);
+  }
+
+  @Roles(...MANAGEMENT_ROLES)
+  @Post('holidays')
+  createHoliday(
+    @Body() dto: CreateHolidayDto,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.holidays.create(dto, user.userId);
+  }
+
+  @Roles(...MANAGEMENT_ROLES)
+  @Post('holidays/bulk')
+  bulkCreateHolidays(
+    @Body() dto: BulkCreateHolidaysDto,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.holidays.bulkCreate(dto.holidays, user.userId);
+  }
+
+  @Roles(...MANAGEMENT_ROLES)
+  @Delete('holidays/:id')
+  removeHoliday(@Param() params: HolidayIdParamDto) {
+    return this.holidays.remove(params.id);
   }
 
   // Solo ADMIN: usado por el script de escritorio para el borrado total del módulo.
