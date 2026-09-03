@@ -26,7 +26,12 @@ import {
   ListEmployeesQueryDto,
   UpdateEmployeeDto,
 } from './dto/employee.dto';
-import { ClockDto, ListEntriesQueryDto } from './dto/time-entry.dto';
+import {
+  ClockDto,
+  ListEntriesQueryDto,
+  TimeEntryIdParamDto,
+  UpdateTimeEntryDto,
+} from './dto/time-entry.dto';
 import { UpdateRatesDto } from './dto/rates.dto';
 import { TimeTrackingSummaryQueryDto } from './dto/summary.dto';
 import { PurgeTimeTrackingDto } from './dto/purge.dto';
@@ -87,6 +92,30 @@ export class TimeTrackingController {
     @Query() query: ListEntriesQueryDto,
   ) {
     return this.entries.listForEmployee(params.id, query.from, query.to);
+  }
+
+  // Edicion/eliminacion manual de fichajes ya cerrados, con auditoria de
+  // quien hizo el cambio. Solo ADMIN y FACTORY_MANAGER (ver MANAGEMENT_ROLES).
+  @Roles(...MANAGEMENT_ROLES)
+  @Patch('entries/:id')
+  updateEntry(
+    @Param() params: TimeEntryIdParamDto,
+    @Body() dto: UpdateTimeEntryDto,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.entries.updateEntry(params.id, dto, user.userId);
+  }
+
+  @Roles(...MANAGEMENT_ROLES)
+  @Delete('entries/:id')
+  removeEntry(@Param() params: TimeEntryIdParamDto) {
+    return this.entries.removeEntry(params.id);
+  }
+
+  @Roles(...MANAGEMENT_ROLES)
+  @Get('entries/:id/audit')
+  getEntryAudit(@Param() params: TimeEntryIdParamDto) {
+    return this.entries.getAuditTrail(params.id);
   }
 
   @Post('clock')

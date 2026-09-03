@@ -7,11 +7,12 @@ export class TimeTrackingPurgeService {
   constructor(private readonly prisma: PrismaService) {}
 
   async preview() {
-    const [employees, entries] = await this.prisma.$transaction([
+    const [employees, entries, auditRecords] = await this.prisma.$transaction([
       this.prisma.employee.count(),
       this.prisma.timeEntry.count(),
+      this.prisma.timeEntryAudit.count(),
     ]);
-    return { employees, entries };
+    return { employees, entries, auditRecords };
   }
 
   async purge(confirmationPhrase: string) {
@@ -19,12 +20,18 @@ export class TimeTrackingPurgeService {
       throw new BadRequestException('Frase de confirmación incorrecta');
     }
 
-    const [entries, employees] = await this.prisma.$transaction([
+    // La auditoria de ediciones (TimeEntryAudit) NO se borra sola al
+    // eliminar un TimeEntry (FK es ON DELETE SET NULL a proposito, ver
+    // schema.prisma) -- solo el purge total del modulo la limpia, por eso
+    // se borra explicitamente aqui.
+    const [auditRecords, entries, employees] = await this.prisma.$transaction([
+      this.prisma.timeEntryAudit.deleteMany({}),
       this.prisma.timeEntry.deleteMany({}),
       this.prisma.employee.deleteMany({}),
     ]);
 
     return {
+      deletedAuditRecords: auditRecords.count,
       deletedEntries: entries.count,
       deletedEmployees: employees.count,
     };

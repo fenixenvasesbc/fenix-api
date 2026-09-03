@@ -1120,6 +1120,35 @@ model TimeEntry {
   @@index([employeeId, clockInAt])
   @@index([employeeId, clockOutAt])
   @@index([wasCapped])
+
+  audits TimeEntryAudit[]
+}
+
+// Auditoria de ediciones manuales de un fichaje (hora entrada/salida) hechas
+// por ADMIN o FACTORY_MANAGER desde "Mis horas". No se borra al eliminar el
+// fichaje (onDelete: SetNull) -- solo se limpia con el purge total del
+// modulo (TimeTrackingPurgeService), nunca con un delete normal de un fichaje.
+// timeEntryId es opcional a proposito: al eliminar un fichaje normal
+// (TimeEntriesService.removeEntry) la auditoria NO se borra (ON DELETE SET
+// NULL), queda como registro huerfano para conservar el rastro de quien
+// edito que. Solo se borra junto con el purge total del modulo
+// (TimeTrackingPurgeService.purge).
+model TimeEntryAudit {
+  id          String     @id @default(uuid())
+  timeEntryId String?
+  timeEntry   TimeEntry? @relation(fields: [timeEntryId], references: [id], onDelete: SetNull)
+
+  performedByUserId String
+  performedByEmail  String
+
+  previousClockInAt  DateTime
+  previousClockOutAt DateTime?
+  newClockInAt       DateTime
+  newClockOutAt      DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([timeEntryId])
 }
 
 model TimeTrackingRate {
