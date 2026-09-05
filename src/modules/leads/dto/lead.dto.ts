@@ -4,7 +4,6 @@ import {
   ArrayMinSize,
   IsArray,
   IsDateString,
-  IsEnum,
   IsInt,
   IsIn,
   IsOptional,
@@ -14,7 +13,6 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { LeadLabel } from '@prisma/client';
 
 function emptyToUndefined(value: unknown) {
   return value === '' ? undefined : value;
@@ -27,8 +25,10 @@ export class ListLeadsQueryDto {
   accountId?: string;
 
   @IsOptional()
-  @IsEnum(LeadLabel)
-  label?: LeadLabel;
+  @Transform(({ value }) => emptyToUndefined(value))
+  @IsString()
+  @MaxLength(80)
+  label?: string;
 
   @IsOptional()
   @Transform(({ value }) =>
@@ -63,8 +63,9 @@ export class ListLeadsQueryDto {
 }
 
 export class SetLeadLabelDto {
-  @IsEnum(LeadLabel)
-  label: LeadLabel;
+  @IsString()
+  @MaxLength(80)
+  label: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -128,8 +129,10 @@ export class ExportLeadsQueryDto {
   accountId?: string;
 
   @IsOptional()
-  @IsEnum(LeadLabel)
-  label?: LeadLabel;
+  @Transform(({ value }) => emptyToUndefined(value))
+  @IsString()
+  @MaxLength(80)
+  label?: string;
 }
 
 export class LookupLeadsByPhoneDto {

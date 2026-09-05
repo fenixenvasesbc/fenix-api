@@ -2,7 +2,6 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   ConversationChannel,
   ConversationStatus,
-  LeadLabel,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -355,7 +354,7 @@ export class ConversationService {
     search?: string | null;
     onlyOpen?: boolean;
     onlyPending?: boolean;
-    label?: LeadLabel | null;
+    label?: string | null;
   }) {
     const {
       accountId,

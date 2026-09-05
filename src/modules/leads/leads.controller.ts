@@ -5,7 +5,6 @@ import {
   ForbiddenException,
   Get,
   Param,
-  ParseEnumPipe,
   ParseUUIDPipe,
   Patch,
   Post,
@@ -13,7 +12,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { LeadLabel, Role } from '@prisma/client';
+import { Role } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -80,7 +79,7 @@ export class LeadsController {
   @Delete(':leadId/labels/:label')
   async removeLabel(
     @Param('leadId', new ParseUUIDPipe()) leadId: string,
-    @Param('label', new ParseEnumPipe(LeadLabel)) label: LeadLabel,
+    @Param('label') label: string,
     @Query('accountId') accountIdFromQuery: string | undefined,
     @Body() body: RemoveLeadLabelDto,
     @Req() req: { user: AuthUser },

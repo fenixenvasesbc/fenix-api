@@ -51,6 +51,7 @@ import { MessageMediaModule } from './modules/message-media/message-media.module
 import { AssistantModule } from './modules/assistant/assistant.module';
 import { TimeTrackingModule } from './modules/time-tracking/time-tracking.module';
 import { GlobalTemplatesModule } from './modules/global-templates/global-templates.module';
+import { LeadLabelDefinitionsModule } from './modules/lead-label-definitions/lead-label-definitions.module';
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { GlobalTemplatesModule } from './modules/global-templates/global-templat
     AssistantModule,
     TimeTrackingModule,
     GlobalTemplatesModule,
+    LeadLabelDefinitionsModule,
   ],
   controllers: [
     AppController,

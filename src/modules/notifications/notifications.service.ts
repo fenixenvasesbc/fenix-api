@@ -1,34 +1,22 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import {
-  AppNotificationStatus,
-  AppNotificationType,
-  LeadLabel,
-  Prisma,
-} from '@prisma/client';
+import { AppNotificationStatus, AppNotificationType, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { withLeadDisplayName } from 'src/common/utils/lead-name';
 import { ChatEventsService } from '../chat-events/chat-events.service';
 
+// Antes esto era un mapa hardcodeado por el enum LeadLabel
+// (DEFAULT_LABEL_ALERT_DAYS / LABEL_DISPLAY_NAMES). Ahora las reglas de
+// alerta (cuantos dias puede un lead permanecer en una label antes de
+// generar una AppNotification) se leen de LeadLabelDefinition.alertThresholdDays,
+// configurable desde la UI por cuenta. Esto es el sistema de notificaciones
+// in-app UNICAMENTE: no tiene relacion con el envio automatico de mensajes
+// de WhatsApp (LeadRepetitionReminder y su scheduler/dispatch), que no fue
+// tocado por este cambio.
 type LabelAlertRule = {
-  label: LeadLabel;
+  accountId: string;
+  label: string;
+  labelName: string;
   days: number;
-};
-
-const DEFAULT_LABEL_ALERT_DAYS: Partial<Record<LeadLabel, number>> = {
-  [LeadLabel.MUESTRAS]: 7,
-  [LeadLabel.BOCETO_EN_PROCESO]: 4,
-  [LeadLabel.PENDIENTE_DE_PAGO]: 7,
-  [LeadLabel.PRODUCCION]: 14,
-  [LeadLabel.BOCETOS_ATRASADOS]: 2,
-};
-
-const LABEL_DISPLAY_NAMES: Record<LeadLabel, string> = {
-  [LeadLabel.PRODUCCION]: 'Produccion',
-  [LeadLabel.BOCETO_EN_PROCESO]: 'Boceto en proceso',
-  [LeadLabel.PENDIENTE_DE_PAGO]: 'Pendiente de pago',
-  [LeadLabel.MUESTRAS]: 'Muestras',
-  [LeadLabel.REPETICIONES]: 'Repeticiones',
-  [LeadLabel.BOCETOS_ATRASADOS]: 'Boceto atrasado',
 };
 
 @Injectable()
@@ -160,7 +148,7 @@ export class NotificationsService {
     return { unreadCount: 0 };
   }
 
-  async markLabelStaleAsRead(accountId: string, label: LeadLabel) {
+  async markLabelStaleAsRead(accountId: string, label: string) {
     const now = new Date();
 
     const result = await this.prisma.appNotification.updateMany({
@@ -198,7 +186,7 @@ export class NotificationsService {
   }
 
   async runLabelAlerts(now = new Date()) {
-    const rules = this.resolveLabelAlertRules();
+    const rules = await this.resolveLabelAlertRules();
     const limit = this.resolveBatchLimit();
     let createdCount = 0;
     let inspectedCount = 0;
@@ -207,6 +195,7 @@ export class NotificationsService {
       const cutoff = new Date(now.getTime() - rule.days * 24 * 60 * 60 * 1000);
       const staleAssignments = await this.prisma.leadLabelAssignment.findMany({
         where: {
+          accountId: rule.accountId,
           label: rule.label,
           removedAt: null,
           assignedAt: {
@@ -252,7 +241,7 @@ export class NotificationsService {
           changedAt: assignment.assignedAt,
         });
         const leadName = this.leadDisplayName(lead);
-        const labelName = LABEL_DISPLAY_NAMES[rule.label];
+        const labelName = rule.labelName;
         const daysInLabel = Math.floor(
           (now.getTime() - assignment.assignedAt.getTime()) /
             (24 * 60 * 60 * 1000),
@@ -294,7 +283,7 @@ export class NotificationsService {
     accountId: string;
     leadId: string;
     dedupeKey: string;
-    label: LeadLabel;
+    label: string;
     title: string;
     message: string;
     triggeredAt: Date;
@@ -341,31 +330,33 @@ export class NotificationsService {
     return true;
   }
 
-  private resolveLabelAlertRules(): LabelAlertRule[] {
-    return Object.values(LeadLabel)
-      .map((label) => {
-        const days = this.resolveDaysForLabel(label);
-        return days ? { label, days } : null;
-      })
-      .filter(Boolean) as LabelAlertRule[];
-  }
+  private async resolveLabelAlertRules(): Promise<LabelAlertRule[]> {
+    const definitions = await this.prisma.leadLabelDefinition.findMany({
+      where: {
+        active: true,
+        alertThresholdDays: { not: null },
+      },
+      select: {
+        accountId: true,
+        code: true,
+        name: true,
+        alertThresholdDays: true,
+      },
+    });
 
-  private resolveDaysForLabel(label: LeadLabel) {
-    const envName = `NOTIFICATION_LABEL_ALERT_${label}_DAYS`;
-    const raw = process.env[envName];
-
-    if (raw !== undefined && raw.trim() !== '') {
-      const value = Number(raw);
-      if (Number.isInteger(value) && value > 0) return value;
-      return null;
-    }
-
-    return DEFAULT_LABEL_ALERT_DAYS[label] ?? null;
+    return definitions
+      .filter((d) => d.alertThresholdDays && d.alertThresholdDays > 0)
+      .map((d) => ({
+        accountId: d.accountId,
+        label: d.code,
+        labelName: d.name,
+        days: d.alertThresholdDays as number,
+      }));
   }
 
   private labelStaleDedupeKey(input: {
     leadId: string;
-    label: LeadLabel;
+    label: string;
     changedAt: Date;
   }) {
     return `label-stale:${input.leadId}:${input.label}:${input.changedAt.toISOString()}`;

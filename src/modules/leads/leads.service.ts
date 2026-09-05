@@ -3,14 +3,15 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { LeadLabel, LeadStatus, Prisma } from '@prisma/client';
+import { LeadStatus, Prisma } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { normalizeLeadName, withLeadDisplayName } from 'src/common/utils/lead-name';
+import { SYSTEM_LABEL_CODES } from 'src/common/constants/lead-labels';
 import { ChatEventsService } from '../chat-events/chat-events.service';
 
 type ListLeadsInput = {
   accountId: string;
-  label?: LeadLabel;
+  label?: string;
   search?: string | null;
   limit: number;
   beforeLeadId?: string | null;
@@ -21,7 +22,7 @@ type ListLeadsInput = {
 type SetLabelInput = {
   accountId: string;
   leadId: string;
-  label: LeadLabel;
+  label: string;
   changedByUserId?: string | null;
   reminderDays?: number;
 };
@@ -29,7 +30,7 @@ type SetLabelInput = {
 type RemoveLabelInput = {
   accountId: string;
   leadId: string;
-  label: LeadLabel;
+  label: string;
   changedByUserId?: string | null;
   reason?: string | null;
 };
@@ -47,7 +48,7 @@ type ExportLeadsInput = {
   page: number;
   pageSize: number;
   accountId?: string;
-  label?: LeadLabel;
+  label?: string;
 };
 
 const DEFAULT_REPETITION_REMINDER_DAYS = 90;
@@ -176,7 +177,7 @@ export class LeadsService {
 
   private async listByAccountAndActiveLabel(input: {
     accountId: string;
-    label: LeadLabel;
+    label: string;
     search?: string | null;
     limit: number;
     beforeLeadId?: string | null;
@@ -313,6 +314,8 @@ export class LeadsService {
       throw new BadRequestException('Lead has no accountId');
     }
 
+    await this.assertLabelCodeExists(accountId, label);
+
     const markedAt = new Date();
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -348,7 +351,7 @@ export class LeadsService {
       const previousRepetition = await tx.leadLabelAssignment.findFirst({
         where: {
           leadId,
-          label: LeadLabel.REPETICIONES,
+          label: SYSTEM_LABEL_CODES.REPETICIONES,
           id: { not: assignment.id },
         },
         orderBy: { assignedAt: 'desc' },
@@ -369,7 +372,7 @@ export class LeadsService {
           });
 
       const repetitionPlan =
-        !existingAssignment && label === LeadLabel.REPETICIONES
+        !existingAssignment && label === SYSTEM_LABEL_CODES.REPETICIONES
           ? this.buildRepetitionPlan({
               markedAt: assignment.assignedAt,
               previousRepetitionAt: previousRepetition?.assignedAt ?? null,
@@ -408,7 +411,7 @@ export class LeadsService {
                 nextRepetitionReminderAt: repetitionPlan.dueAt,
               }
             : {
-                ...(label === LeadLabel.REPETICIONES
+                ...(label === SYSTEM_LABEL_CODES.REPETICIONES
                   ? {}
                   : {}),
               }),
@@ -497,7 +500,7 @@ export class LeadsService {
       });
 
       const canceled =
-        label === LeadLabel.REPETICIONES
+        label === SYSTEM_LABEL_CODES.REPETICIONES
           ? await tx.leadRepetitionReminder.updateMany({
               where: {
                 leadId,
@@ -536,7 +539,7 @@ export class LeadsService {
                 currentLabelChangedAt: nextPrimary?.assignedAt ?? null,
               }
             : {}),
-          ...(label === LeadLabel.REPETICIONES
+          ...(label === SYSTEM_LABEL_CODES.REPETICIONES
             ? {
                 nextRepetitionReminderAt: null,
               }
@@ -604,7 +607,7 @@ export class LeadsService {
         OR: [
           {
             labelAssignment: {
-              label: LeadLabel.REPETICIONES,
+              label: SYSTEM_LABEL_CODES.REPETICIONES,
               removedAt: null,
             },
           },
@@ -613,7 +616,7 @@ export class LeadsService {
             lead: {
               labelAssignments: {
                 some: {
-                  label: LeadLabel.REPETICIONES,
+                  label: SYSTEM_LABEL_CODES.REPETICIONES,
                   removedAt: null,
                 },
               },
@@ -761,6 +764,24 @@ export class LeadsService {
 
     if (!lead) {
       throw new NotFoundException('Lead not found for this account');
+    }
+  }
+
+  // Valida que la label exista (activa) en LeadLabelDefinition para esta
+  // cuenta. Las 6 labels de sistema (ver SYSTEM_LABEL_CODES) se siembran
+  // automaticamente para cada Account; las custom se crean desde
+  // LeadLabelDefinitionsService. No afecta al sistema de recordatorios de
+  // WhatsApp: ese sigue comparando el string 'REPETICIONES' tal cual.
+  private async assertLabelCodeExists(accountId: string, label: string) {
+    const definition = await this.prisma.leadLabelDefinition.findFirst({
+      where: { accountId, code: label, active: true },
+      select: { id: true },
+    });
+
+    if (!definition) {
+      throw new BadRequestException(
+        `Label "${label}" no existe o esta inactiva para esta cuenta`,
+      );
     }
   }
 

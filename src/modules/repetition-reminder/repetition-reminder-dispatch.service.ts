@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
-  LeadLabel,
   MessageDirection,
   MessageStatus,
   MessageType,
   Prisma,
 } from '@prisma/client';
+import { SYSTEM_LABEL_CODES } from 'src/common/constants/lead-labels';
 import { LeadLanguageResolverService } from 'src/common/utils/lead-language-resolver.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ChatEventsService } from '../chat-events/chat-events.service';
@@ -129,7 +129,7 @@ export class RepetitionReminderDispatchService {
             id: reminder.labelAssignmentId,
             leadId: lead.id,
             accountId: lead.accountId,
-            label: LeadLabel.REPETICIONES,
+            label: SYSTEM_LABEL_CODES.REPETICIONES,
             removedAt: null,
           },
           select: { id: true },
@@ -138,7 +138,7 @@ export class RepetitionReminderDispatchService {
           where: {
             leadId: lead.id,
             accountId: lead.accountId,
-            label: LeadLabel.REPETICIONES,
+            label: SYSTEM_LABEL_CODES.REPETICIONES,
             removedAt: null,
           },
           select: { id: true },

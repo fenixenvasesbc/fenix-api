@@ -1,6 +1,7 @@
 import { Cron } from '@nestjs/schedule';
 import { Injectable, Logger } from '@nestjs/common';
-import { LeadCampaignType, LeadLabel } from '@prisma/client';
+import { LeadCampaignType } from '@prisma/client';
+import { SYSTEM_LABEL_CODES } from 'src/common/constants/lead-labels';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { RabbitmqService } from '../rabbitmq/rabbitmq.service';
 import {
@@ -32,7 +33,7 @@ export class RepetitionReminderSchedulerService {
         OR: [
           {
             labelAssignment: {
-              label: LeadLabel.REPETICIONES,
+              label: SYSTEM_LABEL_CODES.REPETICIONES,
               removedAt: null,
             },
           },
@@ -41,7 +42,7 @@ export class RepetitionReminderSchedulerService {
             lead: {
               labelAssignments: {
                 some: {
-                  label: LeadLabel.REPETICIONES,
+                  label: SYSTEM_LABEL_CODES.REPETICIONES,
                   removedAt: null,
                 },
               },

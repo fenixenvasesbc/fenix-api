@@ -53,13 +53,34 @@ enum LeadStatus {
   // luego: WAITING_SKETCH, IN_PRODUCTION, CLOSED_WON, etc.
 }
 
-enum LeadLabel {
-  PRODUCCION
-  BOCETO_EN_PROCESO
-  PENDIENTE_DE_PAGO
-  MUESTRAS
-  REPETICIONES
-  BOCETOS_ATRASADOS
+model LeadLabelDefinition {
+  id        String  @id @default(uuid())
+  accountId String
+  code      String // identificador estable (ej. PRODUCCION, REPETICIONES, o slug para labels custom)
+  name      String
+  color     String?
+
+  // Las 6 labels originales (antes enum LeadLabel) se sembraron como sistema:
+  // no se pueden borrar, pero su nombre/color/umbral de alerta si son editables.
+  // REPETICIONES es especial: la usa tambien el job de recordatorios de WhatsApp
+  // (RepetitionReminderScheduler/Dispatch), asi que su "code" nunca debe cambiar.
+  isSystem Boolean @default(false)
+
+  // Dias que un lead puede permanecer en esta label antes de generar una
+  // AppNotification (sistema de alertas in-app). null = sin alerta configurada.
+  // Esto NO tiene relacion con el envio automatico de mensajes de WhatsApp.
+  alertThresholdDays Int?
+
+  active    Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, code])
+  @@index([accountId, active, sortOrder])
 }
 
 enum AppNotificationType {
@@ -228,6 +249,7 @@ model Account {
   globalWhatsappTemplateAccounts GlobalWhatsappTemplateAccount[]
   leadLabelHistory          LeadLabelHistory[]
   leadLabelAssignments      LeadLabelAssignment[]
+  labelDefinitions          LeadLabelDefinition[]
   repetitionReminders       LeadRepetitionReminder[]
   notifications             AppNotification[]
   mediaUploads              MediaUpload[]
@@ -270,7 +292,7 @@ model Lead {
   lastMessageAt      DateTime? // se actualiza con el timestamp de cada mensaje (inbound o outbound)
   sourceTemplateName String? // se setea con el template del primer mensaje (inbound o outbound) para métrica #2
 
-  currentLabel             LeadLabel?
+  currentLabel             String?
   currentLabelChangedAt    DateTime?
   repetitionReminderDays   Int?
   nextRepetitionReminderAt DateTime?
@@ -312,8 +334,8 @@ model LeadLabelHistory {
   id              String     @id @default(uuid())
   leadId          String
   accountId       String
-  fromLabel       LeadLabel?
-  toLabel         LeadLabel
+  fromLabel       String?
+  toLabel         String
   changedAt       DateTime   @default(now())
   changedByUserId String?
 
@@ -328,7 +350,7 @@ model LeadLabelAssignment {
   id               String    @id @default(uuid())
   leadId           String
   accountId        String
-  label            LeadLabel
+  label            String
   assignedAt       DateTime  @default(now())
   assignedByUserId String?
   removedAt        DateTime?
@@ -389,7 +411,7 @@ model AppNotification {
   dedupeKey String
   title     String
   message   String
-  label     LeadLabel?
+  label     String?
 
   triggeredAt DateTime  @default(now())
   readAt      DateTime?
