@@ -53,12 +53,15 @@ enum LeadStatus {
   // luego: WAITING_SKETCH, IN_PRODUCTION, CLOSED_WON, etc.
 }
 
+// Catalogo GLOBAL de labels de lead (antes enum LeadLabel, luego una copia
+// por Account): una sola definicion compartida por todas las cuentas. Editar
+// una label (nombre, umbral de alerta, activar/desactivar) o crear una
+// custom afecta a todo el sistema, no a una cuenta en particular.
 model LeadLabelDefinition {
-  id        String  @id @default(uuid())
-  accountId String
-  code      String // identificador estable (ej. PRODUCCION, REPETICIONES, o slug para labels custom)
-  name      String
-  color     String?
+  id    String  @id @default(uuid())
+  code  String // identificador estable (ej. PRODUCCION, REPETICIONES, o slug para labels custom)
+  name  String
+  color String?
 
   // Las 6 labels originales (antes enum LeadLabel) se sembraron como sistema:
   // no se pueden borrar, pero su nombre/color/umbral de alerta si son editables.
@@ -77,10 +80,8 @@ model LeadLabelDefinition {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
-
-  @@unique([accountId, code])
-  @@index([accountId, active, sortOrder])
+  @@unique([code])
+  @@index([active, sortOrder])
 }
 
 enum AppNotificationType {
@@ -249,7 +250,6 @@ model Account {
   globalWhatsappTemplateAccounts GlobalWhatsappTemplateAccount[]
   leadLabelHistory          LeadLabelHistory[]
   leadLabelAssignments      LeadLabelAssignment[]
-  labelDefinitions          LeadLabelDefinition[]
   repetitionReminders       LeadRepetitionReminder[]
   notifications             AppNotification[]
   mediaUploads              MediaUpload[]

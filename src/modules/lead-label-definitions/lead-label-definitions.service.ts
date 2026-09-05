@@ -11,7 +11,6 @@ import {
 } from 'src/common/constants/lead-labels';
 
 type CreateInput = {
-  accountId: string;
   name: string;
   color?: string;
   alertThresholdDays?: number;
@@ -19,7 +18,6 @@ type CreateInput = {
 };
 
 type UpdateInput = {
-  accountId: string;
   id: string;
   name?: string;
   color?: string;
@@ -31,11 +29,12 @@ type UpdateInput = {
 /**
  * CRUD de labels de lead configurables desde la UI (Configuracion > Etiquetas).
  *
- * Reemplaza el antiguo enum fijo LeadLabel: cada Account tiene sus propias
- * filas de LeadLabelDefinition, sembradas con las 6 labels originales como
- * "sistema" (isSystem = true, no se pueden borrar, pero su nombre/color/
- * umbral de alerta si son editables) mas cualquier label custom que se cree
- * desde aqui.
+ * Reemplaza el antiguo enum fijo LeadLabel: es un catalogo GLOBAL compartido
+ * por todas las cuentas, sembrado con las 6 labels originales como "sistema"
+ * (isSystem = true, no se pueden borrar, pero su nombre/color/umbral de
+ * alerta si son editables) mas cualquier label custom que se cree desde aqui.
+ * Editar o crear una label aplica para todo el sistema, no para una cuenta
+ * en particular.
  *
  * IMPORTANTE: esto es SOLO el sistema de alertas in-app (AppNotification,
  * ver NotificationsService.runLabelAlerts). El envio automatico de mensajes
@@ -48,21 +47,19 @@ type UpdateInput = {
 export class LeadLabelDefinitionsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listByAccount(accountId: string) {
-    await this.ensureSystemLabelsSeeded(accountId);
+  async list() {
+    await this.ensureSystemLabelsSeeded();
 
     return this.prisma.leadLabelDefinition.findMany({
-      where: { accountId },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
   }
 
   async create(input: CreateInput) {
-    const code = await this.buildUniqueCustomCode(input.accountId, input.name);
+    const code = await this.buildUniqueCustomCode(input.name);
 
     return this.prisma.leadLabelDefinition.create({
       data: {
-        accountId: input.accountId,
         code,
         name: input.name.trim(),
         color: input.color ?? null,
@@ -75,12 +72,12 @@ export class LeadLabelDefinitionsService {
   }
 
   async update(input: UpdateInput) {
-    const definition = await this.prisma.leadLabelDefinition.findFirst({
-      where: { id: input.id, accountId: input.accountId },
+    const definition = await this.prisma.leadLabelDefinition.findUnique({
+      where: { id: input.id },
     });
 
     if (!definition) {
-      throw new NotFoundException('Label not found for this account');
+      throw new NotFoundException('Label not found');
     }
 
     if (definition.isSystem && input.active === false) {
@@ -103,13 +100,13 @@ export class LeadLabelDefinitionsService {
     });
   }
 
-  async remove(accountId: string, id: string) {
-    const definition = await this.prisma.leadLabelDefinition.findFirst({
-      where: { id, accountId },
+  async remove(id: string) {
+    const definition = await this.prisma.leadLabelDefinition.findUnique({
+      where: { id },
     });
 
     if (!definition) {
-      throw new NotFoundException('Label not found for this account');
+      throw new NotFoundException('Label not found');
     }
 
     if (definition.isSystem) {
@@ -118,8 +115,10 @@ export class LeadLabelDefinitionsService {
       );
     }
 
+    // Como el catalogo ahora es global, se bloquea el borrado si CUALQUIER
+    // cuenta la tiene asignada a un lead activo (no solo una en particular).
     const inUse = await this.prisma.leadLabelAssignment.findFirst({
-      where: { accountId, label: definition.code, removedAt: null },
+      where: { label: definition.code, removedAt: null },
       select: { id: true },
     });
 
@@ -134,13 +133,11 @@ export class LeadLabelDefinitionsService {
     return { deleted: true };
   }
 
-  // Por si una cuenta se creo antes de que existiera este modulo, o por
-  // cualquier motivo le faltan las 6 filas de sistema: las siembra de forma
-  // idempotente (skipDuplicates via unique [accountId, code]).
-  private async ensureSystemLabelsSeeded(accountId: string) {
+  // Siembra las 6 labels de sistema si por algun motivo faltan (ej. primer
+  // arranque de un entorno nuevo). Idempotente via unique(code).
+  private async ensureSystemLabelsSeeded() {
     await this.prisma.leadLabelDefinition.createMany({
       data: SYSTEM_LABEL_SEED.map((seed) => ({
-        accountId,
         code: seed.code as SystemLabelCode,
         name: seed.name,
         isSystem: true,
@@ -152,13 +149,13 @@ export class LeadLabelDefinitionsService {
     });
   }
 
-  private async buildUniqueCustomCode(accountId: string, name: string) {
+  private async buildUniqueCustomCode(name: string) {
     const base =
       name
         .trim()
         .toUpperCase()
         .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '') // quita acentos
+        .replace(/[̀-ͯ]/g, '') // quita acentos
         .replace(/[^A-Z0-9]+/g, '_')
         .replace(/^_+|_+$/g, '')
         .slice(0, 50) || 'LABEL';
@@ -168,7 +165,7 @@ export class LeadLabelDefinitionsService {
 
     while (
       await this.prisma.leadLabelDefinition.findFirst({
-        where: { accountId, code: candidate },
+        where: { code: candidate },
         select: { id: true },
       })
     ) {

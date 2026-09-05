@@ -8,12 +8,12 @@ import { ChatEventsService } from '../chat-events/chat-events.service';
 // (DEFAULT_LABEL_ALERT_DAYS / LABEL_DISPLAY_NAMES). Ahora las reglas de
 // alerta (cuantos dias puede un lead permanecer en una label antes de
 // generar una AppNotification) se leen de LeadLabelDefinition.alertThresholdDays,
-// configurable desde la UI por cuenta. Esto es el sistema de notificaciones
+// un catalogo GLOBAL configurable desde la UI (aplica a todas las cuentas).
+// Esto es el sistema de notificaciones
 // in-app UNICAMENTE: no tiene relacion con el envio automatico de mensajes
 // de WhatsApp (LeadRepetitionReminder y su scheduler/dispatch), que no fue
 // tocado por este cambio.
 type LabelAlertRule = {
-  accountId: string;
   label: string;
   labelName: string;
   days: number;
@@ -195,7 +195,6 @@ export class NotificationsService {
       const cutoff = new Date(now.getTime() - rule.days * 24 * 60 * 60 * 1000);
       const staleAssignments = await this.prisma.leadLabelAssignment.findMany({
         where: {
-          accountId: rule.accountId,
           label: rule.label,
           removedAt: null,
           assignedAt: {
@@ -337,7 +336,6 @@ export class NotificationsService {
         alertThresholdDays: { not: null },
       },
       select: {
-        accountId: true,
         code: true,
         name: true,
         alertThresholdDays: true,
@@ -347,7 +345,6 @@ export class NotificationsService {
     return definitions
       .filter((d) => d.alertThresholdDays && d.alertThresholdDays > 0)
       .map((d) => ({
-        accountId: d.accountId,
         label: d.code,
         labelName: d.name,
         days: d.alertThresholdDays as number,

@@ -314,7 +314,7 @@ export class LeadsService {
       throw new BadRequestException('Lead has no accountId');
     }
 
-    await this.assertLabelCodeExists(accountId, label);
+    await this.assertLabelCodeExists(label);
 
     const markedAt = new Date();
 
@@ -767,20 +767,20 @@ export class LeadsService {
     }
   }
 
-  // Valida que la label exista (activa) en LeadLabelDefinition para esta
-  // cuenta. Las 6 labels de sistema (ver SYSTEM_LABEL_CODES) se siembran
-  // automaticamente para cada Account; las custom se crean desde
+  // Valida que la label exista (activa) en el catalogo GLOBAL
+  // LeadLabelDefinition. Las 6 labels de sistema (ver SYSTEM_LABEL_CODES) se
+  // siembran automaticamente; las custom se crean desde
   // LeadLabelDefinitionsService. No afecta al sistema de recordatorios de
   // WhatsApp: ese sigue comparando el string 'REPETICIONES' tal cual.
-  private async assertLabelCodeExists(accountId: string, label: string) {
+  private async assertLabelCodeExists(label: string) {
     const definition = await this.prisma.leadLabelDefinition.findFirst({
-      where: { accountId, code: label, active: true },
+      where: { code: label, active: true },
       select: { id: true },
     });
 
     if (!definition) {
       throw new BadRequestException(
-        `Label "${label}" no existe o esta inactiva para esta cuenta`,
+        `Label "${label}" no existe o esta inactiva`,
       );
     }
   }
