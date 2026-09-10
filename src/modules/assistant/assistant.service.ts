@@ -606,6 +606,44 @@ export class AssistantService {
     }
   }
 
+  // Uso del asistente por cuenta: cuantas sesiones y mensajes genero cada
+  // cuenta, y cuando fue la ultima vez que alguien de esa cuenta lo uso.
+  // Incluye cuentas con cero uso (LEFT JOIN desde Account) para que se pueda
+  // ver de un vistazo cuales cuentas todavia no adoptaron el asistente.
+  async getUsageByAccount() {
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        accountId: string;
+        accountName: string;
+        sessionCount: bigint;
+        messageCount: bigint;
+        lastUsedAt: Date | null;
+      }>
+    >`
+      SELECT
+        a.id AS "accountId",
+        a.name AS "accountName",
+        count(DISTINCT s.id) AS "sessionCount",
+        count(m.id) AS "messageCount",
+        max(s."createdAt") AS "lastUsedAt"
+      FROM "Account" a
+      LEFT JOIN "AssistantSession" s ON s."accountId" = a.id
+      LEFT JOIN "AssistantMessage" m ON m."sessionId" = s.id
+      GROUP BY a.id, a.name
+      ORDER BY count(DISTINCT s.id) DESC, a.name ASC
+    `;
+
+    return {
+      data: rows.map((row) => ({
+        accountId: row.accountId,
+        accountName: row.accountName,
+        sessionCount: Number(row.sessionCount),
+        messageCount: Number(row.messageCount),
+        lastUsedAt: row.lastUsedAt ? row.lastUsedAt.toISOString() : null,
+      })),
+    };
+  }
+
   async listConfiguredKnowledgeDatasets(input: {
     user: AuthUser;
     documentsLimit?: number;

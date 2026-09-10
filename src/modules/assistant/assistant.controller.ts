@@ -132,6 +132,14 @@ export class AssistantController {
     });
   }
 
+  // Uso del asistente por cuenta (para saber cuales cuentas lo estan usando
+  // realmente). Cruza todas las cuentas, asi que queda restringido a ADMIN.
+  @Roles(Role.ADMIN)
+  @Get('usage-by-account')
+  getUsageByAccount() {
+    return this.assistantService.getUsageByAccount();
+  }
+
   @Roles(Role.ADMIN, Role.SALES_MANAGER)
   @Get('knowledge/datasets')
   listKnowledgeDatasets(
