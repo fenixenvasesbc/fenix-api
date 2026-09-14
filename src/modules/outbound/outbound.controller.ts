@@ -98,7 +98,8 @@ export class OutboundController {
   }
 
   private resolveAccountId(user: AuthUser, accountIdFromBody?: string): string {
-    if (user.role === Role.ADMIN) {
+    // SUPPORT ve todo lo que ve ADMIN (herencia de roles en el backend).
+    if (user.role === Role.ADMIN || user.role === Role.SUPPORT) {
       if (!accountIdFromBody) {
         throw new ForbiddenException(
           'accountId is required for admin requests',

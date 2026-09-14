@@ -59,7 +59,8 @@ export class MediaUploadController {
       return user.accountId;
     }
 
-    if (user.role === Role.ADMIN) {
+    // SUPPORT ve todo lo que ve ADMIN (herencia de roles en el backend).
+    if (user.role === Role.ADMIN || user.role === Role.SUPPORT) {
       if (!accountIdFromQuery) {
         throw new ForbiddenException(
           'Admin upload requires accountId context for now',

@@ -12,8 +12,9 @@ export class AccountScope implements CanActivate {
 
     if (!user?.role) throw new ForbiddenException('Missing user');
 
-    // Admin puede ver cualquier cuenta (si esa es tu política)
-    if (user.role === Role.ADMIN) return true;
+    // Admin puede ver cualquier cuenta (si esa es tu política).
+    // SUPPORT ve todo lo que ve ADMIN (herencia de roles en el backend).
+    if (user.role === Role.ADMIN || user.role === Role.SUPPORT) return true;
 
     // Sales solo su cuenta
     const userAccountId = user.accountId ?? null;

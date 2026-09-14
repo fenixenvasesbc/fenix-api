@@ -59,7 +59,8 @@ export class ChatEventsController {
     user: AuthUser,
     accountIdFromQuery?: string,
   ): string {
-    if (user.role === Role.ADMIN) {
+    // SUPPORT ve todo lo que ve ADMIN (herencia de roles en el backend).
+    if (user.role === Role.ADMIN || user.role === Role.SUPPORT) {
       if (!accountIdFromQuery) {
         throw new ForbiddenException('accountId is required for admin streams');
       }

@@ -73,7 +73,8 @@ export class UsersService {
   // SALES_MANAGER solo puede crear/editar/(des)activar usuarios de rol SALES.
   // ADMIN puede gestionar cualquier rol, incluido otro ADMIN.
   private assertCanManageRole(actingUser: AuthUser, targetRole: Role) {
-    if (actingUser.role === Role.ADMIN) return;
+    // SUPPORT ve/administra todo lo que ve ADMIN (herencia de roles en el backend).
+    if (actingUser.role === Role.ADMIN || actingUser.role === Role.SUPPORT) return;
 
     if (actingUser.role === Role.SALES_MANAGER && targetRole === Role.SALES) {
       return;

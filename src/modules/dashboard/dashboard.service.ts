@@ -167,7 +167,8 @@ export class DashboardService {
   ) {
     const { accountId, from, to } = dto;
 
-    if (user.role !== Role.ADMIN) {
+    // SUPPORT ve todo lo que ve ADMIN (herencia de roles en el backend).
+    if (user.role !== Role.ADMIN && user.role !== Role.SUPPORT) {
       throw new ForbiddenException('Only admins can query by account');
     }
 
@@ -269,7 +270,8 @@ export class DashboardService {
       to,
     );
 
-    const isAdmin = user.role === Role.ADMIN;
+    // SUPPORT ve todo lo que ve ADMIN (herencia de roles en el backend).
+    const isAdmin = user.role === Role.ADMIN || user.role === Role.SUPPORT;
     const isSales = user.role === Role.SALES || user.role === Role.SALES_MANAGER;
 
     let isGlobal = false;
@@ -431,7 +433,8 @@ export class DashboardService {
       to,
     );
 
-    const isAdmin = user.role === Role.ADMIN;
+    // SUPPORT ve todo lo que ve ADMIN (herencia de roles en el backend).
+    const isAdmin = user.role === Role.ADMIN || user.role === Role.SUPPORT;
     const isSales = user.role === Role.SALES || user.role === Role.SALES_MANAGER;
 
     let isGlobal = false;

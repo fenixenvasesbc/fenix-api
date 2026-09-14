@@ -1233,7 +1233,12 @@ export class AssistantService {
   // revision de feedback -> anotaciones) lo puede gestionar ADMIN o
   // SALES_MANAGER por igual.
   private assertAdminOrSalesManager(user: AuthUser) {
-    if (user.role !== Role.ADMIN && user.role !== Role.SALES_MANAGER) {
+    // SUPPORT ve todo lo que ve ADMIN (herencia de roles en el backend).
+    if (
+      user.role !== Role.ADMIN &&
+      user.role !== Role.SUPPORT &&
+      user.role !== Role.SALES_MANAGER
+    ) {
       throw new ForbiddenException('Only admins can manage the assistant');
     }
   }
