@@ -12,6 +12,12 @@ import { ROLES_KEY } from '../decorators/roles.decorator';
 // en cada @Roles(...) porque no son "todo lo que puede ADMIN", solo esa parte.
 const ROLE_INHERITANCE: Partial<Record<Role, Role[]>> = {
   [Role.SALES_MANAGER]: [Role.SALES],
+  // SUPPORT ve todo lo que ve ADMIN (cualquier ruta que exija @Roles(Role.ADMIN)
+  // tambien la pasa un SUPPORT), y ademas es el UNICO rol que puede administrar
+  // LabelMessageRule (esas rutas se gatean con @Roles(Role.SUPPORT) solo, sin
+  // ADMIN en la lista -- la herencia es unidireccional, asi que un ADMIN no
+  // queda incluido ahi). Ver ADR-002.
+  [Role.SUPPORT]: [Role.ADMIN],
 };
 
 @Injectable()

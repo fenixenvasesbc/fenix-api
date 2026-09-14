@@ -17,6 +17,8 @@ import { SmbStateSyncModule } from '../smb-state-sync/smb-state-sync.module';
 import { SmbStateSyncWorker } from './smb-state-sync.worker';
 import { RepetitionReminderModule } from '../repetition-reminder/repetition-reminder.module';
 import { RepetitionReminderWorker } from './repetition-reminder.worker';
+import { LabelMessageRuleModule } from '../label-message-rule/label-message-rule.module';
+import { LabelMessageRuleWorker } from './label-message-rule.worker';
 import { SmbMessageEchoesModule } from '../smb-message-echoes/smb-message-echoes.module';
 import { SmbMessageEchoesWorker } from './smb-message-echoes.worker';
 import { SmbHistoryModule } from '../smb-history/smb-history.module';
@@ -39,6 +41,7 @@ import { TemplateStatusWorker } from './template-status.worker';
     SmbMessageEchoesModule,
     SmbHistoryModule,
     RepetitionReminderModule,
+    LabelMessageRuleModule,
     TemplateStatusModule,
   ],
   providers: [
@@ -51,6 +54,7 @@ import { TemplateStatusWorker } from './template-status.worker';
     SmbMessageEchoesWorker,
     SmbHistoryWorker,
     RepetitionReminderWorker,
+    LabelMessageRuleWorker,
     TemplateStatusWorker,
   ],
 })

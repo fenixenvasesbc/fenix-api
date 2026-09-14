@@ -14,6 +14,10 @@ enum Role {
   FACTORY
   FACTORY_MANAGER
   CLICHE_OPERATOR
+  // Rol nuevo: ve todo lo que ve ADMIN (via ROLE_INHERITANCE en RolesGuard)
+  // y ademas es el UNICO que puede configurar LabelMessageRule (ADMIN queda
+  // excluido de esa configuracion a proposito, por pedido explicito).
+  SUPPORT
 }
 
 enum EmployeeContractType {
@@ -186,6 +190,7 @@ model User {
   assistantFeedback         AssistantFeedback[]
   assistantFeedbackReviews  AssistantFeedback[] @relation("AssistantFeedbackReviewedBy")
   createdGlobalWhatsappTemplates GlobalWhatsappTemplate[]
+  createdLabelMessageRules  LabelMessageRule[]
   assistantAuditEvents      AssistantAuditEvent[]
   assistantKnowledgeImports AssistantKnowledgeImport[]
   createdAt                 DateTime                   @default(now())
@@ -799,6 +804,7 @@ enum AccountCampaignTemplateStatus {
 enum LeadCampaignType {
   WEEK1_REENGAGEMENT
   REPETITION_REMINDER
+  LABEL_RULE
 }
 
 enum LeadCampaignStatus {
@@ -936,6 +942,38 @@ model GlobalWhatsappTemplateAccount {
   @@unique([globalTemplateId, accountId])
   @@index([wabaId])
   @@index([status])
+}
+
+// Regla configurable: "si un lead lleva N dias en esta etiqueta, mandale
+// esta plantilla de WhatsApp". Ver ADR-002. Solo el rol SUPPORT puede crear
+// o editar estas reglas (ver LabelMessageRulesController); ADMIN queda
+// excluido a proposito de esta pantalla en particular, aunque hereda el
+// resto de los permisos de ADMIN via ROLE_INHERITANCE.
+model LabelMessageRule {
+  id String @id @default(uuid())
+
+  name String
+
+  // Codigo de LeadLabelDefinition (catalogo global, de sistema o custom).
+  labelCode String
+
+  // Dias en la etiqueta (LeadLabelAssignment.assignedAt) antes de disparar.
+  triggerAfterDays Int
+
+  // "name" de un GlobalWhatsappTemplate: agrupa sus variantes por idioma,
+  // que se resuelven en el envio segun el idioma del lead (igual que
+  // reenganche: lead.preferredLanguage ?? resolveFromPhone(...)).
+  templateName String
+
+  active Boolean @default(true)
+
+  createdByUserId String?
+  createdByUser   User?   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, labelCode])
 }
 
 model LeadCampaign {

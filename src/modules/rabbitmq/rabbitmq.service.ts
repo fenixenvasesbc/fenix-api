@@ -172,6 +172,13 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
       process.env.RABBITMQ_QUEUE_REPETITION_REMINDER_RETRY_1M;
     const qRepetitionReminderRetry10m =
       process.env.RABBITMQ_QUEUE_REPETITION_REMINDER_RETRY_10M;
+    const qLabelMessageRule = process.env.RABBITMQ_QUEUE_LABEL_MESSAGE_RULE;
+    const qLabelMessageRuleRetry10s =
+      process.env.RABBITMQ_QUEUE_LABEL_MESSAGE_RULE_RETRY_10S;
+    const qLabelMessageRuleRetry1m =
+      process.env.RABBITMQ_QUEUE_LABEL_MESSAGE_RULE_RETRY_1M;
+    const qLabelMessageRuleRetry10m =
+      process.env.RABBITMQ_QUEUE_LABEL_MESSAGE_RULE_RETRY_10M;
 
     const rkInbound = process.env.RABBITMQ_RK_INBOUND;
     const rkMessageUpdated = process.env.RABBITMQ_RK_MESSAGE_UPDATED;
@@ -248,6 +255,13 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
       process.env.RABBITMQ_RK_REPETITION_REMINDER_RETRY_1M;
     const rkRepetitionReminderRetry10m =
       process.env.RABBITMQ_RK_REPETITION_REMINDER_RETRY_10M;
+    const rkLabelMessageRule = process.env.RABBITMQ_RK_LABEL_MESSAGE_RULE;
+    const rkLabelMessageRuleRetry10s =
+      process.env.RABBITMQ_RK_LABEL_MESSAGE_RULE_RETRY_10S;
+    const rkLabelMessageRuleRetry1m =
+      process.env.RABBITMQ_RK_LABEL_MESSAGE_RULE_RETRY_1M;
+    const rkLabelMessageRuleRetry10m =
+      process.env.RABBITMQ_RK_LABEL_MESSAGE_RULE_RETRY_10M;
 
     const rkProcess = process.env.RABBITMQ_RK_PROCESS;
     const rkRetry10s = process.env.RABBITMQ_RK_RETRY_10S;
@@ -284,6 +298,19 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
         'RABBITMQ_QUEUE_REPETITION_REMINDER_RETRY_10M',
         qRepetitionReminderRetry10m,
       ],
+      ['RABBITMQ_QUEUE_LABEL_MESSAGE_RULE', qLabelMessageRule],
+      [
+        'RABBITMQ_QUEUE_LABEL_MESSAGE_RULE_RETRY_10S',
+        qLabelMessageRuleRetry10s,
+      ],
+      [
+        'RABBITMQ_QUEUE_LABEL_MESSAGE_RULE_RETRY_1M',
+        qLabelMessageRuleRetry1m,
+      ],
+      [
+        'RABBITMQ_QUEUE_LABEL_MESSAGE_RULE_RETRY_10M',
+        qLabelMessageRuleRetry10m,
+      ],
       ['RABBITMQ_RK_REENGAGEMENT', rkReengagement],
       ['RABBITMQ_RK_REENGAGEMENT_RETRY_10S', rkReengagementRetry10s],
       ['RABBITMQ_RK_REENGAGEMENT_RETRY_1M', rkReengagementRetry1m],
@@ -300,6 +327,19 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
       [
         'RABBITMQ_RK_REPETITION_REMINDER_RETRY_10M',
         rkRepetitionReminderRetry10m,
+      ],
+      ['RABBITMQ_RK_LABEL_MESSAGE_RULE', rkLabelMessageRule],
+      [
+        'RABBITMQ_RK_LABEL_MESSAGE_RULE_RETRY_10S',
+        rkLabelMessageRuleRetry10s,
+      ],
+      [
+        'RABBITMQ_RK_LABEL_MESSAGE_RULE_RETRY_1M',
+        rkLabelMessageRuleRetry1m,
+      ],
+      [
+        'RABBITMQ_RK_LABEL_MESSAGE_RULE_RETRY_10M',
+        rkLabelMessageRuleRetry10m,
       ],
       ['RABBITMQ_RK_PROCESS', rkProcess],
       ['RABBITMQ_RK_RETRY_10S', rkRetry10s],
@@ -628,6 +668,54 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
       qRepetitionReminderRetry10m!,
       dlx!,
       rkRepetitionReminderRetry10m!,
+    );
+
+    await this.ch!.assertQueue(qLabelMessageRule!, { durable: true });
+    await this.ch!.bindQueue(
+      qLabelMessageRule!,
+      exchange!,
+      rkLabelMessageRule!,
+    );
+    await this.ch!.assertQueue(qLabelMessageRuleRetry10s!, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 10_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkLabelMessageRule!,
+      },
+    });
+    await this.ch!.bindQueue(
+      qLabelMessageRuleRetry10s!,
+      dlx!,
+      rkLabelMessageRuleRetry10s!,
+    );
+
+    await this.ch!.assertQueue(qLabelMessageRuleRetry1m!, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 60_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkLabelMessageRule!,
+      },
+    });
+    await this.ch!.bindQueue(
+      qLabelMessageRuleRetry1m!,
+      dlx!,
+      rkLabelMessageRuleRetry1m!,
+    );
+
+    await this.ch!.assertQueue(qLabelMessageRuleRetry10m!, {
+      durable: true,
+      arguments: {
+        'x-message-ttl': 600_000,
+        'x-dead-letter-exchange': exchange!,
+        'x-dead-letter-routing-key': rkLabelMessageRule!,
+      },
+    });
+    await this.ch!.bindQueue(
+      qLabelMessageRuleRetry10m!,
+      dlx!,
+      rkLabelMessageRuleRetry10m!,
     );
 
     await this.ch!.assertQueue(qRetry10s!, {
