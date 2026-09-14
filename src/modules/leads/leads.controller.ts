@@ -157,7 +157,14 @@ export class LeadsController {
     accountIdFromQuery?: string,
   ): string {
     // SUPPORT ve todo lo que ve ADMIN (herencia de roles en el backend).
-    if (user.role === Role.ADMIN || user.role === Role.SUPPORT) {
+    // SALES_MANAGER tambien puede ver los leads/etiquetas de CUALQUIER
+    // comercial (elige la cuenta desde el selector, igual que ADMIN) --
+    // no tiene cuenta propia, es un rol de gestion del equipo de ventas.
+    if (
+      user.role === Role.ADMIN ||
+      user.role === Role.SUPPORT ||
+      user.role === Role.SALES_MANAGER
+    ) {
       if (!accountIdFromQuery) {
         throw new ForbiddenException('accountId is required for admin queries');
       }
@@ -165,7 +172,7 @@ export class LeadsController {
       return accountIdFromQuery;
     }
 
-    if (user.role === Role.SALES || user.role === Role.SALES_MANAGER) {
+    if (user.role === Role.SALES) {
       if (!user.accountId) {
         throw new ForbiddenException('User has no accountId');
       }

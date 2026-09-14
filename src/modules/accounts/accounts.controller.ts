@@ -44,7 +44,11 @@ export class AccountsController {
     return this.accountService.createAccount(dto);
   }
 
-  @Roles(Role.ADMIN)
+  // SALES_MANAGER tambien puede listar las cuentas (comerciales) para el
+  // selector de "ver leads/etiquetas de otra comercial" en la pestana de
+  // Leads, igual que ADMIN. El resto de este controller (crear, editar,
+  // desactivar cuentas) sigue siendo exclusivo de ADMIN.
+  @Roles(Role.ADMIN, Role.SALES_MANAGER)
   @Get()
   findAllAccounts(@Query() query: FindAccountsQueryDto) {
     return this.accountService.findAllAccountsForAdmin(query);
