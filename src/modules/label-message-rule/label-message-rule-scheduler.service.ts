@@ -2,6 +2,7 @@ import { Cron } from '@nestjs/schedule';
 import { Injectable, Logger } from '@nestjs/common';
 import { LeadCampaignType } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { BusinessDaysService } from 'src/common/business-days/business-days.service';
 import { RabbitmqService } from '../rabbitmq/rabbitmq.service';
 import {
   LABEL_MESSAGE_RULE_BUSINESS_WINDOW_PREFIX,
@@ -21,6 +22,7 @@ export class LabelMessageRuleSchedulerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly rabbitPublisher: RabbitmqService,
+    private readonly businessDays: BusinessDaysService,
   ) {}
 
   @Cron('30 9 * * *', { timeZone: 'Europe/Madrid' })
@@ -33,15 +35,21 @@ export class LabelMessageRuleSchedulerService {
     const rules = await this.prisma.labelMessageRule.findMany({
       where: { active: true },
     });
+    const holidaySet = await this.businessDays.loadHolidaySet();
+    const now = new Date();
 
     this.logger.log(`Found ${rules.length} active label message rules`);
 
     for (const rule of rules) {
+      // Filtro SQL amplio por dias calendario (superconjunto seguro: los
+      // dias habiles transcurridos siempre son <= los dias calendario
+      // transcurridos). El corte exacto en dias habiles se aplica abajo,
+      // en memoria, con BusinessDaysService.
       const threshold = new Date(
-        Date.now() - rule.triggerAfterDays * 24 * 60 * 60 * 1000,
+        now.getTime() - rule.triggerAfterDays * 24 * 60 * 60 * 1000,
       );
 
-      const assignments = await this.prisma.leadLabelAssignment.findMany({
+      const candidateAssignments = await this.prisma.leadLabelAssignment.findMany({
         where: {
           label: rule.labelCode,
           removedAt: null,
@@ -54,8 +62,18 @@ export class LabelMessageRuleSchedulerService {
           id: true,
           leadId: true,
           accountId: true,
+          assignedAt: true,
         },
       });
+
+      const assignments = candidateAssignments.filter((assignment) =>
+        this.businessDays.isBusinessDaysDue(
+          assignment.assignedAt,
+          rule.triggerAfterDays,
+          now,
+          holidaySet,
+        ),
+      );
 
       this.logger.log(
         `Rule "${rule.name}" (${rule.id}) matched ${assignments.length} label assignments`,

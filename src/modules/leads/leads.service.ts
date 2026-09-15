@@ -8,6 +8,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { normalizeLeadName, withLeadDisplayName } from 'src/common/utils/lead-name';
 import { SYSTEM_LABEL_CODES } from 'src/common/constants/lead-labels';
 import { ChatEventsService } from '../chat-events/chat-events.service';
+import { BusinessDaysService } from 'src/common/business-days/business-days.service';
 
 type ListLeadsInput = {
   accountId: string;
@@ -58,6 +59,7 @@ export class LeadsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly chatEvents: ChatEventsService,
+    private readonly businessDays: BusinessDaysService,
   ) {}
 
   async listByAccount(input: ListLeadsInput) {
@@ -317,6 +319,7 @@ export class LeadsService {
     await this.assertLabelCodeExists(label);
 
     const markedAt = new Date();
+    const holidaySet = await this.businessDays.loadHolidaySet();
 
     const result = await this.prisma.$transaction(async (tx) => {
       const existingAssignment = await tx.leadLabelAssignment.findFirst({
@@ -378,6 +381,7 @@ export class LeadsService {
               previousRepetitionAt: previousRepetition?.assignedAt ?? null,
               currentReminderDays: lead.repetitionReminderDays,
               overrideReminderDays: reminderDays,
+              holidaySet,
             })
           : null;
 
@@ -785,11 +789,18 @@ export class LeadsService {
     }
   }
 
+  // reminderDays sigue midiendo el intervalo REAL (calendario) entre la
+  // marca anterior y la actual: es la "cadencia" aprendida del historial
+  // de contacto con el lead, no el umbral de "dias en etiqueta". La fecha
+  // de vencimiento (dueAt), en cambio, avanza esa cantidad de dias pero
+  // contando SOLO dias habiles (excluye fines de semana y feriados de
+  // PublicHoliday), igual que las alertas in-app y las reglas de mensajes.
   private buildRepetitionPlan(input: {
     markedAt: Date;
     previousRepetitionAt: Date | null;
     currentReminderDays: number | null;
     overrideReminderDays?: number;
+    holidaySet: Set<string>;
   }) {
     const reminderDays =
       input.overrideReminderDays ??
@@ -799,7 +810,11 @@ export class LeadsService {
 
     return {
       reminderDays,
-      dueAt: this.nextWeekday(this.addDays(input.markedAt, reminderDays)),
+      dueAt: this.businessDays.nthBusinessDayOnOrAfter(
+        input.markedAt,
+        reminderDays,
+        input.holidaySet,
+      ),
     };
   }
 
@@ -813,21 +828,6 @@ export class LeadsService {
   private addDays(date: Date, days: number) {
     const result = new Date(date);
     result.setUTCDate(result.getUTCDate() + days);
-    return result;
-  }
-
-  private nextWeekday(date: Date) {
-    const result = new Date(date);
-    const day = result.getUTCDay();
-
-    if (day === 6) {
-      result.setUTCDate(result.getUTCDate() + 2);
-    }
-
-    if (day === 0) {
-      result.setUTCDate(result.getUTCDate() + 1);
-    }
-
     return result;
   }
 

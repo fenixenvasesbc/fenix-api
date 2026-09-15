@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
+import { BusinessDaysModule } from './common/business-days/business-days.module';
 import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { RefreshTokensModule } from './modules/refresh-tokens/refresh-tokens.module';
@@ -62,6 +63,7 @@ import { LeadLabelDefinitionsModule } from './modules/lead-label-definitions/lea
     UsersModule,
     AuthModule,
     PrismaModule,
+    BusinessDaysModule,
     RefreshTokensModule,
     AccountsModule,
     EventsModule,

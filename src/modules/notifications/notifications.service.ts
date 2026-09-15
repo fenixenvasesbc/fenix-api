@@ -3,6 +3,7 @@ import { AppNotificationStatus, AppNotificationType, Prisma } from '@prisma/clie
 import { PrismaService } from 'src/prisma/prisma.service';
 import { withLeadDisplayName } from 'src/common/utils/lead-name';
 import { ChatEventsService } from '../chat-events/chat-events.service';
+import { BusinessDaysService } from 'src/common/business-days/business-days.service';
 
 // Antes esto era un mapa hardcodeado por el enum LeadLabel
 // (DEFAULT_LABEL_ALERT_DAYS / LABEL_DISPLAY_NAMES). Ahora las reglas de
@@ -26,6 +27,7 @@ export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly chatEvents: ChatEventsService,
+    private readonly businessDays: BusinessDaysService,
   ) {}
 
   async listByAccount(input: {
@@ -188,10 +190,16 @@ export class NotificationsService {
   async runLabelAlerts(now = new Date()) {
     const rules = await this.resolveLabelAlertRules();
     const limit = this.resolveBatchLimit();
+    const holidaySet = await this.businessDays.loadHolidaySet();
     let createdCount = 0;
     let inspectedCount = 0;
 
     for (const rule of rules) {
+      // Filtro SQL amplio por dias calendario: como los dias habiles
+      // transcurridos siempre son <= los dias calendario transcurridos,
+      // este corte nunca excluye un candidato que realmente ya cumplio
+      // el umbral en dias habiles (es un superconjunto seguro). El
+      // calculo exacto (dias habiles) se hace abajo, en memoria.
       const cutoff = new Date(now.getTime() - rule.days * 24 * 60 * 60 * 1000);
       const staleAssignments = await this.prisma.leadLabelAssignment.findMany({
         where: {
@@ -234,6 +242,13 @@ export class NotificationsService {
         const lead = assignment.lead;
         if (!lead.accountId) continue;
 
+        const daysInLabel = this.businessDays.countBusinessDaysElapsed(
+          assignment.assignedAt,
+          now,
+          holidaySet,
+        );
+        if (daysInLabel < rule.days) continue;
+
         const dedupeKey = this.labelStaleDedupeKey({
           leadId: lead.id,
           label: rule.label,
@@ -241,10 +256,6 @@ export class NotificationsService {
         });
         const leadName = this.leadDisplayName(lead);
         const labelName = rule.labelName;
-        const daysInLabel = Math.floor(
-          (now.getTime() - assignment.assignedAt.getTime()) /
-            (24 * 60 * 60 * 1000),
-        );
 
         const created = await this.createLabelStaleNotificationIfNeeded({
           accountId: lead.accountId,
