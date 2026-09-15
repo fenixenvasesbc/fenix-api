@@ -157,19 +157,31 @@ export class LeadsController {
     accountIdFromQuery?: string,
   ): string {
     // SUPPORT ve todo lo que ve ADMIN (herencia de roles en el backend).
-    // SALES_MANAGER tambien puede ver los leads/etiquetas de CUALQUIER
-    // comercial (elige la cuenta desde el selector, igual que ADMIN) --
-    // no tiene cuenta propia, es un rol de gestion del equipo de ventas.
-    if (
-      user.role === Role.ADMIN ||
-      user.role === Role.SUPPORT ||
-      user.role === Role.SALES_MANAGER
-    ) {
+    if (user.role === Role.ADMIN || user.role === Role.SUPPORT) {
       if (!accountIdFromQuery) {
         throw new ForbiddenException('accountId is required for admin queries');
       }
 
       return accountIdFromQuery;
+    }
+
+    // SALES_MANAGER puede ver/editar los leads y etiquetas de CUALQUIER
+    // comercial cuando la UI le pasa un accountId explicito (selector de
+    // cuenta en la pestana Leads, igual que ADMIN). Pero tambien usa estos
+    // mismos endpoints desde la bandeja de mensajes (agregar/quitar
+    // etiqueta al chatear), donde NO hay selector de cuenta y nunca se
+    // manda accountId -- ahi debe caer a su propia cuenta, igual que
+    // SALES, para no romper ese flujo.
+    if (user.role === Role.SALES_MANAGER) {
+      if (accountIdFromQuery) {
+        return accountIdFromQuery;
+      }
+
+      if (user.accountId) {
+        return user.accountId;
+      }
+
+      throw new ForbiddenException('accountId is required for admin queries');
     }
 
     if (user.role === Role.SALES) {
