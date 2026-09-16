@@ -17,6 +17,7 @@ type Args = {
   templateName: string;
   limit: number;
   delayMs: number;
+  preferLanguage: string | null;
 };
 
 type AccountCandidate = {
@@ -62,6 +63,9 @@ type Summary = {
   wouldUpsertAccountTemplates: number;
   accountTemplatesUpserted: number;
   skippedInvalidTemplates: number;
+  languageCollisionsDetected: number;
+  languageCollisionsResolved: number;
+  languageCollisionsUnresolved: number;
 };
 
 const UUID_RE =
@@ -80,6 +84,7 @@ function parseArgs(argv: string[]): Args {
   const delayMsRaw = readArg(argv, '--delay-ms');
   const limit = limitRaw ? Number(limitRaw) : DEFAULT_LIMIT;
   const delayMs = delayMsRaw ? Number(delayMsRaw) : DEFAULT_DELAY_MS;
+  const preferLanguage = readArg(argv, '--prefer-language')?.trim() || null;
 
   if (accountId && !UUID_RE.test(accountId)) {
     throw new Error('--account must be a valid UUID');
@@ -97,7 +102,7 @@ function parseArgs(argv: string[]): Args {
     throw new Error('--delay-ms must be an integer between 0 and 60000');
   }
 
-  return { apply, accountId, templateName, limit, delayMs };
+  return { apply, accountId, templateName, limit, delayMs, preferLanguage };
 }
 
 function readArg(argv: string[], name: string) {
@@ -448,6 +453,9 @@ function printSummary(summary: Summary, apply: boolean) {
   );
   console.log(`- account templates upserted: ${summary.accountTemplatesUpserted}`);
   console.log(`- invalid templates skipped: ${summary.skippedInvalidTemplates}`);
+  console.log(`- language collisions detected: ${summary.languageCollisionsDetected}`);
+  console.log(`- language collisions resolved: ${summary.languageCollisionsResolved}`);
+  console.log(`- language collisions unresolved: ${summary.languageCollisionsUnresolved}`);
 }
 
 async function main() {
@@ -476,10 +484,13 @@ async function main() {
     wouldUpsertAccountTemplates: 0,
     accountTemplatesUpserted: 0,
     skippedInvalidTemplates: 0,
+    languageCollisionsDetected: 0,
+    languageCollisionsResolved: 0,
+    languageCollisionsUnresolved: 0,
   };
 
   console.log(
-    `Starting YCloud repetition template sync mode=${args.apply ? 'APPLY' : 'DRY RUN'} templateName=${args.templateName} limit=${args.limit} delayMs=${args.delayMs}`,
+    `Starting YCloud repetition template sync mode=${args.apply ? 'APPLY' : 'DRY RUN'} templateName=${args.templateName} limit=${args.limit} delayMs=${args.delayMs} preferLanguage=${args.preferLanguage ?? '(none)'}`,
   );
 
   try {
@@ -538,6 +549,10 @@ async function main() {
         continue;
       }
 
+      // Agrupa las plantillas encontradas por idioma interno normalizado
+      // (toInternalLanguage colapsa "es" y "es_ES" a la misma clave), para
+      // poder detectar colisiones antes de decidir cual variante usar.
+      const templatesByInternalLanguage = new Map<string, YcloudTemplate[]>();
       for (const template of matchingTemplates) {
         const ycloudLanguage = nonEmpty(template.language);
         const officialTemplateId = nonEmpty(template.officialTemplateId);
@@ -551,45 +566,91 @@ async function main() {
         }
 
         const internalLanguage = toInternalLanguage(ycloudLanguage);
-        summary.templatesMatched += 1;
+        const bucket = templatesByInternalLanguage.get(internalLanguage) ?? [];
+        bucket.push(template);
+        templatesByInternalLanguage.set(internalLanguage, bucket);
+      }
 
-        const definitionId = await ensureCampaignDefinition({
-          prisma,
-          apply: args.apply,
-          internalLanguage,
-          templateName: args.templateName,
-          template,
-          summary,
-          dryRunPlannedDefinitionKeys,
-        });
+      for (const [internalLanguage, group] of templatesByInternalLanguage) {
+        let templatesToProcess = group;
 
-        const result = await syncAccountTemplate({
-          prisma,
-          apply: args.apply,
-          account,
-          definitionId,
-          template,
-          internalLanguage,
-        });
+        if (group.length > 1) {
+          summary.languageCollisionsDetected += 1;
 
-        if (result.kind === 'invalid') {
-          summary.skippedInvalidTemplates += 1;
-          console.warn(
-            `[SKIPPED] account=${account.name} template=${args.templateName} lang=${ycloudLanguage} reason=invalid template payload`,
-          );
-          continue;
+          const groupLanguages = group
+            .map((template) => nonEmpty(template.language))
+            .join(', ');
+
+          if (args.preferLanguage) {
+            const preferred = group.filter(
+              (template) => nonEmpty(template.language) === args.preferLanguage,
+            );
+
+            if (preferred.length > 0) {
+              templatesToProcess = preferred;
+              summary.languageCollisionsResolved += 1;
+              console.warn(
+                `[COLLISION] account=${account.name} template=${args.templateName} internalLang=${internalLanguage} candidates=[${groupLanguages}] resolved=${args.preferLanguage}`,
+              );
+            } else {
+              summary.languageCollisionsUnresolved += 1;
+              console.warn(
+                `[COLLISION] account=${account.name} template=${args.templateName} internalLang=${internalLanguage} candidates=[${groupLanguages}] reason=preferLanguage "${args.preferLanguage}" not found among candidates, skipping group`,
+              );
+              continue;
+            }
+          } else {
+            summary.languageCollisionsUnresolved += 1;
+            console.warn(
+              `[COLLISION] account=${account.name} template=${args.templateName} internalLang=${internalLanguage} candidates=[${groupLanguages}] reason=no --prefer-language given, all candidates will be upserted (last one processed wins)`,
+            );
+          }
         }
 
-        if (result.kind === 'would_upsert') {
-          summary.wouldUpsertAccountTemplates += 1;
-          console.log(
-            `[DRY-RUN] account=${account.name} lang=${internalLanguage} ycloudLang=${ycloudLanguage} template=${args.templateName} status=${nonEmpty(template.status) ?? 'UNKNOWN'} officialTemplateId=${officialTemplateId}`,
-          );
-        } else {
-          summary.accountTemplatesUpserted += 1;
-          console.log(
-            `[APPLIED] account=${account.name} lang=${internalLanguage} ycloudLang=${ycloudLanguage} template=${args.templateName} status=${nonEmpty(template.status) ?? 'UNKNOWN'} officialTemplateId=${officialTemplateId}`,
-          );
+        for (const template of templatesToProcess) {
+          const ycloudLanguage = nonEmpty(template.language) as string;
+          const officialTemplateId = nonEmpty(template.officialTemplateId) as string;
+
+          summary.templatesMatched += 1;
+
+          const definitionId = await ensureCampaignDefinition({
+            prisma,
+            apply: args.apply,
+            internalLanguage,
+            templateName: args.templateName,
+            template,
+            summary,
+            dryRunPlannedDefinitionKeys,
+          });
+
+          const result = await syncAccountTemplate({
+            prisma,
+            apply: args.apply,
+            account,
+            definitionId,
+            template,
+            internalLanguage,
+          });
+
+          if (result.kind === 'invalid') {
+            summary.skippedInvalidTemplates += 1;
+            console.warn(
+              `[SKIPPED] account=${account.name} template=${args.templateName} lang=${ycloudLanguage} reason=invalid template payload`,
+            );
+            continue;
+          }
+
+          if (result.kind === 'would_upsert') {
+            summary.wouldUpsertAccountTemplates += 1;
+            console.log(
+              `[DRY-RUN] account=${account.name} lang=${internalLanguage} ycloudLang=${ycloudLanguage} template=${args.templateName} status=${nonEmpty(template.status) ?? 'UNKNOWN'} officialTemplateId=${officialTemplateId}`,
+            );
+          } else {
+            summary.accountTemplatesUpserted += 1;
+            console.log(
+              `[APPLIED] account=${account.name} lang=${internalLanguage} ycloudLang=${ycloudLanguage} template=${args.templateName} status=${nonEmpty(template.status) ?? 'UNKNOWN'} officialTemplateId=${officialTemplateId}`,
+            );
+          }
         }
       }
 
