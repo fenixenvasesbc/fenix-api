@@ -26,6 +26,7 @@
     "chat:backfill-manual-outbound": "ts-node src/scripts/backfill-manual-outbound-messages.ts",
     "chat:backfill-manual-outbound-from-updated": "ts-node src/scripts/backfill-manual-outbound-messages.ts",
     "notifications:run-label-alerts": "ts-node -r tsconfig-paths/register src/scripts/run-label-alert-notifications.ts",
+    "label-message-rule:run": "ts-node -r tsconfig-paths/register src/scripts/run-label-message-rules.ts",
     "ycloud:backfill-lead-names": "ts-node src/scripts/backfill-lead-names-from-ycloud.ts",
     "ycloud:sync-repetition-templates": "ts-node src/scripts/sync-repetition-templates-from-ycloud.ts",
     "ycloud:sync-reengagement-templates": "ts-node src/scripts/sync-reengagement-templates-from-ycloud.ts",

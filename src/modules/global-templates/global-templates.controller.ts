@@ -114,6 +114,17 @@ export class GlobalTemplatesController {
     return this.globalTemplatesService.addAccount(id, dto.accountId);
   }
 
+  // Alta de cuenta nueva: asigna TODO el catalogo de plantillas globales
+  // vigentes a esta cuenta de una sola vez, en vez de agregarlas una por una
+  // desde la UI. Pensado para el boton "Asignar plantillas" al dar de alta
+  // una comercial.
+  @Post('accounts/:accountId/bootstrap')
+  bootstrapAccount(
+    @Param('accountId', new ParseUUIDPipe()) accountId: string,
+  ) {
+    return this.globalTemplatesService.bootstrapAccount(accountId);
+  }
+
   @Delete(':id/accounts/:accountTemplateId')
   removeAccount(
     @Param('id', new ParseUUIDPipe()) id: string,

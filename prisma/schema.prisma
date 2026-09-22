@@ -278,6 +278,13 @@ model Lead {
   ycloudNickname       String?
   whatsappContactName  String?
   whatsappProfileName  String?
+  // Override manual: cuando un comercial edita el nombre del lead desde
+  // la SPA, se guarda aqui y tiene prioridad MAXIMA en resolveLeadDisplayName
+  // (por encima de los nombres que vienen de WhatsApp/YCloud), porque es una
+  // correccion explicita hecha a mano.
+  manualName           String?
+  manualNameSetByUserId String?
+  manualNameSetAt      DateTime?
   phoneE164            String
   email                String?
   status               LeadStatus @default(NEW)
@@ -690,6 +697,13 @@ model Message {
   clientRequestId          String?
   deletedAt                DateTime?
   deletedByProviderEventId String?
+  // Edicion de un mensaje INBOUND (WhatsApp permite al cliente editar un
+  // mensaje ya enviado; YCloud reenvia esto como un evento con
+  // whatsappInboundMessage.type = 'edit'). Guardamos el texto original la
+  // primera vez que se edita, para conservar el historial.
+  editedAt                 DateTime?
+  editedByProviderEventId  String?
+  originalTextBody         String?
   respondedAt              DateTime?
   responseToId             String?
   responseTo               Message?  @relation("MessageReplies", fields: [responseToId], references: [id], onDelete: SetNull)

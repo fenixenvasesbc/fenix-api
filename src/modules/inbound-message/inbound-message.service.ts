@@ -130,6 +130,20 @@ export class InboundMessageService {
         }
       }
 
+      if (inbound.isEdit) {
+        const editResult = await this.tryApplyEditTx(tx, {
+          accountId: account.id,
+          leadId: lead.id,
+          inbound,
+          inboundAt,
+          providerEventId: job.providerEventId,
+        });
+
+        if (editResult) {
+          return editResult;
+        }
+      }
+
       const responseTo = inbound.contextWamid
         ? await tx.message.findFirst({
             where: {
@@ -278,7 +292,7 @@ export class InboundMessageService {
       `Inbound processed providerEventId=${inbound.providerEventId} accountId=${account.id} leadId=${result.leadId} messageId=${result.messageId} kind=${result.kind} type=${inbound.type}`,
     );
 
-    if (result.kind !== 'deleted' && inbound.mediaUrl) {
+    if (result.kind === 'created' && inbound.mediaUrl) {
       await this.messageMedia.archiveMessageMedia({
         accountId: account.id,
         messageId: result.messageId,
@@ -303,6 +317,19 @@ export class InboundMessageService {
           strategy: 'single_inbound_candidate_within_30_seconds',
         },
       });
+    } else if (result.kind === 'edited') {
+      await this.chatEvents.publish({
+        type: 'message.updated',
+        accountId: account.id,
+        leadId: result.leadId,
+        conversationId: result.conversationId,
+        messageId: result.messageId,
+        payload: {
+          reason: 'message_edited',
+          editedAt: result.editedAt.toISOString(),
+          providerEventId: inbound.providerEventId,
+        },
+      });
     } else {
       await this.chatEvents.publish({
         type: 'message.created',
@@ -325,7 +352,11 @@ export class InboundMessageService {
       messageId: result.messageId,
       payload: {
         reason:
-          result.kind === 'deleted' ? 'message_deleted' : 'inbound_message',
+          result.kind === 'deleted'
+            ? 'message_deleted'
+            : result.kind === 'edited'
+              ? 'message_edited'
+              : 'inbound_message',
       },
     });
   }
@@ -431,6 +462,92 @@ export class InboundMessageService {
     };
   }
 
+  // El cliente edito un mensaje entrante ya guardado. YCloud manda el id del
+  // mensaje original (wamid) dentro de edit.originalMessageId, asi que a
+  // diferencia del revoke (que hay que adivinar por ventana de tiempo) aqui
+  // podemos ubicarlo de forma exacta.
+  private async tryApplyEditTx(
+    tx: Prisma.TransactionClient,
+    input: {
+      accountId: string;
+      leadId: string;
+      inbound: NormalizedInbound;
+      inboundAt: Date;
+      providerEventId: string;
+    },
+  ) {
+    const { accountId, leadId, inbound, inboundAt, providerEventId } = input;
+
+    if (!inbound.editOriginalWamid) {
+      this.logger.warn(
+        `Edit event missing originalMessageId providerEventId=${inbound.providerEventId} accountId=${accountId} leadId=${leadId}`,
+      );
+
+      return null;
+    }
+
+    const original = await tx.message.findFirst({
+      where: {
+        accountId,
+        leadId,
+        direction: MessageDirection.INBOUND,
+        wamid: inbound.editOriginalWamid,
+        deletedAt: null,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, textBody: true, originalTextBody: true },
+    });
+
+    if (!original) {
+      this.logger.warn(
+        `Edit not matched: original message not found providerEventId=${inbound.providerEventId} accountId=${accountId} leadId=${leadId} originalMessageId=${inbound.editOriginalWamid}`,
+      );
+
+      return null;
+    }
+
+    await tx.message.update({
+      where: { id: original.id },
+      data: {
+        textBody: inbound.editedTextBody,
+        originalTextBody: original.originalTextBody ?? original.textBody,
+        editedAt: inboundAt,
+        editedByProviderEventId: inbound.providerEventId,
+      },
+    });
+
+    const conversation = await tx.conversation.findUnique({
+      where: {
+        accountId_leadId_channel: {
+          accountId,
+          leadId,
+          channel: ConversationChannel.WHATSAPP,
+        },
+      },
+      select: { id: true },
+    });
+
+    await tx.webhookEvent.updateMany({
+      where: { providerEventId },
+      data: {
+        status: WebhookEventStatus.PROCESSED,
+        accountId,
+        leadId,
+        messageId: original.id,
+        processedAt: new Date(),
+        lastError: null,
+      },
+    });
+
+    return {
+      kind: 'edited' as const,
+      leadId,
+      messageId: original.id,
+      conversationId: conversation?.id ?? null,
+      editedAt: inboundAt,
+    };
+  }
+
   async markFailed(job: WebhookInboxJob, error: unknown, dead = false) {
     const message = this.formatError(error);
     const now = new Date();
@@ -508,6 +625,9 @@ export class InboundMessageService {
       providerSendTime: msg.sendTime ? new Date(msg.sendTime) : null,
       providerMessageType: msg.type ?? null,
       isRevoke: msg.type === 'revoke',
+      isEdit: msg.type === 'edit',
+      editOriginalWamid: msg.edit?.originalMessageId ?? null,
+      editedTextBody: msg.edit?.message?.text?.body ?? null,
       type: normalizedType,
       textBody,
       mediaUrl: media.link,
@@ -542,6 +662,7 @@ export class InboundMessageService {
     msg: NonNullable<YCloudInboundPayload['whatsappInboundMessage']>,
   ): string | null {
     if (msg.type === 'revoke') return 'El cliente elimino un mensaje';
+    if (msg.type === 'edit') return msg.edit?.message?.text?.body ?? null;
     if (msg.type === 'text') return msg.text?.body ?? null;
     if (msg.type === 'button')
       return msg.button?.text ?? msg.button?.payload ?? null;

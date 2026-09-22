@@ -22,6 +22,14 @@ export interface YCloudSmbEchoContextDto {
   from?: string;
 }
 
+export interface YCloudSmbEchoEditPayload {
+  originalMessageId?: string;
+  message?: {
+    type?: string;
+    text?: YCloudSmbEchoTextPayload;
+  };
+}
+
 export interface YCloudSmbEchoWhatsappMessageDto {
   id: string;
   wamid?: string;
@@ -44,6 +52,9 @@ export interface YCloudSmbEchoWhatsappMessageDto {
   document?: YCloudSmbEchoMediaPayload;
   context?: YCloudSmbEchoContextDto | null;
   externalId?: string;
+  // Solo viene cuando el comercial edito, desde la app de WhatsApp Business,
+  // un mensaje que ya habia enviado (type='edit').
+  edit?: YCloudSmbEchoEditPayload;
 }
 
 export interface YCloudSmbMessageEchoesEventDto {

@@ -75,6 +75,12 @@ export class SetLeadLabelDto {
   reminderDays?: number;
 }
 
+export class UpdateLeadNameDto {
+  @IsString()
+  @MaxLength(120)
+  name: string;
+}
+
 export class RemoveLeadLabelDto {
   @IsOptional()
   @Transform(({ value }) =>

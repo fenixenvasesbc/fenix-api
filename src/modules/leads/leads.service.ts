@@ -36,6 +36,13 @@ type RemoveLabelInput = {
   reason?: string | null;
 };
 
+type UpdateManualNameInput = {
+  accountId: string;
+  leadId: string;
+  name: string;
+  changedByUserId?: string | null;
+};
+
 type EnsureLeadByPhoneInput = {
   accountId: string;
   countryCode: string;
@@ -579,6 +586,47 @@ export class LeadsService {
     };
   }
 
+  // Override manual del nombre del lead: lo puede editar cualquier
+  // comercial (o admin/soporte) con acceso al lead, desde la SPA. Se guarda
+  // en Lead.manualName y pasa a tener prioridad MAXIMA en
+  // resolveLeadDisplayName (ver src/common/utils/lead-name.ts), por encima
+  // de los nombres que llegan automaticamente via WhatsApp/YCloud -- es una
+  // correccion explicita hecha a mano, no un dato del proveedor.
+  async updateManualName(input: UpdateManualNameInput) {
+    const { accountId, leadId, changedByUserId } = input;
+
+    const name = normalizeLeadName(input.name);
+    if (!name) {
+      throw new BadRequestException('El nombre no puede estar vacio');
+    }
+
+    await this.assertLeadExists(accountId, leadId);
+
+    const updatedLead = await this.prisma.lead.update({
+      where: { id: leadId },
+      data: {
+        manualName: name,
+        manualNameSetByUserId: changedByUserId ?? null,
+        manualNameSetAt: new Date(),
+      },
+      select: this.leadSelect(),
+    });
+
+    const lead = withLeadDisplayName(updatedLead);
+
+    await this.chatEvents.publish({
+      type: 'conversation.updated',
+      accountId,
+      leadId,
+      payload: {
+        reason: 'lead_manual_name_changed',
+        manualName: name,
+      },
+    });
+
+    return { lead };
+  }
+
   async getHistory(accountId: string, leadId: string) {
     await this.assertLeadExists(accountId, leadId);
 
@@ -836,6 +884,9 @@ export class LeadsService {
       id: true,
       accountId: true,
       name: true,
+      manualName: true,
+      manualNameSetByUserId: true,
+      manualNameSetAt: true,
       ycloudNickname: true,
       whatsappContactName: true,
       whatsappProfileName: true,

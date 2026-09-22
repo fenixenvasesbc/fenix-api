@@ -1,4 +1,5 @@
 export type LeadDisplayNameSource =
+  | 'MANUAL'
   | 'WHATSAPP_CONTACT'
   | 'YCLOUD_NICKNAME'
   | 'WHATSAPP_PROFILE'
@@ -6,6 +7,7 @@ export type LeadDisplayNameSource =
   | 'PHONE';
 
 export type LeadNameFields = {
+  manualName: string | null;
   ycloudNickname: string | null;
   whatsappContactName: string | null;
   whatsappProfileName: string | null;
@@ -23,6 +25,14 @@ export function resolveLeadDisplayName(lead: LeadNameFields): {
   displayName: string;
   displayNameSource: LeadDisplayNameSource;
 } {
+  // Prioridad #1: override manual hecho por un comercial desde la SPA.
+  // Es una correccion explicita, asi que gana incluso sobre los nombres
+  // que llegan automaticamente desde WhatsApp/YCloud.
+  const manualName = normalizeLeadName(lead.manualName);
+  if (manualName) {
+    return { displayName: manualName, displayNameSource: 'MANUAL' };
+  }
+
   const whatsappContactName = normalizeLeadName(lead.whatsappContactName);
   if (whatsappContactName) {
     return {

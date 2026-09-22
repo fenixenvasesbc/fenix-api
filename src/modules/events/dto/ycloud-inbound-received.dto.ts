@@ -57,6 +57,28 @@ class MediaDto {
   voice?: boolean;
 }
 
+class EditMessageContentDto {
+  @IsString()
+  @IsNotEmpty()
+  type!: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => TextDto)
+  text?: TextDto;
+}
+
+class EditDto {
+  @IsOptional()
+  @IsString()
+  originalMessageId?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => EditMessageContentDto)
+  message?: EditMessageContentDto;
+}
+
 class WhatsAppInboundMessageDto {
   @IsString()
   @IsNotEmpty()
@@ -121,6 +143,12 @@ class WhatsAppInboundMessageDto {
   @ValidateNested()
   @Type(() => ContextDto)
   context?: ContextDto;
+
+  // Solo viene cuando type='edit'
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => EditDto)
+  edit?: EditDto;
 }
 
 export class YCloudInboundReceivedDto {

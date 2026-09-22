@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  ConversationChannel,
   LeadStatus,
   MessageDirection,
   MessageStatus,
@@ -55,6 +56,15 @@ export class SmbMessageEchoesService {
       throw new Error(
         `Missing whatsappMessage identifiers providerEventId=${job.providerEventId}`,
       );
+    }
+
+    if (whatsappMessage.type === 'edit') {
+      await this.tryApplyEdit(job, event, {
+        wabaId,
+        from,
+        to,
+      });
+      return;
     }
 
     const messageType = this.mapMessageType(whatsappMessage.type);
@@ -323,6 +333,148 @@ export class SmbMessageEchoesService {
 
     this.logger.log(
       `SMB echo processed providerEventId=${job.providerEventId} accountId=${result.accountId} leadId=${result.leadId} messageId=${result.messageId} created=${result.isNewMessage}`,
+    );
+  }
+
+  // El comercial edito, desde la app de WhatsApp Business (no via API), un
+  // mensaje saliente que ya habia enviado. YCloud manda el wamid del mensaje
+  // original en edit.originalMessageId, asi que lo ubicamos de forma exacta
+  // (misma logica que el edit de mensajes entrantes en InboundMessageService).
+  private async tryApplyEdit(
+    job: WebhookInboxJob,
+    event: YCloudSmbMessageEchoesEventDto,
+    input: { wabaId: string; from: string; to: string },
+  ): Promise<void> {
+    const { wabaId, from, to } = input;
+    const whatsappMessage = event.whatsappMessage;
+    const originalMessageId = this.nonEmpty(
+      whatsappMessage.edit?.originalMessageId,
+    );
+    const editedTextBody = this.nonEmpty(
+      whatsappMessage.edit?.message?.text?.body,
+    );
+
+    if (!originalMessageId) {
+      this.logger.warn(
+        `SMB edit missing originalMessageId providerEventId=${job.providerEventId}`,
+      );
+      await this.markSkipped(job, 'EDIT_MISSING_ORIGINAL_MESSAGE_ID');
+      return;
+    }
+
+    const account = await this.prisma.account.findUnique({
+      where: { wabaId_phoneE164: { wabaId, phoneE164: from } },
+      select: { id: true },
+    });
+
+    if (!account) {
+      throw new Error(
+        `Account not found for wabaId=${wabaId} phoneE164=${from}`,
+      );
+    }
+
+    const editedAt =
+      this.parseDate(whatsappMessage.sendTime) ??
+      this.parseDate(whatsappMessage.createTime) ??
+      this.parseDate(event.createTime) ??
+      new Date();
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const original = await tx.message.findFirst({
+        where: {
+          accountId: account.id,
+          direction: MessageDirection.OUTBOUND,
+          wamid: originalMessageId,
+          deletedAt: null,
+        },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          leadId: true,
+          textBody: true,
+          originalTextBody: true,
+        },
+      });
+
+      if (!original) return null;
+
+      await tx.message.update({
+        where: { id: original.id },
+        data: {
+          textBody: editedTextBody,
+          originalTextBody: original.originalTextBody ?? original.textBody,
+          editedAt,
+          editedByProviderEventId: job.providerEventId,
+        },
+      });
+
+      const conversation = await tx.conversation.findUnique({
+        where: {
+          accountId_leadId_channel: {
+            accountId: account.id,
+            leadId: original.leadId,
+            channel: ConversationChannel.WHATSAPP,
+          },
+        },
+        select: { id: true },
+      });
+
+      await tx.webhookEvent.updateMany({
+        where: { providerEventId: job.providerEventId },
+        data: {
+          status: WebhookEventStatus.PROCESSED,
+          accountId: account.id,
+          leadId: original.leadId,
+          messageId: original.id,
+          processedAt: new Date(),
+          lastError: null,
+        },
+      });
+
+      return {
+        accountId: account.id,
+        leadId: original.leadId,
+        messageId: original.id,
+        conversationId: conversation?.id ?? null,
+      };
+    });
+
+    if (!result) {
+      this.logger.warn(
+        `SMB edit not matched: original message not found providerEventId=${job.providerEventId} accountId=${account.id} to=${to} originalMessageId=${originalMessageId}`,
+      );
+      await this.markSkipped(job, 'EDIT_ORIGINAL_MESSAGE_NOT_FOUND');
+      return;
+    }
+
+    await this.chatEvents.publish({
+      type: 'message.updated',
+      accountId: result.accountId,
+      leadId: result.leadId,
+      conversationId: result.conversationId,
+      messageId: result.messageId,
+      payload: {
+        reason: 'message_edited',
+        editedAt: editedAt.toISOString(),
+        providerEventId: job.providerEventId,
+        source: 'whatsapp_smb_message_echoes',
+      },
+    });
+
+    await this.chatEvents.publish({
+      type: 'conversation.updated',
+      accountId: result.accountId,
+      leadId: result.leadId,
+      conversationId: result.conversationId,
+      messageId: result.messageId,
+      payload: {
+        reason: 'message_edited',
+        source: 'whatsapp_smb_message_echoes',
+      },
+    });
+
+    this.logger.log(
+      `SMB echo edit processed providerEventId=${job.providerEventId} accountId=${result.accountId} leadId=${result.leadId} messageId=${result.messageId}`,
     );
   }
 

@@ -54,6 +54,7 @@ import { MessageMediaModule } from './modules/message-media/message-media.module
 import { AssistantModule } from './modules/assistant/assistant.module';
 import { TimeTrackingModule } from './modules/time-tracking/time-tracking.module';
 import { GlobalTemplatesModule } from './modules/global-templates/global-templates.module';
+import { CampaignTemplatesModule } from './modules/campaign-templates/campaign-templates.module';
 import { LeadLabelDefinitionsModule } from './modules/lead-label-definitions/lead-label-definitions.module';
 
 @Module({
@@ -91,6 +92,7 @@ import { LeadLabelDefinitionsModule } from './modules/lead-label-definitions/lea
     AssistantModule,
     TimeTrackingModule,
     GlobalTemplatesModule,
+    CampaignTemplatesModule,
     LeadLabelDefinitionsModule,
   ],
   controllers: [

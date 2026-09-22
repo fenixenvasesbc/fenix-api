@@ -100,6 +100,17 @@ export type YCloudInboundPayload = {
       code?: string;
       title?: string;
     }>;
+    // El cliente edito un mensaje ya enviado (feature de edicion de WhatsApp).
+    // type="edit"; el contenido nuevo viene anidado aqui, no en msg.text.
+    edit?: {
+      originalMessageId?: string;
+      message?: {
+        type?: string;
+        text?: {
+          body?: string;
+        };
+      };
+    };
   };
 };
 
@@ -122,6 +133,9 @@ export type NormalizedInbound = {
   providerSendTime: Date | null;
   providerMessageType: string | null;
   isRevoke: boolean;
+  isEdit: boolean;
+  editOriginalWamid: string | null;
+  editedTextBody: string | null;
   type: MessageType;
   textBody: string | null;
   mediaUrl: string | null;

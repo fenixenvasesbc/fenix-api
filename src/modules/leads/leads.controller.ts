@@ -21,6 +21,7 @@ import {
   ListLeadsQueryDto,
   RemoveLeadLabelDto,
   SetLeadLabelDto,
+  UpdateLeadNameDto,
 } from './dto/lead.dto';
 import { LeadsService } from './leads.service';
 
@@ -71,6 +72,24 @@ export class LeadsController {
       leadId,
       label: body.label,
       reminderDays: body.reminderDays,
+      changedByUserId: req.user.userId,
+    });
+  }
+
+  @Roles(Role.ADMIN, Role.SALES)
+  @Patch(':leadId/name')
+  async updateName(
+    @Param('leadId', new ParseUUIDPipe()) leadId: string,
+    @Query('accountId') accountIdFromQuery: string | undefined,
+    @Body() body: UpdateLeadNameDto,
+    @Req() req: { user: AuthUser },
+  ) {
+    const accountId = this.resolveAccountId(req.user, accountIdFromQuery);
+
+    return this.leadsService.updateManualName({
+      accountId,
+      leadId,
+      name: body.name,
       changedByUserId: req.user.userId,
     });
   }

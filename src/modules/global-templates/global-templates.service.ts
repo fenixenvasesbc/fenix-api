@@ -235,6 +235,98 @@ export class GlobalTemplatesService {
     return this.getById(templateId);
   }
 
+  // Asigna TODAS las plantillas globales vigentes a una cuenta comercial
+  // nueva -- pensado para el alta de una comercial: en vez de agregarlas una
+  // por una desde la UI, un solo boton recorre el catalogo completo y reusa
+  // addAccount() (que ya sabe crear la plantilla en YCloud/Meta y reconciliar
+  // 409 ALREADY_EXISTS) para cada una. No aborta el lote si una falla -- cada
+  // resultado queda registrado individualmente para que el admin vea donde
+  // quedo pendiente.
+  async bootstrapAccount(accountId: string) {
+    const account = await this.prisma.account.findUnique({
+      where: { id: accountId },
+      select: { id: true, user: { select: { isActive: true } } },
+    });
+    if (!account) {
+      throw new NotFoundException('Cuenta comercial no encontrada');
+    }
+    if (!account.user?.isActive) {
+      throw new BadRequestException(
+        'La cuenta comercial no tiene un usuario activo',
+      );
+    }
+
+    const templates = await this.prisma.globalWhatsappTemplate.findMany({
+      select: { id: true, name: true, language: true },
+      orderBy: { name: 'asc' },
+    });
+
+    const retryableStatuses = new Set<AccountGlobalTemplateStatus>([
+      AccountGlobalTemplateStatus.ERROR,
+      AccountGlobalTemplateStatus.REJECTED,
+    ]);
+
+    const results: Array<{
+      templateId: string;
+      name: string;
+      language: string;
+      outcome: 'created' | 'skipped' | 'error';
+      detail?: string;
+    }> = [];
+
+    for (const template of templates) {
+      const existing =
+        await this.prisma.globalWhatsappTemplateAccount.findUnique({
+          where: {
+            globalTemplateId_accountId: {
+              globalTemplateId: template.id,
+              accountId,
+            },
+          },
+        });
+
+      if (existing && !retryableStatuses.has(existing.status)) {
+        results.push({
+          templateId: template.id,
+          name: template.name,
+          language: template.language,
+          outcome: 'skipped',
+        });
+        continue;
+      }
+
+      try {
+        await this.addAccount(template.id, accountId);
+        results.push({
+          templateId: template.id,
+          name: template.name,
+          language: template.language,
+          outcome: 'created',
+        });
+      } catch (error) {
+        this.logger.warn(
+          `bootstrapAccount: fallo template=${template.name} lang=${template.language} accountId=${accountId}: ${this.errorMessage(error)}`,
+        );
+        results.push({
+          templateId: template.id,
+          name: template.name,
+          language: template.language,
+          outcome: 'error',
+          detail: this.errorMessage(error),
+        });
+      }
+    }
+
+    return {
+      accountId,
+      totalTemplates: templates.length,
+      created: results.filter((r) => r.outcome === 'created').length,
+      skipped: results.filter((r) => r.outcome === 'skipped').length,
+      errors: results.filter((r) => r.outcome === 'error').length,
+      results,
+    };
+  }
+
   async removeAccount(templateId: string, accountTemplateId: string) {
     const row = await this.prisma.globalWhatsappTemplateAccount.findUnique({
       where: { id: accountTemplateId },
