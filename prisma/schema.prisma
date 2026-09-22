@@ -704,6 +704,13 @@ model Message {
   editedAt                 DateTime?
   editedByProviderEventId  String?
   originalTextBody         String?
+  // Reaccion (emoji) sobre este mensaje. WhatsApp la manda como un evento
+  // aparte (type='reaction') referenciando el wamid de este mensaje, no
+  // como un mensaje nuevo en el hilo. emoji=null significa sin reaccion
+  // (o que la reaccion fue quitada: YCloud manda emoji='').
+  reactionEmoji             String?
+  reactedAt                 DateTime?
+  reactedByProviderEventId  String?
   respondedAt              DateTime?
   responseToId             String?
   responseTo               Message?  @relation("MessageReplies", fields: [responseToId], references: [id], onDelete: SetNull)

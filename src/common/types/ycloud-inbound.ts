@@ -136,6 +136,9 @@ export type NormalizedInbound = {
   isEdit: boolean;
   editOriginalWamid: string | null;
   editedTextBody: string | null;
+  isReaction: boolean;
+  reactionTargetWamid: string | null;
+  reactionEmoji: string | null;
   type: MessageType;
   textBody: string | null;
   mediaUrl: string | null;

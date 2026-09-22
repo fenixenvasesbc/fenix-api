@@ -144,6 +144,20 @@ export class InboundMessageService {
         }
       }
 
+      if (inbound.isReaction) {
+        const reactionResult = await this.tryApplyReactionTx(tx, {
+          accountId: account.id,
+          leadId: lead.id,
+          inbound,
+          inboundAt,
+          providerEventId: job.providerEventId,
+        });
+
+        if (reactionResult) {
+          return reactionResult;
+        }
+      }
+
       const responseTo = inbound.contextWamid
         ? await tx.message.findFirst({
             where: {
@@ -330,6 +344,20 @@ export class InboundMessageService {
           providerEventId: inbound.providerEventId,
         },
       });
+    } else if (result.kind === 'reacted') {
+      await this.chatEvents.publish({
+        type: 'message.updated',
+        accountId: account.id,
+        leadId: result.leadId,
+        conversationId: result.conversationId,
+        messageId: result.messageId,
+        payload: {
+          reason: 'message_reacted',
+          reactedAt: result.reactedAt.toISOString(),
+          reactionEmoji: result.reactionEmoji,
+          providerEventId: inbound.providerEventId,
+        },
+      });
     } else {
       await this.chatEvents.publish({
         type: 'message.created',
@@ -356,7 +384,9 @@ export class InboundMessageService {
             ? 'message_deleted'
             : result.kind === 'edited'
               ? 'message_edited'
-              : 'inbound_message',
+              : result.kind === 'reacted'
+                ? 'message_reacted'
+                : 'inbound_message',
       },
     });
   }
@@ -548,6 +578,99 @@ export class InboundMessageService {
     };
   }
 
+  // Alguien reacciono (o quito una reaccion) sobre un mensaje ya guardado.
+  // WhatsApp lo manda como un evento aparte que referencia el wamid del
+  // mensaje original en reaction.message_id; no crea un mensaje nuevo en el
+  // hilo, solo le agrega/quita el emoji a ese mensaje. No filtramos por
+  // direction porque se puede reaccionar tanto a un mensaje que enviamos
+  // nosotros como a uno que mando el lead.
+  private async tryApplyReactionTx(
+    tx: Prisma.TransactionClient,
+    input: {
+      accountId: string;
+      leadId: string;
+      inbound: NormalizedInbound;
+      inboundAt: Date;
+      providerEventId: string;
+    },
+  ) {
+    const { accountId, leadId, inbound, inboundAt, providerEventId } = input;
+
+    if (!inbound.reactionTargetWamid) {
+      this.logger.warn(
+        `Reaction event missing message_id providerEventId=${inbound.providerEventId} accountId=${accountId} leadId=${leadId}`,
+      );
+
+      return null;
+    }
+
+    const target = await tx.message.findFirst({
+      where: {
+        accountId,
+        leadId,
+        wamid: inbound.reactionTargetWamid,
+        deletedAt: null,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+
+    if (!target) {
+      this.logger.warn(
+        `Reaction not matched: target message not found providerEventId=${inbound.providerEventId} accountId=${accountId} leadId=${leadId} messageId=${inbound.reactionTargetWamid}`,
+      );
+
+      return null;
+    }
+
+    // emoji='' (string vacio) significa que se quito la reaccion.
+    const nextEmoji =
+      inbound.reactionEmoji && inbound.reactionEmoji.length > 0
+        ? inbound.reactionEmoji
+        : null;
+
+    await tx.message.update({
+      where: { id: target.id },
+      data: {
+        reactionEmoji: nextEmoji,
+        reactedAt: inboundAt,
+        reactedByProviderEventId: inbound.providerEventId,
+      },
+    });
+
+    const conversation = await tx.conversation.findUnique({
+      where: {
+        accountId_leadId_channel: {
+          accountId,
+          leadId,
+          channel: ConversationChannel.WHATSAPP,
+        },
+      },
+      select: { id: true },
+    });
+
+    await tx.webhookEvent.updateMany({
+      where: { providerEventId },
+      data: {
+        status: WebhookEventStatus.PROCESSED,
+        accountId,
+        leadId,
+        messageId: target.id,
+        processedAt: new Date(),
+        lastError: null,
+      },
+    });
+
+    return {
+      kind: 'reacted' as const,
+      leadId,
+      messageId: target.id,
+      conversationId: conversation?.id ?? null,
+      reactedAt: inboundAt,
+      reactionEmoji: nextEmoji,
+    };
+  }
+
   async markFailed(job: WebhookInboxJob, error: unknown, dead = false) {
     const message = this.formatError(error);
     const now = new Date();
@@ -628,6 +751,10 @@ export class InboundMessageService {
       isEdit: msg.type === 'edit',
       editOriginalWamid: msg.edit?.originalMessageId ?? null,
       editedTextBody: msg.edit?.message?.text?.body ?? null,
+      isReaction: msg.type === 'reaction',
+      reactionTargetWamid: msg.reaction?.message_id ?? null,
+      reactionEmoji:
+        msg.type === 'reaction' ? (msg.reaction?.emoji ?? null) : null,
       type: normalizedType,
       textBody,
       mediaUrl: media.link,

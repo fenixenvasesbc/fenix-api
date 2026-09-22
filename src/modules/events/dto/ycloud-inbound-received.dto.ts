@@ -57,6 +57,18 @@ class MediaDto {
   voice?: boolean;
 }
 
+class ReactionDto {
+  @IsOptional()
+  @IsString()
+  message_id?: string;
+
+  // '' (string vacio) significa que se quito la reaccion; por eso NO usamos
+  // IsNotEmpty aqui.
+  @IsOptional()
+  @IsString()
+  emoji?: string;
+}
+
 class EditMessageContentDto {
   @IsString()
   @IsNotEmpty()
@@ -149,6 +161,14 @@ class WhatsAppInboundMessageDto {
   @ValidateNested()
   @Type(() => EditDto)
   edit?: EditDto;
+
+  // Solo viene cuando type='reaction'. OJO: este campo faltaba en el DTO
+  // (el pipe usa whitelist:true) asi que las reacciones se estaban
+  // descartando en silencio antes de llegar al worker.
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ReactionDto)
+  reaction?: ReactionDto;
 }
 
 export class YCloudInboundReceivedDto {
