@@ -20,6 +20,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { DifyClient, DifyRequestError } from './dify.client';
 import { PDFParse } from 'pdf-parse';
 import { AssistantKnowledgeTransformService } from './assistant-knowledge-transform.service';
+import { RagOrchestratorService } from './rag/rag-orchestrator.service';
 
 type AuthUser = {
   userId: string;
@@ -42,8 +43,20 @@ export class AssistantService {
     private readonly prisma: PrismaService,
     private readonly difyClient: DifyClient,
     private readonly transformService: AssistantKnowledgeTransformService,
+    private readonly ragOrchestrator: RagOrchestratorService,
   ) {}
 
+  // NOTA: hasta esta versión, este método llamaba al Chatflow de Dify
+  // (this.difyClient.sendChatMessage). Se reemplazó por un orquestador RAG
+  // nativo (RagOrchestratorService) que llama al LLM directamente desde
+  // fenix-api y usa el Knowledge Retrieval de Dify SOLO para recuperación
+  // de los 4 datasets — el Chatflow y el endpoint de chat de Dify ya no se
+  // usan en esta ruta. Motivo: un bug de entrega de respuesta no
+  // diagnosticado en Dify (el workflow calculaba la respuesta correctamente
+  // pero ni la Vista Previa del editor ni la Web App de producción la
+  // mostraban al usuario). El resto de operaciones administrativas del
+  // asistente (subida/gestión de conocimiento, anotaciones) sigue usando
+  // DifyClient sin cambios, porque el Knowledge Base de Dify se mantiene.
   async query(input: QueryInput) {
     const startedAt = Date.now();
     const accountId = this.resolveOptionalAccountId(input.user, input.accountId);
@@ -57,10 +70,25 @@ export class AssistantService {
           userId: input.user.userId,
           accountId,
           mode: AssistantSessionMode.INTERNAL_FAQ,
+          provider: 'NATIVE_RAG',
           title: this.buildTitle(input.question),
         },
       });
     }
+
+    // Historial previo de la sesión (para que el orquestador pueda resolver
+    // referencias anafóricas como "esa caja", "y para pizza?", etc.) — se
+    // toma ANTES de crear el mensaje del usuario actual.
+    const priorMessages = await this.prisma.assistantMessage.findMany({
+      where: {
+        sessionId: session.id,
+        status: AssistantMessageStatus.COMPLETED,
+        role: { in: [AssistantMessageRole.USER, AssistantMessageRole.ASSISTANT] },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 20,
+      select: { role: true, content: true },
+    });
 
     const userMessage = await this.prisma.assistantMessage.create({
       data: {
@@ -73,15 +101,17 @@ export class AssistantService {
     });
 
     try {
-      const response = await this.difyClient.sendChatMessage({
-        query: input.question,
-        conversationId: session.providerConversationId,
-        user: `fenix:${input.user.userId}`,
+      const result = await this.ragOrchestrator.answer({
+        question: input.question,
+        history: priorMessages.map((message) => ({
+          role: message.role === AssistantMessageRole.USER ? 'user' : 'assistant',
+          content: message.content,
+        })),
       });
       const latencyMs = Date.now() - startedAt;
-      const answer = this.extractAnswer(response);
-      const usage = this.extractUsage(response);
-      const citations = this.extractCitations(response);
+      const answer = result.answer;
+      const usage = result.usage as unknown as Record<string, any>;
+      const citations = result.citations;
 
       const assistantMessage = await this.prisma.$transaction(async (tx) => {
         const created = await tx.assistantMessage.create({
@@ -90,26 +120,21 @@ export class AssistantService {
             role: AssistantMessageRole.ASSISTANT,
             status: AssistantMessageStatus.COMPLETED,
             content: answer,
-            providerMessageId:
-              this.stringOrNull(response.message_id) ??
-              this.stringOrNull(response.id),
-            providerTaskId: this.stringOrNull(response.task_id),
+            model: result.model,
             latencyMs,
             usage: usage as Prisma.InputJsonValue,
             rawPayload: this.shouldLogRawPayload()
-              ? (response as Prisma.InputJsonValue)
+              ? ({
+                  nextAction: result.nextAction,
+                  sourcesUsed: result.sourcesUsed,
+                  singleSourceQuery: result.singleSourceQuery,
+                  validationSkipped: result.validationSkipped,
+                  abstained: result.abstained,
+                  clarificationRequested: result.clarificationRequested,
+                } as Prisma.InputJsonValue)
               : undefined,
           },
         });
-
-        if (response.conversation_id) {
-          await tx.assistantSession.update({
-            where: { id: session!.id },
-            data: {
-              providerConversationId: String(response.conversation_id),
-            },
-          });
-        }
 
         if (citations.length) {
           await tx.assistantCitation.createMany({
@@ -120,7 +145,10 @@ export class AssistantService {
               documentId: citation.documentId,
               documentName: citation.documentName,
               segmentId: citation.segmentId,
-              score: citation.score,
+              score:
+                typeof citation.score === 'number'
+                  ? new Prisma.Decimal(citation.score)
+                  : null,
               excerpt: citation.excerpt,
               metadata: citation.metadata as Prisma.InputJsonValue,
             })),
@@ -134,14 +162,17 @@ export class AssistantService {
             action: AssistantAuditAction.QUERY,
             success: true,
             latencyMs,
-            provider: 'DIFY',
-            providerId: this.stringOrNull(response.message_id),
+            provider: 'NATIVE_RAG',
             metadata: {
               sessionId: session!.id,
               userMessageId: userMessage.id,
               assistantMessageId: created.id,
               usage,
               citationCount: citations.length,
+              nextAction: result.nextAction,
+              sourcesUsed: result.sourcesUsed,
+              abstained: result.abstained,
+              clarificationRequested: result.clarificationRequested,
             } as Prisma.InputJsonValue,
           },
         });
@@ -157,9 +188,7 @@ export class AssistantService {
           citations,
           usage,
           latencyMs,
-          providerConversationId:
-            this.stringOrNull(response.conversation_id) ??
-            session.providerConversationId,
+          providerConversationId: session.providerConversationId,
         },
       };
     } catch (error: any) {
@@ -171,7 +200,7 @@ export class AssistantService {
           action: AssistantAuditAction.QUERY,
           success: false,
           latencyMs,
-          provider: 'DIFY',
+          provider: 'NATIVE_RAG',
           errorCode:
             error instanceof DifyRequestError
               ? String(error.statusCode ?? 'DIFY_ERROR')
@@ -1520,42 +1549,6 @@ export class AssistantService {
   private buildTitle(question: string) {
     const clean = question.replace(/\s+/g, ' ').trim();
     return clean.length > 80 ? `${clean.slice(0, 77)}...` : clean;
-  }
-
-  private extractAnswer(response: Record<string, any>) {
-    const answer = response.answer;
-    if (typeof answer === 'string' && answer.trim()) return answer.trim();
-    return 'No se pudo obtener una respuesta del asistente.';
-  }
-
-  private extractUsage(response: Record<string, any>) {
-    return response.metadata?.usage ?? null;
-  }
-
-  private extractCitations(response: Record<string, any>) {
-    const resources = response.metadata?.retriever_resources;
-    if (!Array.isArray(resources)) return [];
-
-    return resources.map((resource: Record<string, any>) => ({
-      providerResourceId: this.stringOrNull(resource.id),
-      datasetId: this.stringOrNull(resource.dataset_id),
-      documentId: this.stringOrNull(resource.document_id),
-      documentName:
-        this.stringOrNull(resource.document_name) ??
-        this.stringOrNull(resource.title),
-      segmentId:
-        this.stringOrNull(resource.segment_id) ??
-        this.stringOrNull(resource.segment_position),
-      score:
-        typeof resource.score === 'number'
-          ? new Prisma.Decimal(resource.score)
-          : null,
-      excerpt:
-        this.stringOrNull(resource.content) ??
-        this.stringOrNull(resource.text) ??
-        this.stringOrNull(resource.segment_content),
-      metadata: resource,
-    }));
   }
 
   private stringOrNull(value: unknown) {

@@ -5,11 +5,19 @@ import { AssistantController } from './assistant.controller';
 import { AssistantService } from './assistant.service';
 import { DifyClient } from './dify.client';
 import { AssistantKnowledgeTransformService } from './assistant-knowledge-transform.service';
+import { RagLlmClient } from './rag/rag-llm.client';
+import { RagOrchestratorService } from './rag/rag-orchestrator.service';
 
 @Module({
   imports: [PrismaModule, HttpModule],
   controllers: [AssistantController],
-  providers: [AssistantService, DifyClient, AssistantKnowledgeTransformService],
+  providers: [
+    AssistantService,
+    DifyClient,
+    AssistantKnowledgeTransformService,
+    RagLlmClient,
+    RagOrchestratorService,
+  ],
   exports: [AssistantService],
 })
 export class AssistantModule {}

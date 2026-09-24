@@ -280,6 +280,86 @@ export class DifyClient {
     };
   }
 
+  /**
+   * Recuperación directa contra un dataset (Knowledge Retrieval / "Test
+   * Retrieval" API de Dify), sin pasar por un Chatflow. Usado por el
+   * orquestador RAG nativo (ver ./rag/rag-orchestrator.service.ts) para
+   * obtener los chunks de cada fuente documental, llamando al LLM por
+   * nuestra cuenta en vez de dejar que Dify orqueste el Chatflow completo.
+   * Doc: POST /v1/datasets/{dataset_id}/retrieve. La query tiene un límite
+   * duro de 250 caracteres en la API de Dify — el llamador debe truncarla.
+   */
+  async retrieveFromDataset(input: {
+    datasetId: string;
+    query: string;
+    topK: number;
+    scoreThreshold?: number | null;
+    metadataFilter?: {
+      logicalOperator: 'and' | 'or';
+      conditions: Array<{
+        name: string;
+        comparisonOperator: string;
+        value?: string | number | string[] | null;
+      }>;
+    } | null;
+  }): Promise<{
+    query: { content: string };
+    records: Array<{
+      score: number;
+      segment: {
+        id: string;
+        content: string;
+        document_id: string;
+        document?: { id: string; name: string } | null;
+        position?: number;
+      };
+    }>;
+  }> {
+    this.assertEnabled();
+    const apiKey = this.getKnowledgeApiKey();
+
+    const retrievalModel: Record<string, any> = {
+      search_method: process.env.DIFY_RETRIEVAL_SEARCH_METHOD ?? 'hybrid_search',
+      top_k: input.topK,
+      score_threshold_enabled: input.scoreThreshold != null,
+      score_threshold: input.scoreThreshold ?? null,
+      reranking_enable: false,
+    };
+
+    if (input.metadataFilter) {
+      retrievalModel.metadata_filtering_conditions = {
+        logical_operator: input.metadataFilter.logicalOperator,
+        conditions: input.metadataFilter.conditions.map((condition) => ({
+          name: condition.name,
+          comparison_operator: condition.comparisonOperator,
+          value: condition.value ?? null,
+        })),
+      };
+    }
+
+    return this.postJson<{
+      query: { content: string };
+      records: Array<{
+        score: number;
+        segment: {
+          id: string;
+          content: string;
+          document_id: string;
+          document?: { id: string; name: string } | null;
+          position?: number;
+        };
+      }>;
+    }>({
+      path: `/v1/datasets/${input.datasetId}/retrieve`,
+      apiKey,
+      operation: 'retrieveFromDataset',
+      body: {
+        query: input.query.slice(0, 250),
+        retrieval_model: retrievalModel,
+      },
+    });
+  }
+
   async getKnowledgeDocumentIndexingStatus(input: {
     datasetId: string;
     batch: string;
