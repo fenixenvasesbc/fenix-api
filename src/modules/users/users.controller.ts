@@ -42,7 +42,7 @@ export class UsersController {
   // ==========================================
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.SALES_MANAGER)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER, Role.DESIGNER_MANAGER)
   @Get()
   listUsers(@Query() query: ListUsersQueryDto, @Req() req: { user: AuthUser }) {
     return this.usersService.listUsers(req.user, {
@@ -53,21 +53,21 @@ export class UsersController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.SALES_MANAGER)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER, Role.DESIGNER_MANAGER)
   @Get(':id')
   getUser(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.usersService.getUserSafe(id);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.SALES_MANAGER)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER, Role.DESIGNER_MANAGER)
   @Post()
   createUser(@Body() dto: CreateUserDto, @Req() req: { user: AuthUser }) {
     return this.usersService.adminCreateUser(req.user, dto);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.SALES_MANAGER)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER, Role.DESIGNER_MANAGER)
   @Patch(':id')
   updateUser(
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -78,14 +78,14 @@ export class UsersController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.SALES_MANAGER)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER, Role.DESIGNER_MANAGER)
   @Patch(':id/deactivate')
   deactivateUser(@Param('id', new ParseUUIDPipe()) id: string, @Req() req: { user: AuthUser }) {
     return this.usersService.setUserActive(req.user, id, false);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN, Role.SALES_MANAGER)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER, Role.DESIGNER_MANAGER)
   @Patch(':id/activate')
   activateUser(@Param('id', new ParseUUIDPipe()) id: string, @Req() req: { user: AuthUser }) {
     return this.usersService.setUserActive(req.user, id, true);

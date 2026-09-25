@@ -80,6 +80,13 @@ export class UsersService {
       return;
     }
 
+    // ADR-004: el Jefe de Diseño solo puede ver/gestionar cuentas DESIGNER
+    // (mismo patron que SALES_MANAGER/SALES arriba) -- necesario para poder
+    // asignar solicitudes de boceto a un disenador concreto.
+    if (actingUser.role === Role.DESIGNER_MANAGER && targetRole === Role.DESIGNER) {
+      return;
+    }
+
     throw new ForbiddenException(
       'No tienes permisos para gestionar usuarios con ese rol',
     );
@@ -95,6 +102,9 @@ export class UsersService {
       // Un SALES_MANAGER solo puede ver/gestionar cuentas SALES en este modulo,
       // sin importar que rol pida por query.
       where.role = Role.SALES;
+    } else if (actingUser.role === Role.DESIGNER_MANAGER) {
+      // Idem para el Jefe de Diseño, pero con DESIGNER (ver ADR-004).
+      where.role = Role.DESIGNER;
     } else if (params.role) {
       where.role = params.role;
     }

@@ -18,6 +18,9 @@ export const SYSTEM_LABEL_CODES = {
   MUESTRAS: 'MUESTRAS',
   REPETICIONES: 'REPETICIONES',
   BOCETOS_ATRASADOS: 'BOCETOS_ATRASADOS',
+  // ADR-004 Submodulo 2: dispara el movimiento automatico de la solicitud
+  // de boceto correspondiente a "Aprobados" (ver LeadsController.setLabel).
+  BOCETO_APROBADO: 'BOCETO_APROBADO',
 } as const;
 
 export type SystemLabelCode =
@@ -64,5 +67,11 @@ export const SYSTEM_LABEL_SEED: Array<{
     name: 'Boceto atrasado',
     alertThresholdDays: 2,
     sortOrder: 6,
+  },
+  {
+    code: SYSTEM_LABEL_CODES.BOCETO_APROBADO,
+    name: 'Boceto aprobado',
+    alertThresholdDays: null,
+    sortOrder: 7,
   },
 ];

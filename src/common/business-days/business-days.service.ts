@@ -125,4 +125,151 @@ export class BusinessDaysService {
     const dueDate = this.nthBusinessDayOnOrAfter(start, thresholdDays, holidaySet);
     return this.startOfUtcDay(now) >= dueDate;
   }
+
+  // -----------------------------------------------------------------
+  // ADR-004 SS7 (Submodulo 1): plazo en dias habiles + corte de horario
+  // en una zona horaria dada (hoy: Europe/Madrid para el modulo de
+  // bocetos). Usa Intl.DateTimeFormat en vez de sumar una dependencia de
+  // timezones nueva -- 14:00 local nunca cae en la hora ambigua/inexistente
+  // de un cambio de horario europeo (esos ocurren de madrugada), asi que
+  // el algoritmo de dos pasadas de abajo es exacto para este caso de uso.
+  // -----------------------------------------------------------------
+
+  private zonedDateTimeParts(
+    date: Date,
+    timeZone: string,
+  ): { year: number; month: number; day: number; hour: number; minute: number } {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(date);
+    const get = (type: string) =>
+      Number(parts.find((p) => p.type === type)?.value ?? 0);
+
+    // Intl puede devolver "24" para medianoche con hour12:false segun el
+    // runtime; se normaliza a 0.
+    const hour = get('hour') % 24;
+
+    return {
+      year: get('year'),
+      month: get('month'),
+      day: get('day'),
+      hour,
+      minute: get('minute'),
+    };
+  }
+
+  /**
+   * Instante UTC correspondiente a una fecha/hora "de pared" en `timeZone`
+   * (ej. las 14:00 del 5 de marzo en Europe/Madrid). Algoritmo estandar de
+   * dos pasadas con Intl: una primera aproximacion tratando la hora de
+   * pared como si fuera UTC, corregida por el offset real de esa zona en
+   * ese instante.
+   */
+  private zonedWallTimeToUtc(
+    year: number,
+    month: number,
+    day: number,
+    hour: number,
+    minute: number,
+    timeZone: string,
+  ): Date {
+    const guess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+    const asZoned = this.zonedDateTimeParts(guess, timeZone);
+    const zonedAsUtc = Date.UTC(
+      asZoned.year,
+      asZoned.month - 1,
+      asZoned.day,
+      asZoned.hour,
+      asZoned.minute,
+      0,
+    );
+    const driftMs = guess.getTime() - zonedAsUtc;
+    return new Date(guess.getTime() + driftMs);
+  }
+
+  /**
+   * "Bucket" de dia logico (medianoche UTC con los mismos numeros de
+   * Y/M/D que la fecha de calendario local en `timeZone`) -- pensado
+   * unicamente para reusar `nthBusinessDayOnOrAfter`/`countBusinessDaysElapsed`
+   * (que comparan por getUTC*) contando dias de calendario de esa zona
+   * horaria en vez de dias de calendario UTC.
+   */
+  localDayBucket(date: Date, timeZone: string): Date {
+    const { year, month, day } = this.zonedDateTimeParts(date, timeZone);
+    return new Date(Date.UTC(year, month - 1, day));
+  }
+
+  /**
+   * Calcula `dueAt` aplicando la regla de ADR-004 SS7: si `anchor` cae
+   * antes de `cutoffHour` en `timeZone`, el dia de `anchor` cuenta como el
+   * dia 1 del plazo; si cae en o despues del corte, el plazo arranca al
+   * dia habil siguiente. Desde ahi cuenta `businessDays` dias habiles
+   * (saltando fines de semana y `holidaySet`) y devuelve el instante
+   * `cutoffHour`:00 (hora local) de ese dia habil final.
+   */
+  computeBusinessDueAt(
+    anchor: Date,
+    businessDays: number,
+    holidaySet: Set<string>,
+    options?: { cutoffHour?: number; timeZone?: string },
+  ): Date {
+    const cutoffHour = options?.cutoffHour ?? 14;
+    const timeZone = options?.timeZone ?? 'Europe/Madrid';
+
+    const anchorParts = this.zonedDateTimeParts(anchor, timeZone);
+    const anchorDayBucket = new Date(
+      Date.UTC(anchorParts.year, anchorParts.month - 1, anchorParts.day),
+    );
+
+    const pastCutoff =
+      anchorParts.hour > cutoffHour ||
+      (anchorParts.hour === cutoffHour && anchorParts.minute > 0);
+
+    const startDayBucket = pastCutoff
+      ? this.addCalendarDays(anchorDayBucket, 1)
+      : anchorDayBucket;
+
+    const dueDayBucket = this.nthBusinessDayOnOrAfter(
+      startDayBucket,
+      businessDays,
+      holidaySet,
+    );
+
+    return this.zonedWallTimeToUtc(
+      dueDayBucket.getUTCFullYear(),
+      dueDayBucket.getUTCMonth() + 1,
+      dueDayBucket.getUTCDate(),
+      cutoffHour,
+      0,
+      timeZone,
+    );
+  }
+
+  /**
+   * Dias habiles que quedan hasta `dueAt` contando desde `now`, en
+   * dias de calendario de `timeZone` (0 = hoy es el dia de vencimiento o
+   * ya vencio dentro del mismo dia habil, 1 = vence el proximo dia habil,
+   * etc.). Pensado para el semaforo de 3 colores (ADR-004 SS8): no mira la
+   * hora exacta de `dueAt`, solo el dia habil en que cae.
+   */
+  businessDaysUntilDue(
+    now: Date,
+    dueAt: Date,
+    holidaySet: Set<string>,
+    timeZone = 'Europe/Madrid',
+  ): number {
+    const nowBucket = this.localDayBucket(now, timeZone);
+    const dueBucket = this.localDayBucket(dueAt, timeZone);
+
+    if (dueBucket < nowBucket) return -1;
+
+    return this.countBusinessDaysElapsed(nowBucket, dueBucket, holidaySet) - 1;
+  }
 }

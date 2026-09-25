@@ -32,10 +32,6 @@ import { MessageService } from './modules/message/message.service';
 import { ConversationService } from './modules/conversation/conversation.service';
 import { ConversationController } from './modules/conversation/conversation.controller';
 import { ConversationModule } from './modules/conversation/conversation.module';
-import { OutboundService } from './modules/outbound/outbound.service';
-import { OutboundController } from './modules/outbound/outbound.controller';
-
-import { ChatPolicyService } from './modules/outbound/chat-policy.service';
 import { OutboundModule } from './modules/outbound/outbound.module';
 import { MediaUploadService } from './modules/media-upload/media-upload.service';
 import { MediaUploadController } from './modules/media-upload/media-upload.controller';
@@ -44,6 +40,8 @@ import { ChatEventsModule } from './modules/chat-events/chat-events.module';
 import { ChatEventsController } from './modules/chat-events/chat-events.controller';
 import { ChatEventsBridge } from './modules/chat-events/chat-events.bridge';
 import { LeadsModule } from './modules/leads/leads.module';
+import { DesignBoardModule } from './modules/design-board/design-board.module';
+import { DesignRequestSlaSchedulerModule } from './modules/design-board/design-request-sla-scheduler.module';
 import { ClichesModule } from './modules/cliches/cliches.module';
 import { ReengagementSchedulerModule } from './modules/reengagement/reengagement-scheduler.module';
 import { RepetitionReminderSchedulerModule } from './modules/repetition-reminder/repetition-reminder-scheduler.module';
@@ -94,6 +92,8 @@ import { LeadLabelDefinitionsModule } from './modules/lead-label-definitions/lea
     GlobalTemplatesModule,
     CampaignTemplatesModule,
     LeadLabelDefinitionsModule,
+    DesignBoardModule,
+    DesignRequestSlaSchedulerModule,
   ],
   controllers: [
     AppController,
@@ -102,7 +102,6 @@ import { LeadLabelDefinitionsModule } from './modules/lead-label-definitions/lea
     WebhookController,
     MessageController,
     ConversationController,
-    OutboundController,
     MediaUploadController,
     ChatEventsController,
   ],
@@ -115,8 +114,6 @@ import { LeadLabelDefinitionsModule } from './modules/lead-label-definitions/lea
     MessageStatusService,
     MessageService,
     ConversationService,
-    OutboundService,
-    ChatPolicyService,
     MediaUploadService,
     ChatEventsBridge,
   ],

@@ -18,6 +18,12 @@ enum Role {
   // y ademas es el UNICO que puede configurar LabelMessageRule (ADMIN queda
   // excluido de esa configuracion a proposito, por pedido explicito).
   SUPPORT
+  // ADR-004: modulo de solicitudes de bocetos. Ambos roles tienen su acceso
+  // limitado UNICAMENTE a ese modulo (sin chats/leads/resto de Fenix) -- la
+  // restriccion se aplica en la SPA, no en RolesGuard (que solo sabe de
+  // "puede/no puede" una ruta puntual).
+  DESIGNER
+  DESIGNER_MANAGER
 }
 
 enum EmployeeContractType {
@@ -90,6 +96,15 @@ model LeadLabelDefinition {
 
 enum AppNotificationType {
   LABEL_STALE
+  // ADR-004: se dispara cuando un DesignRequest llega a la columna isFinal
+  // ("Boceto terminado"), para avisar a la comercial creadora.
+  DESIGN_REQUEST_READY
+  // ADR-004 Submodulo 6: se dispara cuando una solicitud se envia de
+  // "Terminado" a "Modificacion" (ver sendToModification()).
+  DESIGN_REQUEST_SENT_TO_MODIFICATION
+  // ADR-004 Submodulo 6: se dispara con cada comentario nuevo en una
+  // solicitud, hacia "la otra parte" (ver ADR SS9.8).
+  DESIGN_REQUEST_COMMENTED
 }
 
 enum AppNotificationStatus {
@@ -249,6 +264,7 @@ model Account {
 
   webhookEvents       WebhookEvent[]
   providerCredentials AccountProviderCredential[]
+  designRequests      DesignRequest[] // ADR-004
 
   leadCampaigns             LeadCampaign[]
   campaignTemplates         AccountCampaignTemplate[]
@@ -326,6 +342,7 @@ model Lead {
   repetitionReminders LeadRepetitionReminder[]
   notifications       AppNotification[]
   assistantSessions   AssistantSession[]
+  designRequests      DesignRequest[] // ADR-004
 
   @@unique([accountId, phoneE164])
   @@index([accountId])
@@ -725,6 +742,7 @@ model Message {
   conversationsAsLastInboundMessage  Conversation[]         @relation("ConversationLastInboundMessage")
   conversationsAsLastOutboundMessage Conversation[]         @relation("ConversationLastOutboundMessage")
   mediaUploads                       MediaUpload[]
+  designRequestAttachments           DesignRequestAttachment[] // ADR-004
 
   @@unique([accountId, ycloudMessageId])
   @@unique([accountId, clientRequestId])
@@ -1272,4 +1290,188 @@ model PublicHoliday {
 
   @@unique([date])
   @@index([date])
+}
+
+
+// =============================================================
+// ADR-004: Modulo de solicitudes de bocetos (tablero tipo Jira)
+// MVP core (Fase 0): tablero basico con 4 columnas fijas, SLA simple
+// en dias corridos (sin dias habiles ni columna "Modificacion" todavia
+// -- eso llega en submodulos posteriores, ver el ADR en el proyecto
+// Fenix de Claude). Attachments: FROM_CHAT referencia un Message ya
+// existente sin duplicar nada; UPLOADED guarda metadata de un archivo
+// ya subido por otro endpoint (no se reinventa un pipeline de upload
+// nuevo en el MVP).
+// =============================================================
+
+enum DesignRequestCountry {
+  ES
+  FR
+  IT
+  DE
+}
+
+enum DesignAttachmentKind {
+  FROM_CHAT
+  UPLOADED
+}
+
+model DesignBoard {
+  id             String   @id @default(uuid())
+  name           String
+  defaultSlaDays Int      @default(3) // en dias habiles desde Submodulo 1 (ver ADR-004 SS7)
+  slaCutoffHour  Int      @default(14) // 14:00 hora Europe/Madrid -- Submodulo 1
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  columns  DesignBoardColumn[]
+  requests DesignRequest[]
+}
+
+model DesignBoardColumn {
+  id      String      @id @default(uuid())
+  boardId String
+  board   DesignBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  code      String
+  name      String
+  sortOrder Int
+
+  isInitial      Boolean @default(false)
+  isModification Boolean @default(false) // Submodulo 4: columna "Modificacion" con plazo especial
+  isFinal        Boolean @default(false)
+  isApproved     Boolean @default(false)
+
+  // Solo aplica si isModification=true: dias habiles del plazo especial
+  // para las tarjetas que llegan aqui (por defecto 1, ver ADR-004 SS9.3).
+  modificationSlaBusinessDays Int?
+
+  active Boolean @default(true)
+
+  requests         DesignRequest[]
+  statusEventsTo   DesignRequestStatusEvent[] @relation("ToColumn")
+  statusEventsFrom DesignRequestStatusEvent[] @relation("FromColumn")
+
+  @@unique([boardId, code])
+  @@unique([boardId, sortOrder])
+  @@index([boardId, active, sortOrder])
+}
+
+model DesignRequest {
+  id      String      @id @default(uuid())
+  boardId String
+  board   DesignBoard @relation(fields: [boardId], references: [id])
+
+  columnId String
+  column   DesignBoardColumn @relation(fields: [columnId], references: [id])
+
+  leadId    String
+  lead      Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  title        String
+  country      DesignRequestCountry @default(ES)
+  instructions String?              @db.Text
+
+  createdByUserId  String
+  assignedUserId   String?
+  assignedAt       DateTime?
+  assignedByUserId String?
+
+  slaBusinessDays       Int       @default(3) // Submodulo 1: dias habiles del plazo vigente
+  dueAt                 DateTime
+  overdueLabelAppliedAt DateTime? // Submodulo 1: evita reaplicar BOCETOS_ATRASADAS
+  sentToModificationAt  DateTime? // Submodulo 4: ultima vez que entro a "Modificacion"
+
+  // Submodulo 5: pausar/reanudar el plazo (solo DESIGNER_MANAGER/ADMIN).
+  // Mientras pausedAt no es null, el semaforo se congela (se recalcula
+  // usando pausedAt como "ahora" en vez de la hora real, ver
+  // withSlaStatus()); al reanudar, dueAt se desplaza hacia adelante por el
+  // tiempo real que estuvo pausada (ver ADR-004 SS4, nota de diseño).
+  pausedAt       DateTime?
+  pausedByUserId String?
+  pausedTotalMs  BigInt    @default(0)
+
+  completedAt           DateTime?
+  approvedAt            DateTime?
+  approvedViaLabel      Boolean   @default(false) // Submodulo 2: aprobada via etiqueta BOCETO_APROBADO
+
+  archivedAt       DateTime? // Submodulo 8: "Marcar como hecho" desde Aprobados
+  archivedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attachments  DesignRequestAttachment[]
+  comments     DesignRequestComment[]
+  statusEvents DesignRequestStatusEvent[]
+
+  @@index([boardId, columnId])
+  @@index([accountId, createdByUserId])
+  @@index([assignedUserId])
+  @@index([dueAt])
+}
+
+model DesignRequestAttachment {
+  id              String         @id @default(uuid())
+  designRequestId String?
+  designRequest   DesignRequest? @relation(fields: [designRequestId], references: [id], onDelete: Cascade)
+
+  // Submodulo 3: un adjunto puede colgar directo de la solicitud (al
+  // crearla) o de un comentario (designRequestId queda null en ese caso).
+  commentId String?
+  comment   DesignRequestComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  kind DesignAttachmentKind
+
+  sourceMessageId String?
+  sourceMessage   Message? @relation(fields: [sourceMessageId], references: [id], onDelete: SetNull)
+
+  mediaUrl        String?
+  mediaStorageKey String?
+  mimeType        String?
+  fileName        String?
+  sizeBytes       Int?
+
+  uploadedByUserId  String
+  forwardedToLeadAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([designRequestId])
+  @@index([commentId])
+}
+
+model DesignRequestComment {
+  id              String        @id @default(uuid())
+  designRequestId String
+  designRequest   DesignRequest @relation(fields: [designRequestId], references: [id], onDelete: Cascade)
+
+  authorUserId String
+  body         String @db.Text
+
+  attachments DesignRequestAttachment[] // Submodulo 3
+
+  createdAt DateTime @default(now())
+
+  @@index([designRequestId, createdAt])
+}
+
+model DesignRequestStatusEvent {
+  id              String        @id @default(uuid())
+  designRequestId String
+  designRequest   DesignRequest @relation(fields: [designRequestId], references: [id], onDelete: Cascade)
+
+  fromColumnId String?
+  fromColumn   DesignBoardColumn? @relation("FromColumn", fields: [fromColumnId], references: [id])
+  toColumnId   String
+  toColumn     DesignBoardColumn  @relation("ToColumn", fields: [toColumnId], references: [id])
+
+  direction       String
+  changedByUserId String?
+  changedAt       DateTime @default(now())
+
+  @@index([designRequestId, changedAt])
 }

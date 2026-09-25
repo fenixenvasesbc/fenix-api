@@ -1,0 +1,3 @@
+-- ADR-004 Submodulo 6: alertas ampliadas.
+ALTER TYPE "AppNotificationType" ADD VALUE 'DESIGN_REQUEST_SENT_TO_MODIFICATION';
+ALTER TYPE "AppNotificationType" ADD VALUE 'DESIGN_REQUEST_COMMENTED';
