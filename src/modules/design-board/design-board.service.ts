@@ -17,6 +17,7 @@ import { LeadsService } from '../leads/leads.service';
 import { OutboundService } from '../outbound/outbound.service';
 import { BusinessDaysService } from 'src/common/business-days/business-days.service';
 import { ChatEventsService } from '../chat-events/chat-events.service';
+import { withLeadDisplayName } from 'src/common/utils/lead-name';
 import {
   AddDesignRequestCommentDto,
   AssignDesignRequestDto,
@@ -309,12 +310,28 @@ export class DesignBoardService {
       include: {
         column: true,
         attachments: true,
-        lead: { select: { id: true, displayName: true, phoneE164: true, accountId: true } },
+        lead: {
+          select: {
+            id: true,
+            name: true,
+            manualName: true,
+            ycloudNickname: true,
+            whatsappContactName: true,
+            whatsappProfileName: true,
+            phoneE164: true,
+            accountId: true,
+          },
+        },
       },
     });
 
     const holidaySet = await this.businessDaysService.loadHolidaySet();
-    return requests.map((request) => this.withSlaStatus(request, holidaySet));
+    return requests.map((request) =>
+      this.withSlaStatus(
+        { ...request, lead: request.lead ? withLeadDisplayName(request.lead) : null },
+        holidaySet,
+      ),
+    );
   }
 
   // "YYYY-MM" (o vacío/undefined = mes actual, en UTC) -> límites
@@ -342,7 +359,18 @@ export class DesignBoardService {
         column: true,
         board: true,
         attachments: true,
-        lead: { select: { id: true, displayName: true, phoneE164: true, accountId: true } },
+        lead: {
+          select: {
+            id: true,
+            name: true,
+            manualName: true,
+            ycloudNickname: true,
+            whatsappContactName: true,
+            whatsappProfileName: true,
+            phoneE164: true,
+            accountId: true,
+          },
+        },
         comments: {
           orderBy: { createdAt: 'asc' },
           include: { attachments: true },
@@ -354,7 +382,10 @@ export class DesignBoardService {
     if (!request) throw new NotFoundException('Design request not found');
 
     const holidaySet = await this.businessDaysService.loadHolidaySet();
-    return this.withSlaStatus(request, holidaySet);
+    return this.withSlaStatus(
+      { ...request, lead: request.lead ? withLeadDisplayName(request.lead) : null },
+      holidaySet,
+    );
   }
 
   // Semáforo de 3 colores (ADR-004 §8, Submódulo 1): verde si queda más de
