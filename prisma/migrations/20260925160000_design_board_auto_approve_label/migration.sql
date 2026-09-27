@@ -6,14 +6,14 @@
 -- AlterTable
 ALTER TABLE "DesignRequest" ADD COLUMN "approvedViaLabel" BOOLEAN NOT NULL DEFAULT false;
 
--- Seed: la nueva label "sistema" BOCETO_APROBADO para cada Account ya
--- existente, siguiendo el mismo patron que la migracion
--- 20260904120000_lead_label_definitions.
+-- Seed: la nueva label "sistema" BOCETO_APROBADO. Nota: desde la migracion
+-- 20260905142928_lead_label_definitions_global, "LeadLabelDefinition" es un
+-- catalogo GLOBAL (una fila por "code", sin "accountId") -- no una copia
+-- por Account como en el patron original de 20260904120000.
 INSERT INTO "LeadLabelDefinition"
-  ("id", "accountId", "code", "name", "color", "isSystem", "alertThresholdDays", "active", "sortOrder", "createdAt", "updatedAt")
+  ("id", "code", "name", "color", "isSystem", "alertThresholdDays", "active", "sortOrder", "createdAt", "updatedAt")
 SELECT
-  md5(random()::text || clock_timestamp()::text || a."id" || 'BOCETO_APROBADO')::uuid::text,
-  a."id",
+  md5(random()::text || clock_timestamp()::text || 'BOCETO_APROBADO')::uuid::text,
   'BOCETO_APROBADO',
   'Boceto aprobado',
   NULL,
@@ -23,8 +23,6 @@ SELECT
   7,
   CURRENT_TIMESTAMP,
   CURRENT_TIMESTAMP
-FROM "Account" a
 WHERE NOT EXISTS (
-  SELECT 1 FROM "LeadLabelDefinition" d
-  WHERE d."accountId" = a."id" AND d."code" = 'BOCETO_APROBADO'
+  SELECT 1 FROM "LeadLabelDefinition" d WHERE d."code" = 'BOCETO_APROBADO'
 );
