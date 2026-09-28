@@ -2,6 +2,20 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
+// Node no serializa BigInt a JSON de forma nativa (p. ej. DesignRequest.pausedTotalMs).
+// Se convierte a Number aca, de forma global, para que cualquier campo BigInt
+// presente o futuro no rompa las respuestas HTTP con 'Do not know how to serialize a BigInt'.
+declare global {
+  interface BigInt {
+    toJSON(): number;
+  }
+}
+(BigInt.prototype as unknown as { toJSON: () => number }).toJSON = function (
+  this: bigint,
+) {
+  return Number(this);
+};
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.useLogger(['log', 'error', 'warn', 'debug']);
