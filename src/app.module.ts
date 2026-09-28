@@ -47,6 +47,7 @@ import { ReengagementSchedulerModule } from './modules/reengagement/reengagement
 import { RepetitionReminderSchedulerModule } from './modules/repetition-reminder/repetition-reminder-scheduler.module';
 import { LabelMessageRuleSchedulerModule } from './modules/label-message-rule/label-message-rule-scheduler.module';
 import { LabelMessageRulesModule } from './modules/label-message-rules/label-message-rules.module';
+import { LeadNameSyncModule } from './modules/lead-name-sync/lead-name-sync.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { MessageMediaModule } from './modules/message-media/message-media.module';
 import { AssistantModule } from './modules/assistant/assistant.module';
@@ -85,6 +86,7 @@ import { LeadLabelDefinitionsModule } from './modules/lead-label-definitions/lea
     RepetitionReminderSchedulerModule,
     LabelMessageRuleSchedulerModule,
     LabelMessageRulesModule,
+    LeadNameSyncModule,
     NotificationsModule,
     MessageMediaModule,
     AssistantModule,

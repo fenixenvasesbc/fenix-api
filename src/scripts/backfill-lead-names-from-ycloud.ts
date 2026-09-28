@@ -1,58 +1,25 @@
 import 'dotenv/config';
-import axios, { type AxiosResponse } from 'axios';
-import { LeadStatus, PrismaClient, ProviderType } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { CredentialCryptoService } from '../modules/credentials/credential-crypto.service';
+import {
+  runYcloudLeadNameBackfill,
+  type YcloudBackfillArgs,
+  type YcloudBackfillSummary,
+} from '../modules/lead-name-sync/ycloud-lead-name-sync.core';
 
-type Args = {
-  apply: boolean;
-  accountId: string | null;
-  limit: number | null;
-  concurrency: number;
-  delayMs: number;
-};
+// CLI para el mismo backfill que expone POST /lead-name-sync/ycloud-backfill
+// (rol SUPPORT). La logica vive en ycloud-lead-name-sync.core.ts; este
+// archivo solo se ocupa de: parsear argv, instanciar PrismaClient a mano
+// (fuera del contexto de Nest), imprimir el resumen y el exit code.
 
-type LeadCandidate = {
-  id: string;
-  accountId: string | null;
-  phoneE164: string;
-  whatsappContactName: string | null;
-  ycloudNickname: string | null;
-};
+type Args = YcloudBackfillArgs;
 
-type ContactLookup =
-  | {
-      kind: 'found';
-      whatsappContactName: string | null;
-      ycloudNickname: string | null;
-    }
-  | { kind: 'not_found' };
-
-type CredentialResult =
-  | { kind: 'ok'; apiKey: string }
-  | { kind: 'error'; reason: string };
-
-type Summary = {
-  scanned: number;
-  invalidPhone: number;
-  credentialErrors: number;
-  notFound: number;
-  withoutRemarkName: number;
-  withoutNickname: number;
-  unchanged: number;
-  wouldUpdate: number;
-  updated: number;
-  concurrentChanges: number;
-  requestErrors: number;
-};
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_DELAY_MS = 250;
-const DATABASE_BATCH_SIZE = 250;
-const MAX_RETRIES = 3;
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const E164_RE = /^\+[1-9]\d{6,14}$/;
 
 function parseArgs(argv: string[]): Args {
   const apply = argv.includes('--apply');
@@ -89,192 +56,11 @@ function readArg(argv: string[], name: string) {
   return argv.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1);
 }
 
-function nonEmpty(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function normalizeKey(key: string): string {
-  return key.replace(/[^a-z0-9]+/gi, '').toLowerCase();
-}
-
-function pickObjectValue(
-  object: Record<string, unknown>,
-  keys: string[],
-): unknown {
-  for (const key of keys) {
-    if (Object.prototype.hasOwnProperty.call(object, key)) {
-      return object[key];
-    }
-  }
-
-  const normalizedKeys = new Set(keys.map(normalizeKey));
-  for (const [key, value] of Object.entries(object)) {
-    if (normalizedKeys.has(normalizeKey(key))) return value;
-  }
-
-  return null;
-}
-
-function objectCandidates(payload: unknown): Record<string, unknown>[] {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    return [];
-  }
-
-  const root = payload as Record<string, unknown>;
-  const candidates = [root];
-
-  for (const key of ['data', 'contact']) {
-    const nested = root[key];
-    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
-      candidates.push(nested as Record<string, unknown>);
-    }
-  }
-
-  return candidates;
-}
-
-function extractContactNames(payload: unknown): {
-  whatsappContactName: string | null;
-  ycloudNickname: string | null;
-} {
-  let whatsappContactName: string | null = null;
-  let ycloudNickname: string | null = null;
-
-  for (const object of objectCandidates(payload)) {
-    whatsappContactName ??= nonEmpty(
-      pickObjectValue(object, [
-        'remarkName',
-        'remark_name',
-        'remark name',
-        'fullName',
-        'full_name',
-      ]),
-    );
-    ycloudNickname ??= nonEmpty(
-      pickObjectValue(object, ['nickname', 'nickName', 'nick_name']),
-    );
-  }
-
-  return { whatsappContactName, ycloudNickname };
-}
-
-function providerMessage(response: AxiosResponse): string {
-  const body = response.data as
-    | { message?: unknown; error?: { message?: unknown } }
-    | undefined;
-
-  return (
-    nonEmpty(body?.message) ??
-    nonEmpty(body?.error?.message) ??
-    `HTTP ${response.status}`
-  );
-}
-
-function retryDelayMs(response: AxiosResponse | null, attempt: number) {
-  const retryAfter: unknown = response
-    ? (response.headers as Record<string, unknown>)['retry-after']
-    : undefined;
-  const retryAfterSeconds =
-    typeof retryAfter === 'string' ? Number(retryAfter) : Number.NaN;
-
-  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
-    return Math.min(retryAfterSeconds * 1000, 10_000);
-  }
-
-  return Math.min(500 * 2 ** attempt, 5_000);
-}
-
-async function wait(milliseconds: number) {
-  await new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-async function retrieveContact(input: {
-  baseUrl: string;
-  apiKey: string;
-  phoneE164: string;
-  beforeRequest: () => Promise<void>;
-}): Promise<ContactLookup> {
-  const url = `${input.baseUrl}/contact/contacts/${encodeURIComponent(
-    input.phoneE164,
-  )}`;
-
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
-    let response: AxiosResponse | null = null;
-
-    try {
-      await input.beforeRequest();
-      const receivedResponse = await axios.get(url, {
-        headers: {
-          'X-API-Key': input.apiKey,
-          Accept: 'application/json',
-        },
-        timeout: 20_000,
-        validateStatus: () => true,
-      });
-      response = receivedResponse;
-
-      if (receivedResponse.status === 200) {
-        const names = extractContactNames(receivedResponse.data);
-        return {
-          kind: 'found',
-          whatsappContactName: names.whatsappContactName,
-          ycloudNickname: names.ycloudNickname,
-        };
-      }
-
-      if (receivedResponse.status === 404) {
-        return { kind: 'not_found' };
-      }
-
-      const retryable =
-        receivedResponse.status === 429 || receivedResponse.status >= 500;
-      if (!retryable || attempt === MAX_RETRIES) {
-        throw new Error(
-          `YCloud contact lookup failed: ${providerMessage(receivedResponse)}`,
-        );
-      }
-    } catch (error) {
-      const isFinalAttempt = attempt === MAX_RETRIES;
-      const isHttpFailure =
-        response !== null && response.status !== 429 && response.status < 500;
-
-      if (isFinalAttempt || isHttpFailure) {
-        throw error;
-      }
-    }
-
-    await wait(retryDelayMs(response, attempt));
-  }
-
-  throw new Error('YCloud contact lookup exhausted retries');
-}
-
-function maskPhone(phoneE164: string) {
-  if (phoneE164.length <= 6) return '***';
-  return `${phoneE164.slice(0, 3)}***${phoneE164.slice(-3)}`;
-}
-
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function runConcurrent<T>(
-  values: T[],
-  concurrency: number,
-  operation: (value: T) => Promise<void>,
-) {
-  for (let offset = 0; offset < values.length; offset += concurrency) {
-    await Promise.all(
-      values
-        .slice(offset, offset + concurrency)
-        .map((value) => operation(value)),
-    );
-  }
-}
-
-function printSummary(summary: Summary, apply: boolean) {
+function printSummary(summary: YcloudBackfillSummary, apply: boolean) {
   console.log('\nBackfill summary');
   console.log(`- mode: ${apply ? 'APPLY' : 'DRY RUN'}`);
   console.log(`- leads scanned: ${summary.scanned}`);
@@ -294,9 +80,6 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const databaseUrl = process.env.DATABASE_URL;
   const encryptionKey = process.env.CREDENTIAL_ENCRYPTION_KEY;
-  const baseUrl = (
-    process.env.YCLOUD_BASE_URL ?? 'https://api.ycloud.com/v2'
-  ).replace(/\/+$/, '');
 
   if (!databaseUrl) throw new Error('DATABASE_URL is missing');
   if (!encryptionKey) {
@@ -307,200 +90,15 @@ async function main() {
     adapter: new PrismaPg({ connectionString: databaseUrl }),
   });
   const cryptoService = new CredentialCryptoService();
-  const credentialCache = new Map<string, Promise<CredentialResult>>();
-  const loggedCredentialErrors = new Set<string>();
-  let nextRequestAt = 0;
-  const summary: Summary = {
-    scanned: 0,
-    invalidPhone: 0,
-    credentialErrors: 0,
-    notFound: 0,
-    withoutRemarkName: 0,
-    withoutNickname: 0,
-    unchanged: 0,
-    wouldUpdate: 0,
-    updated: 0,
-    concurrentChanges: 0,
-    requestErrors: 0,
-  };
 
-  const getCredential = (accountId: string) => {
-    const cached = credentialCache.get(accountId);
-    if (cached) return cached;
-
-    const lookup = (async (): Promise<CredentialResult> => {
-      const credential = await prisma.accountProviderCredential.findUnique({
-        where: {
-          accountId_provider: {
-            accountId,
-            provider: ProviderType.YCLOUD,
-          },
-        },
-        select: { apiKeyEncrypted: true, isActive: true },
-      });
-
-      if (!credential?.isActive) {
-        return { kind: 'error', reason: 'active YCLOUD credential not found' };
-      }
-
-      try {
-        return {
-          kind: 'ok',
-          apiKey: cryptoService.decrypt(credential.apiKeyEncrypted),
-        };
-      } catch (error) {
-        return {
-          kind: 'error',
-          reason: `credential decrypt failed: ${errorMessage(error)}`,
-        };
-      }
-    })();
-
-    credentialCache.set(accountId, lookup);
-    return lookup;
-  };
-
-  const waitForRequestSlot = async () => {
-    const scheduledAt = Math.max(Date.now(), nextRequestAt);
-    nextRequestAt = scheduledAt + args.delayMs;
-    const waitMs = scheduledAt - Date.now();
-
-    if (waitMs > 0) await wait(waitMs);
-  };
-
-  const processLead = async (lead: LeadCandidate) => {
-    summary.scanned += 1;
-
-    if (!lead.accountId) {
-      summary.credentialErrors += 1;
-      return;
-    }
-
-    const phoneE164 = lead.phoneE164.trim();
-    if (!E164_RE.test(phoneE164)) {
-      summary.invalidPhone += 1;
-      console.warn(
-        `Skipping invalid E.164 phone leadId=${lead.id} phone=${maskPhone(phoneE164)}`,
-      );
-      return;
-    }
-
-    const credential = await getCredential(lead.accountId);
-    if (credential.kind === 'error') {
-      summary.credentialErrors += 1;
-      if (!loggedCredentialErrors.has(lead.accountId)) {
-        loggedCredentialErrors.add(lead.accountId);
-        console.error(
-          `Skipping accountId=${lead.accountId}: ${credential.reason}`,
-        );
-      }
-      return;
-    }
-
-    let contact: ContactLookup;
-    try {
-      contact = await retrieveContact({
-        baseUrl,
-        apiKey: credential.apiKey,
-        phoneE164,
-        beforeRequest: waitForRequestSlot,
-      });
-    } catch (error) {
-      summary.requestErrors += 1;
-      console.error(
-        `Lookup failed leadId=${lead.id} phone=${maskPhone(phoneE164)}: ${errorMessage(error)}`,
-      );
-      return;
-    }
-
-    if (contact.kind === 'not_found') {
-      summary.notFound += 1;
-      return;
-    }
-
-    if (!contact.whatsappContactName) {
-      summary.withoutRemarkName += 1;
-    }
-
-    if (!contact.ycloudNickname) {
-      summary.withoutNickname += 1;
-    }
-
-    const nextWhatsappContactName =
-      contact.whatsappContactName ?? lead.whatsappContactName;
-    const nextYcloudNickname = contact.ycloudNickname ?? lead.ycloudNickname;
-
-    if (
-      lead.whatsappContactName === nextWhatsappContactName &&
-      lead.ycloudNickname === nextYcloudNickname
-    ) {
-      summary.unchanged += 1;
-      return;
-    }
-
-    summary.wouldUpdate += 1;
-    if (!args.apply) return;
-
-    const update = await prisma.lead.updateMany({
-      where: {
-        id: lead.id,
-        whatsappContactName: lead.whatsappContactName,
-        ycloudNickname: lead.ycloudNickname,
-      },
-      data: {
-        whatsappContactName: nextWhatsappContactName,
-        ycloudNickname: nextYcloudNickname,
-      },
-    });
-
-    if (update.count === 1) {
-      summary.updated += 1;
-    } else {
-      summary.concurrentChanges += 1;
-      console.warn(`Concurrent lead change preserved leadId=${lead.id}`);
-    }
-  };
-
-  console.log(
-    `Starting YCloud lead-name backfill mode=${args.apply ? 'APPLY' : 'DRY RUN'} concurrency=${args.concurrency} delayMs=${args.delayMs} status!=${LeadStatus.NEW}`,
-  );
-
-  let cursor: string | undefined;
-
+  let summary: YcloudBackfillSummary;
   try {
-    while (args.limit === null || summary.scanned < args.limit) {
-      const remaining =
-        args.limit === null
-          ? DATABASE_BATCH_SIZE
-          : Math.min(DATABASE_BATCH_SIZE, args.limit - summary.scanned);
-
-      const leads = await prisma.lead.findMany({
-        where: {
-          accountId: args.accountId ? args.accountId : { not: null },
-          phoneE164: { not: '' },
-          status: { not: LeadStatus.NEW },
-        },
-        orderBy: { id: 'asc' },
-        take: remaining,
-        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-        select: {
-          id: true,
-          accountId: true,
-          phoneE164: true,
-          whatsappContactName: true,
-          ycloudNickname: true,
-        },
-      });
-
-      if (leads.length === 0) break;
-
-      await runConcurrent(leads, args.concurrency, processLead);
-      cursor = leads.at(-1)?.id;
-    }
+    summary = await runYcloudLeadNameBackfill(prisma, cryptoService, args);
   } finally {
-    printSummary(summary, args.apply);
     await prisma.$disconnect();
   }
+
+  printSummary(summary, args.apply);
 
   if (summary.credentialErrors > 0 || summary.requestErrors > 0) {
     process.exitCode = 1;
