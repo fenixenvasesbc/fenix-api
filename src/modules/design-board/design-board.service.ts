@@ -21,6 +21,7 @@ import { withLeadDisplayName } from 'src/common/utils/lead-name';
 import {
   AddDesignRequestCommentDto,
   AssignDesignRequestDto,
+  CreateDesignRequestAttachmentDto,
   CreateDesignRequestDto,
   ListDesignRequestsQueryDto,
   MoveDesignRequestDto,
@@ -148,6 +149,88 @@ export class DesignBoardService {
   // Crear solicitud
   // -------------------------------------------------------------
 
+  // Arma el `create` anidado de DesignRequestAttachment a partir de los
+  // DTOs recibidos (createRequest y addComment comparten este shape).
+  //
+  // FROM_CHAT: el DTO solo trae sourceMessageId ("referencia a un Message
+  // ya existente, sin copiar/descargar nada de nuevo" -- comentario
+  // original del DTO). Eso significaba, hasta este fix, que el adjunto
+  // quedaba SIN mediaUrl/mimeType/fileName propios -- lo cual rompia
+  // forwardAttachment() (exige attachment.mediaUrl) y dejaba la UI sin
+  // nada que mostrar. Se resuelve aca: se busca el Message, se valida que
+  // sea del mismo lead (nunca confiar en un sourceMessageId arbitrario
+  // que mande el cliente -- podria ser de otro lead/cuenta), y se
+  // denormalizan sus campos de media sobre el attachment. Sigue sin
+  // re-subir ni duplicar el archivo: mediaUrl apunta al mismo storage.
+  private async buildAttachmentsCreateInput(
+    leadId: string,
+    attachments: CreateDesignRequestAttachmentDto[] | undefined,
+    uploadedByUserId: string,
+  ) {
+    if (!attachments?.length) return undefined;
+
+    const resolved = await Promise.all(
+      attachments.map(async (att) => {
+        if (att.kind !== DesignAttachmentKind.FROM_CHAT) {
+          return {
+            kind: att.kind,
+            sourceMessageId: null,
+            mediaUrl: att.mediaUrl ?? null,
+            mediaStorageKey: att.mediaStorageKey ?? null,
+            mimeType: att.mimeType ?? null,
+            fileName: att.fileName ?? null,
+            sizeBytes: att.sizeBytes ?? null,
+            uploadedByUserId,
+          };
+        }
+
+        if (!att.sourceMessageId) {
+          throw new BadRequestException(
+            'sourceMessageId es requerido para adjuntos FROM_CHAT',
+          );
+        }
+
+        const message = await this.prisma.message.findUnique({
+          where: { id: att.sourceMessageId },
+          select: {
+            id: true,
+            leadId: true,
+            mediaUrl: true,
+            mediaStorageKey: true,
+            mimeType: true,
+            fileName: true,
+            mediaSizeBytes: true,
+          },
+        });
+
+        if (!message || message.leadId !== leadId) {
+          throw new BadRequestException(
+            'El mensaje referenciado no existe o no pertenece a este lead',
+          );
+        }
+
+        if (!message.mediaUrl) {
+          throw new BadRequestException(
+            'El mensaje referenciado no tiene un archivo adjunto',
+          );
+        }
+
+        return {
+          kind: DesignAttachmentKind.FROM_CHAT,
+          sourceMessageId: message.id,
+          mediaUrl: message.mediaUrl,
+          mediaStorageKey: message.mediaStorageKey,
+          mimeType: message.mimeType,
+          fileName: message.fileName,
+          sizeBytes: message.mediaSizeBytes,
+          uploadedByUserId,
+        };
+      }),
+    );
+
+    return resolved;
+  }
+
   async createRequest(user: AuthUser, dto: CreateDesignRequestDto) {
     if (user.role !== Role.SALES && user.role !== Role.ADMIN) {
       throw new ForbiddenException(
@@ -187,6 +270,12 @@ export class DesignBoardService {
       { cutoffHour: board.slaCutoffHour },
     );
 
+    const attachmentsCreateInput = await this.buildAttachmentsCreateInput(
+      lead.id,
+      dto.attachments,
+      user.userId,
+    );
+
     const designRequest = await this.prisma.$transaction(async (tx) => {
       const created = await tx.designRequest.create({
         data: {
@@ -200,22 +289,8 @@ export class DesignBoardService {
           createdByUserId: user.userId,
           slaBusinessDays: board.defaultSlaDays,
           dueAt,
-          attachments: dto.attachments?.length
-            ? {
-                create: dto.attachments.map((att) => ({
-                  kind: att.kind,
-                  sourceMessageId:
-                    att.kind === DesignAttachmentKind.FROM_CHAT
-                      ? (att.sourceMessageId ?? null)
-                      : null,
-                  mediaUrl: att.mediaUrl ?? null,
-                  mediaStorageKey: att.mediaStorageKey ?? null,
-                  mimeType: att.mimeType ?? null,
-                  fileName: att.fileName ?? null,
-                  sizeBytes: att.sizeBytes ?? null,
-                  uploadedByUserId: user.userId,
-                })),
-              }
+          attachments: attachmentsCreateInput
+            ? { create: attachmentsCreateInput }
             : undefined,
         },
         include: { attachments: true },
@@ -700,28 +775,22 @@ export class DesignBoardService {
 
     // ADR-004 Submódulo 3: adjuntos dentro del comentario (mismo shape que
     // los adjuntos de la solicitud -- FROM_CHAT referencia un Message ya
-    // existente, UPLOADED trae metadata de un archivo ya subido).
+    // existente, UPLOADED trae metadata de un archivo ya subido). Ver
+    // buildAttachmentsCreateInput() para por que FROM_CHAT necesita
+    // resolver el Message, no solo guardar el id.
+    const attachmentsCreateInput = await this.buildAttachmentsCreateInput(
+      request.leadId,
+      dto.attachments,
+      user.userId,
+    );
+
     const comment = await this.prisma.designRequestComment.create({
       data: {
         designRequestId: request.id,
         authorUserId: user.userId,
         body: dto.body,
-        attachments: dto.attachments?.length
-          ? {
-              create: dto.attachments.map((att) => ({
-                kind: att.kind,
-                sourceMessageId:
-                  att.kind === DesignAttachmentKind.FROM_CHAT
-                    ? (att.sourceMessageId ?? null)
-                    : null,
-                mediaUrl: att.mediaUrl ?? null,
-                mediaStorageKey: att.mediaStorageKey ?? null,
-                mimeType: att.mimeType ?? null,
-                fileName: att.fileName ?? null,
-                sizeBytes: att.sizeBytes ?? null,
-                uploadedByUserId: user.userId,
-              })),
-            }
+        attachments: attachmentsCreateInput
+          ? { create: attachmentsCreateInput }
           : undefined,
       },
       include: { attachments: true },
