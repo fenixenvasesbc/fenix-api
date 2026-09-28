@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -60,6 +61,12 @@ import { LeadLabelDefinitionsModule } from './modules/lead-label-definitions/lea
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
+    // Bus de eventos de dominio EN PROCESO (Observer/EventEmitter2), separado
+    // de ChatEventsService (RabbitMQ + SSE, que es transporte hacia el
+    // navegador). Un modulo publica "esto paso" y no le importa quien
+    // escucha -- lo usa design-board para desacoplar el tablero del sistema
+    // de notificaciones (ver DesignRequestNotificationsListener).
+    EventEmitterModule.forRoot(),
     UsersModule,
     AuthModule,
     PrismaModule,

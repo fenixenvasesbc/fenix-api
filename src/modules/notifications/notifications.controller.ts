@@ -32,12 +32,24 @@ type AuthUser = {
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
-  @Roles(Role.ADMIN, Role.SALES)
+  // DESIGNER/DESIGNER_MANAGER no tienen accountId (su login queda limitado
+  // solo al tablero de bocetos, ver ADR-004 §12) -- para ellos las
+  // notificaciones se resuelven por recipientUserId (el propio usuario),
+  // no por cuenta comercial. Es este metodo el que decide cual camino usar.
+  @Roles(Role.ADMIN, Role.SALES, Role.DESIGNER, Role.DESIGNER_MANAGER)
   @Get()
   async list(
     @Query() query: NotificationsQueryDto,
     @Req() req: { user: AuthUser },
   ) {
+    if (this.isDesignBoardOnly(req.user.role)) {
+      return this.notificationsService.listByRecipient({
+        recipientUserId: req.user.userId,
+        status: query.status ?? 'UNREAD',
+        limit: query.limit,
+      });
+    }
+
     const accountId = this.resolveAccountId(req.user, query.accountId);
 
     return this.notificationsService.listByAccount({
@@ -47,13 +59,22 @@ export class NotificationsController {
     });
   }
 
-  @Roles(Role.ADMIN, Role.SALES)
+  @Roles(Role.ADMIN, Role.SALES, Role.DESIGNER, Role.DESIGNER_MANAGER)
   @Post(':notificationId/read')
   async markAsRead(
     @Param('notificationId', new ParseUUIDPipe()) notificationId: string,
     @Query() query: NotificationAccountQueryDto,
     @Req() req: { user: AuthUser },
   ) {
+    if (this.isDesignBoardOnly(req.user.role)) {
+      const notification = await this.notificationsService.markAsReadForRecipient(
+        req.user.userId,
+        notificationId,
+      );
+
+      return { data: notification };
+    }
+
     const accountId = this.resolveAccountId(req.user, query.accountId);
     const notification = await this.notificationsService.markAsRead(
       accountId,
@@ -63,12 +84,16 @@ export class NotificationsController {
     return { data: notification };
   }
 
-  @Roles(Role.ADMIN, Role.SALES)
+  @Roles(Role.ADMIN, Role.SALES, Role.DESIGNER, Role.DESIGNER_MANAGER)
   @Post('read-all')
   async markAllAsRead(
     @Query() query: NotificationAccountQueryDto,
     @Req() req: { user: AuthUser },
   ) {
+    if (this.isDesignBoardOnly(req.user.role)) {
+      return this.notificationsService.markAllAsReadForRecipient(req.user.userId);
+    }
+
     const accountId = this.resolveAccountId(req.user, query.accountId);
 
     return this.notificationsService.markAllAsRead(accountId);
@@ -87,6 +112,10 @@ export class NotificationsController {
       accountId,
       body.label,
     );
+  }
+
+  private isDesignBoardOnly(role: Role): boolean {
+    return role === Role.DESIGNER || role === Role.DESIGNER_MANAGER;
   }
 
   private resolveAccountId(

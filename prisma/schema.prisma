@@ -433,6 +433,14 @@ model AppNotification {
   accountId String
   leadId    String?
 
+  // Opcional: cuando esta seteado, la notificacion es para ESTE usuario en
+  // particular (ej. el diseñador asignado a un boceto), sin importar si
+  // tiene accountId o no -- DESIGNER/DESIGNER_MANAGER no tienen cuenta
+  // comercial, asi que el flujo por accountId (SALES/ADMIN) no les sirve.
+  // Las notificaciones existentes (alertas de etiqueta) siguen sin usar
+  // este campo y se siguen resolviendo por accountId como siempre.
+  recipientUserId String?
+
   type     AppNotificationType
   status   AppNotificationStatus   @default(UNREAD)
   severity AppNotificationSeverity @default(WARNING)
@@ -457,6 +465,7 @@ model AppNotification {
   @@index([accountId, status, triggeredAt])
   @@index([accountId, type, status])
   @@index([leadId, type, status])
+  @@index([recipientUserId, status, triggeredAt])
 }
 
 model AssistantSession {

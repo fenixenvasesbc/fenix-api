@@ -5,12 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  AppNotificationType,
   DesignAttachmentKind,
   DesignRequestCountry,
   Prisma,
   Role,
 } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { SYSTEM_LABEL_CODES } from 'src/common/constants/lead-labels';
 import { LeadsService } from '../leads/leads.service';
@@ -26,6 +26,12 @@ import {
   ListDesignRequestsQueryDto,
   MoveDesignRequestDto,
 } from './dto/create-design-request.dto';
+import {
+  DESIGN_REQUEST_EVENTS,
+  DesignRequestCommentedEvent,
+  DesignRequestReadyEvent,
+  DesignRequestSentToModificationEvent,
+} from './events/design-board.events';
 
 export type AuthUser = {
   userId: string;
@@ -63,6 +69,12 @@ export class DesignBoardService {
     private readonly outboundService: OutboundService,
     private readonly businessDaysService: BusinessDaysService,
     private readonly chatEvents: ChatEventsService,
+    // Bus de eventos de dominio EN PROCESO (Observer/EventEmitter2, ver
+    // events/design-board.events.ts): este servicio publica "esto paso en
+    // el tablero" y no conoce ni depende del sistema de notificaciones --
+    // quien decide a quien avisar y como es DesignRequestNotificationsListener
+    // (src/modules/notifications/listeners), no este archivo.
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // ADR-004 Submódulo 11: publica al mismo bus de eventos que ya usa el
@@ -641,7 +653,15 @@ export class DesignBoardService {
     });
 
     if (targetColumn.isFinal) {
-      await this.notifyDesignRequestReady(request.id, request.accountId, request.leadId);
+      this.eventEmitter.emit(
+        DESIGN_REQUEST_EVENTS.READY,
+        new DesignRequestReadyEvent(
+          request.id,
+          request.accountId,
+          request.leadId,
+          request.createdByUserId,
+        ),
+      );
     }
 
     await this.emitDesignBoardEvent('design_request.moved', request, {
@@ -649,27 +669,6 @@ export class DesignBoardService {
     });
 
     return updated;
-  }
-
-  private async notifyDesignRequestReady(
-    designRequestId: string,
-    accountId: string,
-    leadId: string,
-  ) {
-    const dedupeKey = `design_request_ready:${designRequestId}`;
-
-    await this.prisma.appNotification.upsert({
-      where: { accountId_dedupeKey: { accountId, dedupeKey } },
-      update: {},
-      create: {
-        accountId,
-        leadId,
-        type: AppNotificationType.DESIGN_REQUEST_READY,
-        dedupeKey,
-        title: 'Boceto terminado',
-        message: 'Un boceto que pediste ya está listo para tu revisión.',
-      },
-    });
   }
 
   // -------------------------------------------------------------
@@ -743,20 +742,20 @@ export class DesignBoardService {
     });
 
     // ADR-004 Submódulo 6: alerta al diseñador asignado cuando su tarjeta
-    // vuelve a "Modificación". Simplificación heredada de
-    // notifyDesignRequestReady(): la notificación vive a nivel
-    // cuenta/lead (AppNotification no modela destinatarios por usuario en
-    // este esquema), no una bandeja individual por DESIGNER.
-    await this.prisma.appNotification.create({
-      data: {
-        accountId: request.accountId,
-        leadId: request.leadId,
-        type: AppNotificationType.DESIGN_REQUEST_SENT_TO_MODIFICATION,
-        dedupeKey: `design_request_sent_to_modification:${request.id}:${now.getTime()}`,
-        title: 'Boceto enviado a modificación',
-        message: 'Un boceto que tenías asignado volvió a "Modificación".',
-      },
-    });
+    // vuelve a "Modificación". Reescrito para publicar el evento de
+    // dominio (ver events/design-board.events.ts) en vez de crear la
+    // AppNotification aca mismo -- DesignRequestNotificationsListener
+    // decide el destinatario (hoy: recipientUserId = assignedUserId).
+    this.eventEmitter.emit(
+      DESIGN_REQUEST_EVENTS.SENT_TO_MODIFICATION,
+      new DesignRequestSentToModificationEvent(
+        request.id,
+        request.accountId,
+        request.leadId,
+        request.assignedUserId,
+        now,
+      ),
+    );
 
     await this.emitDesignBoardEvent('design_request.moved', request, {
       toColumnId: modificationColumn.id,
@@ -800,20 +799,23 @@ export class DesignBoardService {
     // comercial, al diseñador asignado; si comenta el diseñador o el
     // manager, a la comercial creadora. assertCanView() ya garantiza que
     // solo puede comentar la SALES dueña, el DESIGNER asignado, o
-    // MANAGER/ADMIN, así que siempre hay una "otra parte" a avisar.
-    // Simplificación heredada de notifyDesignRequestReady(): la
-    // notificación vive a nivel cuenta/lead (AppNotification no modela
-    // destinatarios por usuario en este esquema).
-    await this.prisma.appNotification.create({
-      data: {
-        accountId: request.accountId,
-        leadId: request.leadId,
-        type: AppNotificationType.DESIGN_REQUEST_COMMENTED,
-        dedupeKey: `design_request_commented:${comment.id}`,
-        title: 'Nuevo comentario en un boceto',
-        message: 'Hay un comentario nuevo en una solicitud de boceto.',
-      },
-    });
+    // MANAGER/ADMIN. Reescrito para publicar el evento de dominio en vez
+    // de decidir el destinatario aca -- DesignRequestNotificationsListener
+    // (src/modules/notifications/listeners) es el UNICO lugar que aplica
+    // esa regla ahora, con el campo AppNotification.recipientUserId.
+    this.eventEmitter.emit(
+      DESIGN_REQUEST_EVENTS.COMMENTED,
+      new DesignRequestCommentedEvent(
+        request.id,
+        comment.id,
+        request.accountId,
+        request.leadId,
+        user.userId,
+        user.role,
+        request.createdByUserId,
+        request.assignedUserId,
+      ),
+    );
 
     await this.emitDesignBoardEvent('design_request.commented', request, {
       commentId: comment.id,

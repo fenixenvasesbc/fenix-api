@@ -30,6 +30,143 @@ export class NotificationsService {
     private readonly businessDays: BusinessDaysService,
   ) {}
 
+  // Punto de entrada GENERICO para crear una notificacion in-app, con
+  // dedupe (igual criterio que createLabelStaleNotificationIfNeeded) y el
+  // mismo broadcast por ChatEventsService para que la campanita se
+  // actualice en tiempo real. Pensado para que listeners de eventos de
+  // dominio de OTROS modulos (ej. DesignRequestNotificationsListener) no
+  // tengan que reimplementar el dedupe ni el broadcast -- un modulo nuevo
+  // que quiera notificar solo llama a esto.
+  async createNotification(input: {
+    accountId: string;
+    leadId?: string | null;
+    recipientUserId?: string | null;
+    type: AppNotificationType;
+    dedupeKey: string;
+    title: string;
+    message: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    const existing = await this.prisma.appNotification.findUnique({
+      where: {
+        accountId_dedupeKey: {
+          accountId: input.accountId,
+          dedupeKey: input.dedupeKey,
+        },
+      },
+      select: { id: true },
+    });
+
+    if (existing) return null;
+
+    const notification = await this.prisma.appNotification.create({
+      data: {
+        accountId: input.accountId,
+        leadId: input.leadId ?? null,
+        recipientUserId: input.recipientUserId ?? null,
+        type: input.type,
+        dedupeKey: input.dedupeKey,
+        title: input.title,
+        message: input.message,
+        metadata: (input.metadata as Prisma.InputJsonValue) ?? undefined,
+      },
+    });
+
+    await this.chatEvents.publish({
+      type: 'notification.created',
+      accountId: input.accountId,
+      leadId: input.leadId ?? undefined,
+      payload: {
+        notification,
+        unreadCount: await this.countUnread(input.accountId),
+      },
+    });
+
+    return notification;
+  }
+
+  // Version de listByAccount() para notificaciones dirigidas a un usuario
+  // puntual (DESIGNER/DESIGNER_MANAGER, que no tienen accountId propio) en
+  // vez de a toda una cuenta comercial. Mismo shape de respuesta.
+  async listByRecipient(input: {
+    recipientUserId: string;
+    status?: AppNotificationStatus | 'ALL';
+    limit?: number;
+  }) {
+    const limit = this.clampLimit(input.limit);
+    const where = {
+      recipientUserId: input.recipientUserId,
+      ...(input.status && input.status !== 'ALL'
+        ? { status: input.status }
+        : {}),
+    };
+
+    const [notifications, unreadCount] = await Promise.all([
+      this.prisma.appNotification.findMany({
+        where,
+        orderBy: [{ status: 'asc' }, { triggeredAt: 'desc' }],
+        take: limit,
+        include: { lead: true },
+      }),
+      this.prisma.appNotification.count({
+        where: {
+          recipientUserId: input.recipientUserId,
+          status: AppNotificationStatus.UNREAD,
+        },
+      }),
+    ]);
+
+    return {
+      data: notifications.map((notification) => ({
+        ...notification,
+        lead: notification.lead
+          ? withLeadDisplayName(notification.lead)
+          : null,
+      })),
+      unreadCount,
+    };
+  }
+
+  async markAsReadForRecipient(recipientUserId: string, notificationId: string) {
+    const notification = await this.prisma.appNotification.findFirst({
+      where: { id: notificationId, recipientUserId },
+      include: { lead: true },
+    });
+
+    if (!notification) {
+      throw new NotFoundException('Notification not found');
+    }
+
+    if (notification.status === AppNotificationStatus.READ) {
+      return {
+        ...notification,
+        lead: notification.lead ? withLeadDisplayName(notification.lead) : null,
+      };
+    }
+
+    const updated = await this.prisma.appNotification.update({
+      where: { id: notification.id },
+      data: { status: AppNotificationStatus.READ, readAt: new Date() },
+      include: { lead: true },
+    });
+
+    return {
+      ...updated,
+      lead: updated.lead ? withLeadDisplayName(updated.lead) : null,
+    };
+  }
+
+  async markAllAsReadForRecipient(recipientUserId: string) {
+    const now = new Date();
+
+    await this.prisma.appNotification.updateMany({
+      where: { recipientUserId, status: AppNotificationStatus.UNREAD },
+      data: { status: AppNotificationStatus.READ, readAt: now },
+    });
+
+    return { unreadCount: 0 };
+  }
+
   async listByAccount(input: {
     accountId: string;
     status?: AppNotificationStatus | 'ALL';
