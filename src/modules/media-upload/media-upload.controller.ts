@@ -27,7 +27,7 @@ type AuthUser = {
 export class MediaUploadController {
   constructor(private readonly mediaUploadService: MediaUploadService) {}
 
-  @Roles(Role.ADMIN, Role.SALES)
+  @Roles(Role.ADMIN, Role.SALES, Role.DESIGNER, Role.DESIGNER_MANAGER)
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -60,10 +60,19 @@ export class MediaUploadController {
     }
 
     // SUPPORT ve todo lo que ve ADMIN (herencia de roles en el backend).
-    if (user.role === Role.ADMIN || user.role === Role.SUPPORT) {
+    // DESIGNER/DESIGNER_MANAGER no tienen accountId propio (no son cuentas
+    // comerciales): suben adjuntos para una DesignRequest puntual, y el
+    // frontend manda el accountId de esa solicitud (ver
+    // DesignRequestAttachmentPicker), igual que hace ADMIN.
+    if (
+      user.role === Role.ADMIN ||
+      user.role === Role.SUPPORT ||
+      user.role === Role.DESIGNER ||
+      user.role === Role.DESIGNER_MANAGER
+    ) {
       if (!accountIdFromQuery) {
         throw new ForbiddenException(
-          'Admin upload requires accountId context for now',
+          'Upload requires accountId context for now',
         );
       }
 
