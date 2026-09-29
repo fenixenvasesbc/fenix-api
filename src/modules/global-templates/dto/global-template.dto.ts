@@ -113,6 +113,54 @@ export class CreateGlobalTemplateDto {
   buttons?: GlobalTemplateButtonDto[];
 }
 
+// Igual que CreateGlobalTemplateDto pero sin name/language/category: YCloud
+// solo permite editar el contenido (components) de una plantilla existente
+// (PATCH /whatsapp/templates/{wabaId}/{name}/{language}) -- el nombre, el
+// idioma y el wabaId la identifican y no se pueden tocar por esta via.
+export class EditGlobalTemplateDto {
+  @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(trimString(value)))
+  @IsString()
+  @MaxLength(60)
+  headerText?: string;
+
+  @IsOptional()
+  @IsIn(['IMAGE', 'VIDEO', 'DOCUMENT'])
+  headerFormat?: 'IMAGE' | 'VIDEO' | 'DOCUMENT';
+
+  @ValidateIf((dto: EditGlobalTemplateDto) => !!dto.headerFormat)
+  @Transform(({ value }) => trimString(value))
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2048)
+  headerMediaUrl?: string;
+
+  @Transform(({ value }) => trimString(value))
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(1024)
+  bodyText: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  bodyExamples?: string[];
+
+  @IsOptional()
+  @Transform(({ value }) => emptyToUndefined(trimString(value)))
+  @IsString()
+  @MaxLength(60)
+  footerText?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @ValidateNested({ each: true })
+  @Type(() => GlobalTemplateButtonDto)
+  buttons?: GlobalTemplateButtonDto[];
+}
+
 export class AddGlobalTemplateAccountDto {
   @IsUUID()
   accountId: string;

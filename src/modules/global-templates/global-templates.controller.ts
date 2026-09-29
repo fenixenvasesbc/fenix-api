@@ -6,6 +6,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Req,
   UploadedFile,
@@ -23,6 +24,7 @@ import { GlobalTemplatesService } from './global-templates.service';
 import {
   AddGlobalTemplateAccountDto,
   CreateGlobalTemplateDto,
+  EditGlobalTemplateDto,
 } from './dto/global-template.dto';
 
 // Meta acepta JPEG/PNG (y en la practica WEBP) como muestra de header IMAGE
@@ -99,6 +101,14 @@ export class GlobalTemplatesController {
   @Get(':id')
   getById(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.globalTemplatesService.getById(id);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: EditGlobalTemplateDto,
+  ) {
+    return this.globalTemplatesService.update(id, dto);
   }
 
   @Delete(':id')

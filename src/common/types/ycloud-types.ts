@@ -62,6 +62,27 @@ export interface YcloudCreateTemplateResponse {
   [key: string]: unknown;
 }
 
+// PATCH /whatsapp/templates/{wabaId}/{name}/{language} -- solo se puede
+// editar el contenido (components); name/language/wabaId identifican la
+// plantilla y no se pueden cambiar por esta via. Meta/YCloud solo permite
+// editar plantillas APPROVED/REJECTED/PAUSED (ARCHIVED no se puede).
+export interface EditYcloudTemplateInput {
+  wabaId: string;
+  name: string;
+  language: string;
+  components: unknown[];
+}
+
+export interface YcloudEditTemplateResponse {
+  id?: unknown;
+  officialTemplateId?: unknown;
+  name?: unknown;
+  language?: unknown;
+  category?: unknown;
+  status?: unknown;
+  [key: string]: unknown;
+}
+
 
 export interface YcloudTemplateReviewedWebhook {
   id?: unknown;

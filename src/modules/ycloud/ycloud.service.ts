@@ -3,8 +3,10 @@ import { HttpService } from '@nestjs/axios';
 import { ProviderCredentialService } from '../credentials/provider-credential.service';
 import {
   CreateYcloudTemplateInput,
+  EditYcloudTemplateInput,
   SendYcloudTemplateMessageInput,
   YcloudCreateTemplateResponse,
+  YcloudEditTemplateResponse,
   YcloudSendTemplateResponse,
   YcloudWhatsappTemplate,
   YcloudWhatsappTemplateListResponse,
@@ -496,6 +498,51 @@ export class YcloudService {
       );
 
       return response.data as YcloudCreateTemplateResponse;
+    } catch (error: any) {
+      throw this.toYcloudError(operation, error);
+    }
+  }
+
+  // Edita el contenido (components) de una plantilla ya creada en un WABA
+  // puntual -- a diferencia de createTemplate(), esto NO crea una plantilla
+  // nueva: reemplaza los components de la que ya existe con ese
+  // name+language en ese wabaId. Solo funciona si esa plantilla esta
+  // APPROVED/REJECTED/PAUSED en Meta (ARCHIVED tira error). Como cada
+  // cuenta comercial tiene su propio WABA, GlobalTemplatesService.update()
+  // llama esto una vez por cada cuenta donde la plantilla ya se replico.
+  async editTemplate(
+    input: EditYcloudTemplateInput & { accountId: string },
+  ): Promise<YcloudEditTemplateResponse> {
+    const apiKey = await this.credentialService.getYcloudApiKey(
+      input.accountId,
+    );
+    const operation = 'editWhatsappTemplate';
+    const body = { components: input.components };
+
+    try {
+      this.logger.log(
+        `YCLOUD request -> operation=${operation} baseUrl=${this.baseUrl} name=${input.name} language=${input.language}`,
+      );
+
+      const response = await firstValueFrom(
+        this.httpService.patch(
+          `${this.baseUrl}/whatsapp/templates/${encodeURIComponent(input.wabaId)}/${encodeURIComponent(input.name)}/${encodeURIComponent(input.language)}`,
+          body,
+          {
+            headers: {
+              'X-API-Key': apiKey,
+              'Content-Type': 'application/json',
+            },
+            timeout: 20000,
+          },
+        ),
+      );
+
+      this.logger.log(
+        `YCLOUD response operation=${operation} status=${response.status}`,
+      );
+
+      return response.data as YcloudEditTemplateResponse;
     } catch (error: any) {
       throw this.toYcloudError(operation, error);
     }

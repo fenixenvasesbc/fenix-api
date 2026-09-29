@@ -9,7 +9,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { YcloudRequestError, YcloudService } from '../ycloud/ycloud.service';
 import { buildWhatsappTemplateComponents } from 'src/common/utils/whatsapp-template-components';
-import { CreateGlobalTemplateDto } from './dto/global-template.dto';
+import {
+  CreateGlobalTemplateDto,
+  EditGlobalTemplateDto,
+} from './dto/global-template.dto';
 
 const VALID_STATUSES = new Set(Object.values(AccountGlobalTemplateStatus));
 
@@ -67,6 +70,67 @@ export class GlobalTemplatesService {
         accountId: account.id,
         wabaId: account.wabaId,
       });
+    }
+
+    return this.getById(template.id);
+  }
+
+  // Edita el contenido de una plantilla ya creada -- a diferencia de
+  // create(), no crea filas nuevas: actualiza el payload local y llama a
+  // YCloud una vez por cada cuenta donde la plantilla ya esta replicada
+  // (cada WABA tiene su propia copia, ver modelo GlobalWhatsappTemplateAccount).
+  // Si una cuenta falla (por ejemplo porque esta ARCHIVED o todavia
+  // PENDING de revision en Meta) no aborta el resto -- el error queda
+  // registrado en esa fila, igual que ya hace propagateToAccount().
+  async update(templateId: string, dto: EditGlobalTemplateDto) {
+    const template = await this.prisma.globalWhatsappTemplate.findUnique({
+      where: { id: templateId },
+      include: { accountTemplates: true },
+    });
+    if (!template) {
+      throw new NotFoundException('Plantilla no encontrada');
+    }
+
+    const components = buildWhatsappTemplateComponents(dto);
+
+    await this.prisma.globalWhatsappTemplate.update({
+      where: { id: template.id },
+      data: { payload: components as Prisma.InputJsonValue },
+    });
+
+    // ARCHIVED no se puede editar en YCloud/Meta (ver docs); ERROR/REJECTED/
+    // etc. si se intentan -- si YCloud las rechaza igual, el catch abajo lo
+    // registra sin frenar las demas cuentas.
+    const editableAccounts = template.accountTemplates.filter(
+      (at) => at.status !== AccountGlobalTemplateStatus.ARCHIVED,
+    );
+
+    for (const accountTemplate of editableAccounts) {
+      try {
+        const result = await this.ycloudService.editTemplate({
+          accountId: accountTemplate.accountId,
+          wabaId: accountTemplate.wabaId,
+          name: template.name,
+          language: template.language,
+          components,
+        });
+
+        await this.prisma.globalWhatsappTemplateAccount.update({
+          where: { id: accountTemplate.id },
+          data: {
+            status: this.mapStatus(result.status ?? accountTemplate.status),
+            statusDetail: null,
+          },
+        });
+      } catch (error) {
+        this.logger.warn(
+          `No se pudo editar la plantilla en accountId=${accountTemplate.accountId} wabaId=${accountTemplate.wabaId}: ${String(error)}`,
+        );
+        await this.prisma.globalWhatsappTemplateAccount.update({
+          where: { id: accountTemplate.id },
+          data: { statusDetail: this.errorMessage(error) },
+        });
+      }
     }
 
     return this.getById(template.id);
