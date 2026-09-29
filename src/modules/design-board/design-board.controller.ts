@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   MessageEvent,
@@ -25,6 +26,7 @@ import {
   AssignDesignRequestDto,
   CreateDesignRequestDto,
   DesignBoardReportsQueryDto,
+  EditDesignRequestCommentDto,
   ListDesignRequestsQueryDto,
   MoveDesignRequestDto,
 } from './dto/create-design-request.dto';
@@ -92,6 +94,37 @@ export class DesignBoardController {
     @Body() dto: AddDesignRequestCommentDto,
   ) {
     return this.designBoardService.addComment(req.user, id, dto);
+  }
+
+  @Roles(Role.ADMIN, Role.SALES, Role.DESIGNER, Role.DESIGNER_MANAGER)
+  @Patch('requests/:id/comments/:commentId')
+  editComment(
+    @Req() req: { user: AuthUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('commentId', ParseUUIDPipe) commentId: string,
+    @Body() dto: EditDesignRequestCommentDto,
+  ) {
+    return this.designBoardService.editComment(req.user, id, commentId, dto);
+  }
+
+  @Roles(Role.ADMIN, Role.SALES, Role.DESIGNER, Role.DESIGNER_MANAGER)
+  @Delete('requests/:id/comments/:commentId')
+  deleteComment(
+    @Req() req: { user: AuthUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('commentId', ParseUUIDPipe) commentId: string,
+  ) {
+    return this.designBoardService.deleteComment(req.user, id, commentId);
+  }
+
+  @Roles(Role.ADMIN, Role.SALES, Role.DESIGNER, Role.DESIGNER_MANAGER)
+  @Delete('requests/:id/attachments/:attachmentId')
+  deleteAttachment(
+    @Req() req: { user: AuthUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
+  ) {
+    return this.designBoardService.deleteAttachment(req.user, id, attachmentId);
   }
 
   @Roles(Role.ADMIN, Role.SALES, Role.DESIGNER_MANAGER)

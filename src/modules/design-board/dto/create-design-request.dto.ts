@@ -144,3 +144,10 @@ export class AddDesignRequestCommentDto {
   @Type(() => CreateDesignRequestAttachmentDto)
   attachments?: CreateDesignRequestAttachmentDto[];
 }
+
+export class EditDesignRequestCommentDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(4000)
+  body!: string;
+}

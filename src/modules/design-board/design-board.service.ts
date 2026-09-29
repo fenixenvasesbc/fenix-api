@@ -21,6 +21,7 @@ import { withLeadDisplayName } from 'src/common/utils/lead-name';
 import {
   AddDesignRequestCommentDto,
   AssignDesignRequestDto,
+  EditDesignRequestCommentDto,
   CreateDesignRequestAttachmentDto,
   CreateDesignRequestDto,
   ListDesignRequestsQueryDto,
@@ -822,6 +823,115 @@ export class DesignBoardService {
     });
 
     return comment;
+  }
+
+  // Solo el autor puede editar su propio comentario; nadie mas (ni ADMIN /
+  // DESIGNER_MANAGER) puede reescribir palabras de otra persona -- eso es
+  // distinto a moderar (borrar), que si se permite mas abajo.
+  async editComment(
+    user: AuthUser,
+    id: string,
+    commentId: string,
+    dto: EditDesignRequestCommentDto,
+  ) {
+    const request = await this.findOrThrow(id);
+    this.assertCanView(user, request);
+
+    const comment = await this.prisma.designRequestComment.findFirst({
+      where: { id: commentId, designRequestId: request.id },
+    });
+    if (!comment) throw new NotFoundException('Comentario no encontrado');
+
+    if (comment.authorUserId !== user.userId) {
+      throw new ForbiddenException('Solo puedes editar tus propios comentarios');
+    }
+
+    const updated = await this.prisma.designRequestComment.update({
+      where: { id: comment.id },
+      data: { body: dto.body, editedAt: new Date() },
+      include: { attachments: true },
+    });
+
+    await this.emitDesignBoardEvent('design_request.updated', request, {
+      commentId: comment.id,
+    });
+
+    return updated;
+  }
+
+  // El autor puede borrar su propio comentario; ADMIN/DESIGNER_MANAGER
+  // pueden borrar cualquiera (moderacion), igual que ya pueden ver/operar
+  // sobre cualquier solicitud del tablero (ADR-004 SS5).
+  async deleteComment(user: AuthUser, id: string, commentId: string) {
+    const request = await this.findOrThrow(id);
+    this.assertCanView(user, request);
+
+    const comment = await this.prisma.designRequestComment.findFirst({
+      where: { id: commentId, designRequestId: request.id },
+    });
+    if (!comment) throw new NotFoundException('Comentario no encontrado');
+
+    const isAuthor = comment.authorUserId === user.userId;
+    const isModerator =
+      user.role === Role.ADMIN || user.role === Role.DESIGNER_MANAGER;
+    if (!isAuthor && !isModerator) {
+      throw new ForbiddenException('Solo puedes eliminar tus propios comentarios');
+    }
+
+    // onDelete: Cascade en DesignRequestAttachment.commentId se lleva
+    // tambien los adjuntos colgados de este comentario (Submodulo 3).
+    await this.prisma.designRequestComment.delete({ where: { id: comment.id } });
+
+    await this.emitDesignBoardEvent('design_request.updated', request, {
+      commentId: comment.id,
+      deleted: true,
+    });
+
+    return { id: comment.id };
+  }
+
+  // -------------------------------------------------------------
+  // Adjuntos: eliminar (Submodulo 3)
+  // -------------------------------------------------------------
+
+  // Un adjunto puede colgar directo de la solicitud o de uno de sus
+  // comentarios (ver nota en el schema) -- se busca en ambos lugares.
+  private async findAttachmentInRequest(requestId: string, attachmentId: string) {
+    const attachment = await this.prisma.designRequestAttachment.findFirst({
+      where: {
+        id: attachmentId,
+        OR: [{ designRequestId: requestId }, { comment: { designRequestId: requestId } }],
+      },
+    });
+    if (!attachment) throw new NotFoundException('Adjunto no encontrado');
+    return attachment;
+  }
+
+  // Quien lo subio puede quitarlo, y ADMIN/DESIGNER_MANAGER pueden quitar
+  // cualquier adjunto (moderacion). Esto no borra nada en el chat de
+  // WhatsApp original si el adjunto vino de ahi (FROM_CHAT) -- solo quita
+  // la referencia dentro del tablero de bocetos.
+  async deleteAttachment(user: AuthUser, id: string, attachmentId: string) {
+    const request = await this.findOrThrow(id);
+    this.assertCanView(user, request);
+
+    const attachment = await this.findAttachmentInRequest(request.id, attachmentId);
+
+    const isUploader = attachment.uploadedByUserId === user.userId;
+    const isModerator =
+      user.role === Role.ADMIN || user.role === Role.DESIGNER_MANAGER;
+    if (!isUploader && !isModerator) {
+      throw new ForbiddenException('No puedes eliminar este adjunto');
+    }
+
+    await this.prisma.designRequestAttachment.delete({ where: { id: attachment.id } });
+
+    await this.emitDesignBoardEvent('design_request.updated', request, {
+      attachmentId: attachment.id,
+      deleted: true,
+    });
+
+    return { id: attachment.id };
   }
 
   // -------------------------------------------------------------

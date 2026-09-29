@@ -1461,6 +1461,10 @@ model DesignRequestComment {
   authorUserId String
   body         String @db.Text
 
+  // Se completa cuando el autor edita el comentario despues de creado (la
+  // UI muestra "editado" en base a esto); null si nunca se edito.
+  editedAt DateTime?
+
   attachments DesignRequestAttachment[] // Submodulo 3
 
   createdAt DateTime @default(now())
