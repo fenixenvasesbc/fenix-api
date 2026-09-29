@@ -783,6 +783,20 @@ export class AssistantService {
       });
 
       if (transformed.needsManualReview) {
+        const reviewReasons: string[] = [];
+        if (transformed.oversizeBlocks.length > 0) {
+          reviewReasons.push(
+            `${transformed.oversizeBlocks.length} subsección(es) ### superan los ${
+              process.env.ASSISTANT_KNOWLEDGE_MAX_SUBSECTION_CHARS ?? '1000'
+            } caracteres.`,
+          );
+        }
+        if (transformed.contentIssues.length > 0) {
+          reviewReasons.push(
+            `${transformed.contentIssues.length} problema(s) de estructura (FAQs faltantes, secciones globales sin ### propio, etc.).`,
+          );
+        }
+
         const knowledgeImport = await this.prisma.assistantKnowledgeImport.create({
           data: {
             userId: input.user.userId,
@@ -798,9 +812,10 @@ export class AssistantService {
             status: AssistantKnowledgeImportStatus.NEEDS_MANUAL_REVIEW,
             replacesDifyDocumentId: replaceDocumentId,
             replacesDifyDocumentName: replaceDocumentName,
-            errorMessage: `Hay subsecciones ### con mas de ${process.env.ASSISTANT_KNOWLEDGE_MAX_SUBSECTION_CHARS ?? '1000'} caracteres.`,
+            errorMessage: reviewReasons.join(' '),
           difyResponse: {
             oversizeBlocks: transformed.oversizeBlocks,
+            contentIssues: transformed.contentIssues,
             replacesDifyDocumentId: replaceDocumentId,
             replacesDifyDocumentName: replaceDocumentName,
           } as Prisma.InputJsonValue,
@@ -816,6 +831,7 @@ export class AssistantService {
             datasetId: dataset.id,
             documentName,
             oversizeBlocks: transformed.oversizeBlocks,
+            contentIssues: transformed.contentIssues,
           },
           errorCode: 'NEEDS_MANUAL_REVIEW',
           errorMessage: knowledgeImport.errorMessage,
@@ -828,6 +844,7 @@ export class AssistantService {
             markdown: transformed.markdown,
             validationPoints: transformed.validationPoints,
             oversizeBlocks: transformed.oversizeBlocks,
+            contentIssues: transformed.contentIssues,
             dataset,
             documentName,
             replacesDifyDocumentId: replaceDocumentId,
@@ -905,6 +922,7 @@ export class AssistantService {
           markdown: transformed.markdown,
           validationPoints: transformed.validationPoints,
           oversizeBlocks: [],
+          contentIssues: [],
           dataset,
           documentName,
           difyDocumentId,
