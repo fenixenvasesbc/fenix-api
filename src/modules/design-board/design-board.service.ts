@@ -348,11 +348,21 @@ export class DesignBoardService {
     // ADR-004 Submódulo 8: "Aprobados" (isApproved) queda restringida a
     // DESIGNER_MANAGER/ADMIN -- SALES y DESIGNER nunca ven esas tarjetas,
     // archivadas o no.
+    // Ademas (pedido explicito de negocio, 2026-09-30): SALES solo ve sus
+    // propios bocetos y, dentro de esos, solo las columnas "Nuevos"
+    // (isInitial) y "Terminado" (isFinal) -- nunca "Modificacion" ni "En
+    // revision", que son estados internos del area de Diseno. Esto aplica
+    // tanto al listado (listRequests) como al detalle (getRequestDetail,
+    // que reusa este mismo where), asi que una tarjeta en un estado
+    // intermedio tampoco es abrible por id -- assertCanView() (usado por
+    // comentarios/adjuntos) es un chequeo aparte y no se ve afectado, asi
+    // que SALES sigue pudiendo comentar mientras su boceto esta en esos
+    // estados intermedios, solo no lo ve en el tablero.
     if (user.role === Role.SALES) {
       return {
         createdByUserId: user.userId,
         accountId: user.accountId ?? '__none__',
-        column: { isApproved: false },
+        column: { OR: [{ isInitial: true }, { isFinal: true }] },
       };
     }
 
