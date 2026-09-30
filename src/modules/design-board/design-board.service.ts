@@ -1018,8 +1018,18 @@ export class DesignBoardService {
       );
     }
 
+    // Los adjuntos que la propia comercial sube al crear la solicitud (o
+    // luego, directo sobre la tarjeta) son material de ENTRADA para el
+    // diseñador -- nunca lo que se reenvia al lead. Lo que se reenvia es el
+    // boceto ya terminado, que el diseñador deja en un COMENTARIO al pasar
+    // la tarjeta a "Terminado" -- por eso este lookup, igual que
+    // findAttachmentInRequest(), busca tanto en designRequestId como dentro
+    // de un comentario de esta misma solicitud.
     const attachment = await this.prisma.designRequestAttachment.findFirst({
-      where: { id: attachmentId, designRequestId: request.id },
+      where: {
+        id: attachmentId,
+        OR: [{ designRequestId: request.id }, { comment: { designRequestId: request.id } }],
+      },
     });
 
     if (!attachment) {
