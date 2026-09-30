@@ -80,7 +80,13 @@ export class AuthService {
     const accessToken = this.signAccessToken(user);
     const refreshToken = await this.mintRefreshToken(user.id);
 
-    return { accessToken, refreshToken };
+    // El front usa esto para mostrar el nombre (o el email como respaldo)
+    // en la barra de navegacion sin tener que decodificar el JWT (que solo
+    // trae role/accountId, ver signAccessToken) -- getUserSafe() ya resuelve
+    // el nombre a mostrar (Account.name para SALES, User.name para el resto).
+    const safeUser = await this.users.getUserSafe(user.id);
+
+    return { accessToken, refreshToken, user: safeUser };
   }
 
   async requestPasswordReset(email: string) {

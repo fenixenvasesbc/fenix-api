@@ -193,6 +193,12 @@ enum MessageStatus {
 model User {
   id                        String                     @id @default(uuid())
   email                     String                     @unique
+  // Nombre para mostrar (Configuracion > Usuarios lo carga). Para SALES no
+  // se usa este campo: su nombre a mostrar es Account.name (ya existe,
+  // obligatorio, cargado al crear la cuenta) -- ver resolveDisplayName() en
+  // users.service.ts. Para el resto de roles (DESIGNER, ADMIN, etc.) es el
+  // unico origen de "nombre" y puede quedar null hasta que alguien lo cargue.
+  name                      String?
   passwordHash              String
   role                      Role                       @default(SALES)
   isActive                  Boolean                    @default(true) // Un SALES puede tener (como máximo) 1 cuenta. // ADMIN normalmente lo tendrá null. 

@@ -21,12 +21,42 @@ type AuthUser = {
 const SAFE_USER_SELECT = {
   id: true,
   email: true,
+  name: true,
   role: true,
   isActive: true,
   accountId: true,
   createdAt: true,
   updatedAt: true,
+  // Solo se usa para resolver el "nombre a mostrar" de un SALES (ver
+  // resolveDisplayName() mas abajo) -- nunca se devuelve tal cual, se
+  // descarta despues de mapear.
+  account: { select: { name: true } },
 } as const;
+
+type SafeUserRaw = {
+  id: string;
+  email: string;
+  name: string | null;
+  role: Role;
+  isActive: boolean;
+  accountId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  account: { name: string } | null;
+};
+
+// El "nombre a mostrar" de un SALES es Account.name (el nombre de cuenta
+// que ya se pedia obligatoriamente al crearlo, ver adminCreateUser()) --
+// nunca un campo propio del User, para que no puedan divergir. El resto de
+// roles (DESIGNER, ADMIN, etc.) usan su propio User.name.
+function resolveDisplayName(user: Pick<SafeUserRaw, 'role' | 'name' | 'account'>) {
+  return user.role === Role.SALES ? (user.account?.name ?? null) : user.name;
+}
+
+function toSafeUser(user: SafeUserRaw) {
+  const { account, ...rest } = user;
+  return { ...rest, name: resolveDisplayName(user) };
+}
 
 @Injectable()
 export class UsersService {
@@ -52,10 +82,11 @@ export class UsersService {
   }
 
   async getSales() {
-    return this.prisma.user.findMany({
+    const users = await this.prisma.user.findMany({
       where: { role: { in: [Role.SALES, Role.SALES_MANAGER] } },
       select: SAFE_USER_SELECT,
     });
+    return users.map(toSafeUser);
   }
 
   // ==========================================
@@ -117,11 +148,12 @@ export class UsersService {
       where.email = { contains: params.search, mode: 'insensitive' };
     }
 
-    return this.prisma.user.findMany({
+    const users = await this.prisma.user.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       select: SAFE_USER_SELECT,
     });
+    return users.map(toSafeUser);
   }
 
   async getUserSafe(id: string) {
@@ -132,7 +164,7 @@ export class UsersService {
 
     if (!user) throw new NotFoundException('User not found');
 
-    return user;
+    return toSafeUser(user);
   }
 
   async adminCreateUser(actingUser: AuthUser, dto: CreateUserDto) {
@@ -189,16 +221,18 @@ export class UsersService {
           },
         });
 
-        return user;
+        return toSafeUser(user);
       });
     }
 
+    // dto.name no aplica a SALES (arriba, ignorado a proposito -- su nombre
+    // a mostrar es siempre accountName/Account.name).
     const user = await this.prisma.user.create({
-      data: { email: dto.email, passwordHash, role: dto.role },
+      data: { email: dto.email, passwordHash, role: dto.role, name: dto.name ?? null },
       select: SAFE_USER_SELECT,
     });
 
-    return user;
+    return toSafeUser(user);
   }
 
   async adminUpdateUser(actingUser: AuthUser, id: string, dto: UpdateUserDto) {
@@ -229,6 +263,32 @@ export class UsersService {
     if (dto.isActive !== undefined) data.isActive = dto.isActive;
     if (dto.password) data.passwordHash = await this.hashPassword(dto.password);
 
+    // El nombre de un SALES es Account.name (ya se pedia obligatorio al
+    // crearlo, ver adminCreateUser) -- lo actualizamos ahi, nunca en una
+    // columna propia del User, para que ambos nunca puedan divergir. El
+    // resto de roles si usan su propio User.name.
+    if (dto.name !== undefined) {
+      const effectiveRole = dto.role ?? target.role;
+      const trimmedName = dto.name.trim();
+
+      if (effectiveRole === Role.SALES) {
+        if (!target.accountId) {
+          throw new BadRequestException(
+            'Este usuario no tiene una cuenta asociada para renombrar',
+          );
+        }
+        if (!trimmedName) {
+          throw new BadRequestException('El nombre de la cuenta es obligatorio');
+        }
+        await this.prisma.account.update({
+          where: { id: target.accountId },
+          data: { name: trimmedName },
+        });
+      } else {
+        data.name = trimmedName || null;
+      }
+    }
+
     const updated = await this.prisma.user.update({
       where: { id },
       data,
@@ -244,7 +304,7 @@ export class UsersService {
       });
     }
 
-    return updated;
+    return toSafeUser(updated);
   }
 
   async setUserActive(actingUser: AuthUser, id: string, isActive: boolean) {
