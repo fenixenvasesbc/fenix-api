@@ -131,9 +131,20 @@ export class OutboundService {
     clientRequestId: string;
     templateName: string;
     languageCode?: string | null;
+    // Override opcional del media del header (imagen/documento) para ESTE
+    // envio puntual, en vez de usar el ejemplo registrado en la plantilla
+    // en YCloud/Meta. Lo usa, por ejemplo, "Reenviar al lead" desde el
+    // tablero de bocetos para inyectar el jpg/pdf real de la solicitud.
+    headerMediaOverride?: { url: string; fileName?: string | null } | null;
   }) {
-    const { accountId, leadId, clientRequestId, templateName, languageCode } =
-      input;
+    const {
+      accountId,
+      leadId,
+      clientRequestId,
+      templateName,
+      languageCode,
+      headerMediaOverride,
+    } = input;
 
     const lead = await this.getLead(accountId, leadId);
     const finalLanguage = languageCode ?? lead.preferredLanguage ?? 'es_ES';
@@ -156,6 +167,7 @@ export class OutboundService {
       accountId,
       templateName,
       languageCode: finalLanguage,
+      headerMediaOverride,
     });
 
     const externalId = randomUUID();
@@ -840,6 +852,7 @@ export class OutboundService {
     accountId: string;
     templateName: string;
     languageCode: string;
+    headerMediaOverride?: { url: string; fileName?: string | null } | null;
   }): Promise<unknown[] | undefined> {
     const templates = await this.ycloudService.listWhatsappTemplates({
       accountId: input.accountId,
@@ -861,7 +874,20 @@ export class OutboundService {
     const headerFormat = this.extractHeaderFormat(template.components);
     if (!headerFormat) return undefined;
 
-    const headerMedia = this.extractHeaderMedia(template.components);
+    // Por defecto usamos el media de ejemplo que la plantilla tiene
+    // registrado en YCloud/Meta. Cuando el caller pasa headerMediaOverride
+    // (p.ej. "Reenviar al lead" con el jpg/pdf real de la solicitud),
+    // reemplazamos la URL/nombre de archivo pero mantenemos el formato
+    // (IMAGE/VIDEO/DOCUMENT) declarado por la plantilla, que es fijo y no
+    // se puede mezclar.
+    const headerMedia: TemplateHeaderMedia | null = input.headerMediaOverride
+      ? {
+          format: headerFormat,
+          url: input.headerMediaOverride.url,
+          fileName: input.headerMediaOverride.fileName ?? null,
+        }
+      : this.extractHeaderMedia(template.components);
+
     if (!headerMedia) {
       throw new BadRequestException(
         `Template ${input.templateName} requires ${headerFormat} header media, but YCloud did not include a media URL in the template metadata.`,

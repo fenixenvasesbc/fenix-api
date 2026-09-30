@@ -15,6 +15,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { SYSTEM_LABEL_CODES } from 'src/common/constants/lead-labels';
 import { LeadsService } from '../leads/leads.service';
 import { OutboundService } from '../outbound/outbound.service';
+import { ChatPolicyService } from '../outbound/chat-policy.service';
 import { BusinessDaysService } from 'src/common/business-days/business-days.service';
 import { ChatEventsService } from '../chat-events/chat-events.service';
 import { withLeadDisplayName } from 'src/common/utils/lead-name';
@@ -68,6 +69,7 @@ export class DesignBoardService {
     private readonly prisma: PrismaService,
     private readonly leadsService: LeadsService,
     private readonly outboundService: OutboundService,
+    private readonly chatPolicyService: ChatPolicyService,
     private readonly businessDaysService: BusinessDaysService,
     private readonly chatEvents: ChatEventsService,
     // Bus de eventos de dominio EN PROCESO (Observer/EventEmitter2, ver
@@ -1042,17 +1044,36 @@ export class DesignBoardService {
       );
     }
 
-    const sent = await this.outboundService.sendMediaMessage({
-      accountId: request.accountId,
-      leadId: request.leadId,
-      clientRequestId: `design_request_forward:${attachment.id}`,
-      type: this.mapMimeTypeToOutboundMediaType(attachment.mimeType),
-      mediaUrl: attachment.mediaUrl,
-      mediaStorageKey: attachment.mediaStorageKey ?? null,
-      mediaSizeBytes: attachment.sizeBytes ?? null,
-      caption: null,
-      fileName: attachment.fileName ?? null,
-    });
+    const mediaType = this.mapMimeTypeToOutboundMediaType(
+      attachment.mimeType,
+    );
+
+    // WhatsApp solo permite mensajes libres (imagen/documento sueltos)
+    // mientras la ventana de servicio al cliente de 24h esta abierta. Si ya
+    // se cerro, la unica forma de reenviar es via plantilla aprobada -- acá
+    // detectamos eso de antemano (en vez de dejar que YCloud/ChatPolicy
+    // tire un 400) y elegimos automaticamente la plantilla generica de
+    // "boceto terminado" que corresponda segun el tipo de archivo (jpg vs
+    // pdf), inyectando el archivo real de esta solicitud como media del
+    // header en ese envio puntual.
+    const policy = await this.chatPolicyService.getPolicy(
+      request.accountId,
+      request.leadId,
+    );
+
+    const sent = policy.isCustomerWindowOpen
+      ? await this.outboundService.sendMediaMessage({
+          accountId: request.accountId,
+          leadId: request.leadId,
+          clientRequestId: `design_request_forward:${attachment.id}`,
+          type: mediaType,
+          mediaUrl: attachment.mediaUrl,
+          mediaStorageKey: attachment.mediaStorageKey ?? null,
+          mediaSizeBytes: attachment.sizeBytes ?? null,
+          caption: null,
+          fileName: attachment.fileName ?? null,
+        })
+      : await this.forwardAttachmentViaTemplate(request, attachment, mediaType);
 
     await this.prisma.designRequestAttachment.update({
       where: { id: attachment.id },
@@ -1060,6 +1081,67 @@ export class DesignBoardService {
     });
 
     return sent;
+  }
+
+  // -------------------------------------------------------------
+  // Fallback de "Reenviar al lead" cuando la ventana de 24h esta cerrada:
+  // selecciona entre las dos plantillas genericas de boceto (una con header
+  // IMAGE para el jpg, otra con header DOCUMENT para el pdf) segun el mime
+  // type del adjunto, y la envia inyectando el archivo real de esta
+  // solicitud como override del media del header (ver
+  // resolveTemplateComponentsForSend en OutboundService), en vez del
+  // ejemplo generico que Meta guarda al aprobar la plantilla.
+  //
+  // Nombres fijos ya registrados/aprobados en Meta/YCloud para esta cuenta.
+  // Si en el futuro cambian o hay que soportar mas de una cuenta con
+  // nombres distintos, mover esto a configuracion.
+  // -------------------------------------------------------------
+  private static readonly BOCETO_TEMPLATE_NAMES: Record<
+    'image' | 'document',
+    string
+  > = {
+    image: 'boceto_jpg',
+    document: 'boceto_pdf',
+  };
+
+  private async forwardAttachmentViaTemplate(
+    request: { accountId: string; leadId: string },
+    attachment: {
+      id: string;
+      mediaUrl: string | null;
+      fileName: string | null;
+    },
+    mediaType: 'image' | 'audio' | 'video' | 'document',
+  ) {
+    if (mediaType !== 'image' && mediaType !== 'document') {
+      throw new BadRequestException(
+        'La ventana de 24 horas de WhatsApp esta cerrada y este tipo de archivo no tiene una plantilla de reenvio configurada (solo imagen o documento/pdf).',
+      );
+    }
+
+    const templateName =
+      DesignBoardService.BOCETO_TEMPLATE_NAMES[mediaType];
+
+    if (!attachment.mediaUrl) {
+      throw new BadRequestException(
+        'Este adjunto no tiene un archivo asociado para reenviar',
+      );
+    }
+
+    // No pasamos languageCode: sendTemplateMessage ya resuelve el idioma
+    // como en el resto del sistema (lead.preferredLanguage, con 'es_ES'
+    // como ultimo fallback), asi que la plantilla sigue el idioma del
+    // lead igual que cualquier otro envio.
+    return this.outboundService.sendTemplateMessage({
+      accountId: request.accountId,
+      leadId: request.leadId,
+      clientRequestId: `design_request_forward_template:${attachment.id}`,
+      templateName,
+      headerMediaOverride: {
+        url: attachment.mediaUrl,
+        fileName: attachment.fileName ?? null,
+      },
+    });
   }
 
   // -------------------------------------------------------------
