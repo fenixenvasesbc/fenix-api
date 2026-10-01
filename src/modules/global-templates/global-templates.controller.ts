@@ -124,6 +124,16 @@ export class GlobalTemplatesController {
     return this.globalTemplatesService.addAccount(id, dto.accountId);
   }
 
+  // Boton "Sincronizar estados" en la pantalla de Plantillas: re-consulta
+  // YCloud/Meta para cada cuenta ya vinculada a esta plantilla y actualiza
+  // el estado local (incluye filas en ERROR que en realidad ya existen en
+  // Meta, p.ej. por un conflicto de categoria -- ver GlobalTemplatesService
+  // .propagateToAccount/.syncAccounts).
+  @Post(':id/sync')
+  syncAccounts(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.globalTemplatesService.syncAccounts(id);
+  }
+
   // Alta de cuenta nueva: asigna TODO el catalogo de plantillas globales
   // vigentes a esta cuenta de una sola vez, en vez de agregarlas una por una
   // desde la UI. Pensado para el boton "Asignar plantillas" al dar de alta

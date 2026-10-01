@@ -171,29 +171,37 @@ export class GlobalTemplatesService {
         `No se pudo crear la plantilla en accountId=${input.accountId} wabaId=${input.wabaId}: ${String(error)}`,
       );
 
-      // YCloud/Meta puede responder 409 ALREADY_EXISTS cuando la plantilla
-      // ya existe en ese WABA (por ejemplo, un intento anterior la creo en
-      // Meta pero fallo al guardar la fila local antes de terminar, o se
-      // creo por fuera de Fenix). En ese caso no es un error real: se
-      // reconcilia consultando el estado real en YCloud en vez de marcarla
-      // como ERROR.
-      if (error instanceof YcloudRequestError && error.statusCode === 409) {
-        const reconciled = await this.reconcileExistingAccountTemplate(input);
+      // YCloud/Meta puede rechazar la CREACION por dos motivos que en
+      // realidad significan "ya existe, no hay nada que crear":
+      //  - 409 ALREADY_EXISTS: un intento anterior la creo en Meta pero
+      //    fallo al guardar la fila local, o se creo por fuera de Fenix.
+      //  - 400 "Template Category Doesn't Match": ESE WABA puntual ya
+      //    tiene una plantilla con el mismo nombre+idioma pero con otra
+      //    categoria (p.ej. Meta la reclasifico de UTILITY a MARKETING
+      //    despues de aprobarla, o se creo con otra categoria por fuera de
+      //    Fenix). Meta no permite cambiar la categoria de una plantilla
+      //    existente via API, asi que no tiene sentido reintentar la
+      //    creacion -- lo correcto es reconciliar con el estado real que
+      //    YA esta viva en Meta (reconcileExistingAccountTemplate hace el
+      //    mismo lookup que el caso 409) en vez de bloquear la cuenta con
+      //    un ERROR que requeriria borrar la plantilla a mano en Meta.
+      // En ambos casos la plantilla SIGUE FUNCIONANDO para enviar mensajes
+      // (el envio no filtra por categoria, ver outbound.service.ts
+      // resolveTemplateComponentsForSend) -- lo unico que corrige esto es
+      // que la pantalla de Plantillas dejara de mostrar un ERROR enganoso.
+      const isAlreadyExistsConflict =
+        error instanceof YcloudRequestError && error.statusCode === 409;
+      const categoryMismatch = this.extractCategoryMismatch(error);
+
+      if (isAlreadyExistsConflict || categoryMismatch) {
+        const reconciled = await this.reconcileExistingAccountTemplate({
+          ...input,
+          categoryMismatchNote: categoryMismatch
+            ? `Meta tiene esta plantilla registrada con categoria ${categoryMismatch.existingCategory} en vez de ${categoryMismatch.expectedCategory} (la definida aca). El envio funciona igual; si esto afecta facturacion o compliance, revisala en el WhatsApp Manager de Meta.`
+            : null,
+        });
         if (reconciled) return;
       }
-
-      // Meta/YCloud responde 400 "Template Category Doesn't Match" cuando
-      // ESE WABA puntual ya tiene una plantilla con el mismo nombre+idioma
-      // pero con una categoria distinta a la que definimos aca (tipicamente
-      // porque se creo por fuera de Fenix, o quedo de un intento previo con
-      // otra categoria). No es reconciliable como el caso 409: Meta no deja
-      // cambiar la categoria de una plantilla existente via API, asi que el
-      // unico arreglo es borrarla a mano en Meta Business Manager / YCloud
-      // para esa cuenta y volver a intentar "Agregar cuenta" desde Fenix.
-      // Dejamos un statusDetail accionable en español en vez del JSON crudo
-      // de Meta, para que se entienda desde la pantalla de Plantillas sin
-      // tener que mirar los logs del backend.
-      const categoryMismatch = this.extractCategoryMismatch(error);
 
       await this.prisma.globalWhatsappTemplateAccount.create({
         data: {
@@ -202,7 +210,7 @@ export class GlobalTemplatesService {
           wabaId: input.wabaId,
           status: AccountGlobalTemplateStatus.ERROR,
           statusDetail: categoryMismatch
-            ? `La plantilla "${input.template.name}" ya existe en Meta para esta cuenta con categoria ${categoryMismatch.existingCategory}, pero esta definida aca como ${categoryMismatch.expectedCategory}. Meta no permite cambiar la categoria de una plantilla existente: hay que borrarla manualmente en el WhatsApp Manager de Meta (o YCloud) para esta cuenta y volver a intentar "Agregar cuenta".`
+            ? `La plantilla "${input.template.name}" ya existe en Meta para esta cuenta con categoria ${categoryMismatch.existingCategory}, pero esta definida aca como ${categoryMismatch.expectedCategory}, y no se pudo reconciliar automaticamente (no se encontro en YCloud al reintentar la busqueda). Revisala manualmente en el WhatsApp Manager de Meta.`
             : this.errorMessage(error),
         },
       });
@@ -229,12 +237,20 @@ export class GlobalTemplatesService {
   }
 
   // Busca en YCloud la plantilla que ya existe en el WABA (por nombre e
-  // idioma) y crea la fila local con su estado real. Devuelve false si no
-  // la encuentra, para que el llamador registre el ERROR original.
+  // idioma) y crea/actualiza la fila local con su estado real. Devuelve
+  // false si no la encuentra, para que el llamador registre el ERROR
+  // original. categoryMismatchNote (opcional) se antepone al mensaje
+  // generico cuando el motivo de reconciliar fue un conflicto de categoria
+  // (ver propagateToAccount), para no perder esa informacion en el
+  // statusDetail. Pasar existingAccountTemplateId permite reusar esta
+  // misma funcion desde syncAccounts() para refrescar filas que YA existen
+  // (UPDATE) en vez de solo crearlas (CREATE).
   private async reconcileExistingAccountTemplate(input: {
     template: { id: string; name: string; language: string; category: string };
     accountId: string;
     wabaId: string;
+    categoryMismatchNote?: string | null;
+    existingAccountTemplateId?: string;
   }): Promise<boolean> {
     try {
       const templates = await this.ycloudService.listWhatsappTemplates({
@@ -249,19 +265,30 @@ export class GlobalTemplatesService {
       );
       if (!match) return false;
 
-      await this.prisma.globalWhatsappTemplateAccount.create({
-        data: {
-          globalTemplateId: input.template.id,
-          accountId: input.accountId,
-          wabaId: input.wabaId,
-          officialTemplateId: this.nonEmpty(
-            match.officialTemplateId ?? match.id,
-          ),
-          status: this.mapStatus(match.status),
-          statusDetail:
-            'Ya existia en YCloud/Meta; se reconcilio el estado automaticamente',
-        },
-      });
+      const statusDetail = input.categoryMismatchNote
+        ? input.categoryMismatchNote
+        : 'Ya existia en YCloud/Meta; se reconcilio el estado automaticamente';
+
+      const data = {
+        globalTemplateId: input.template.id,
+        accountId: input.accountId,
+        wabaId: input.wabaId,
+        officialTemplateId: this.nonEmpty(
+          match.officialTemplateId ?? match.id,
+        ),
+        status: this.mapStatus(match.status),
+        statusDetail,
+        lastSyncedAt: new Date(),
+      };
+
+      if (input.existingAccountTemplateId) {
+        await this.prisma.globalWhatsappTemplateAccount.update({
+          where: { id: input.existingAccountTemplateId },
+          data,
+        });
+      } else {
+        await this.prisma.globalWhatsappTemplateAccount.create({ data });
+      }
       return true;
     } catch (reconcileError) {
       this.logger.warn(
@@ -269,6 +296,66 @@ export class GlobalTemplatesService {
       );
       return false;
     }
+  }
+
+  // Boton "Sincronizar estados" de la pantalla de Plantillas: re-consulta
+  // YCloud/Meta para CADA cuenta ya vinculada a esta plantilla (incluidas
+  // las que quedaron en ERROR) y actualiza el estado local con la verdad
+  // actual -- cubre el caso en que Meta cambio algo (aprobo, reclasifico la
+  // categoria, pauso) por fuera del flujo normal de Fenix, o en que la
+  // plantilla ya existia en Meta de antes y el intento de creacion de
+  // Fenix fallo sin que hubiera nada realmente mal. No crea filas para
+  // cuentas que nunca intentaron agregar esta plantilla -- para eso esta
+  // "Agregar comercial".
+  async syncAccounts(templateId: string) {
+    const template = await this.prisma.globalWhatsappTemplate.findUnique({
+      where: { id: templateId },
+      include: { accountTemplates: true },
+    });
+    if (!template) {
+      throw new NotFoundException('Plantilla no encontrada');
+    }
+
+    const results: Array<{
+      accountId: string;
+      accountTemplateId: string;
+      outcome: 'synced' | 'not_found_in_meta';
+    }> = [];
+
+    for (const row of template.accountTemplates) {
+      const reconciled = await this.reconcileExistingAccountTemplate({
+        template,
+        accountId: row.accountId,
+        wabaId: row.wabaId,
+        existingAccountTemplateId: row.id,
+      });
+
+      results.push({
+        accountId: row.accountId,
+        accountTemplateId: row.id,
+        outcome: reconciled ? 'synced' : 'not_found_in_meta',
+      });
+
+      if (!reconciled) {
+        // No esta en YCloud bajo este nombre+idioma: no tocamos el
+        // status/statusDetail existente (puede ser un ERROR legitimo que
+        // todavia requiere accion manual), solo dejamos constancia de que
+        // se intento sincronizar.
+        await this.prisma.globalWhatsappTemplateAccount.update({
+          where: { id: row.id },
+          data: { lastSyncedAt: new Date() },
+        });
+      }
+    }
+
+    return {
+      templateId,
+      totalAccounts: template.accountTemplates.length,
+      synced: results.filter((r) => r.outcome === 'synced').length,
+      notFoundInMeta: results.filter((r) => r.outcome === 'not_found_in_meta')
+        .length,
+      results,
+    };
   }
 
   async addAccount(templateId: string, accountId: string) {
