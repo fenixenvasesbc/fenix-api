@@ -256,14 +256,45 @@ export class GlobalTemplatesService {
       const templates = await this.ycloudService.listWhatsappTemplates({
         accountId: input.accountId,
       });
+
+      // Comparamos nombre+idioma con algo de tolerancia: una plantilla que
+      // ya existia en Meta de antes (no creada por Fenix) puede tener
+      // espacios sueltos o el idioma en otra variante de mayusculas/
+      // separador ("es-ES" vs "es_ES") y seguir siendo, a todos los
+      // efectos, la misma plantilla.
+      const normalize = (value: unknown) =>
+        typeof value === 'string'
+          ? value.trim().toLowerCase().replace(/-/g, '_')
+          : '';
+      const expectedName = normalize(input.template.name);
+      const expectedLanguage = normalize(input.template.language);
+
       const match = templates.find(
         (item) =>
-          typeof item.name === 'string' &&
-          typeof item.language === 'string' &&
-          item.name === input.template.name &&
-          item.language === input.template.language,
+          normalize(item.name) === expectedName &&
+          normalize(item.language) === expectedLanguage,
       );
-      if (!match) return false;
+
+      if (!match) {
+        // Ayuda a diagnosticar por que no reconcilio: lista lo que YCloud
+        // SI devolvio con ese mismo nombre (en cualquier idioma), para
+        // distinguir "no existe en este WABA" de "existe pero con un
+        // nombre/idioma que no calza con lo esperado".
+        const sameName = templates.filter(
+          (item) => normalize(item.name) === expectedName,
+        );
+        this.logger.warn(
+          `reconcileExistingAccountTemplate: sin match para template="${input.template.name}" language="${input.template.language}" accountId=${input.accountId} wabaId=${input.wabaId}. ` +
+            `Variantes encontradas con ese nombre: ${
+              sameName.length
+                ? sameName
+                    .map((item) => `${String(item.name)}/${String(item.language)} (${String(item.status)})`)
+                    .join(', ')
+                : 'ninguna'
+            }`,
+        );
+        return false;
+      }
 
       const statusDetail = input.categoryMismatchNote
         ? input.categoryMismatchNote
@@ -355,6 +386,51 @@ export class GlobalTemplatesService {
       notFoundInMeta: results.filter((r) => r.outcome === 'not_found_in_meta')
         .length,
       results,
+    };
+  }
+
+  // Boton "Sincronizar todas" a nivel general (fuera del detalle de una
+  // plantilla puntual): corre syncAccounts() para TODAS las plantillas
+  // globales, una por una. Pensado para despues de detectar en Meta un
+  // problema que puede afectar a varias plantillas/cuentas a la vez (p.ej.
+  // una reclasificacion masiva de categoria) y no querer entrar plantilla
+  // por plantilla.
+  async syncAllTemplates() {
+    const templates = await this.prisma.globalWhatsappTemplate.findMany({
+      select: { id: true, name: true, language: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const perTemplate: Array<{
+      templateId: string;
+      name: string;
+      language: string;
+      totalAccounts: number;
+      synced: number;
+      notFoundInMeta: number;
+    }> = [];
+
+    for (const template of templates) {
+      const result = await this.syncAccounts(template.id);
+      perTemplate.push({
+        templateId: template.id,
+        name: template.name,
+        language: template.language,
+        totalAccounts: result.totalAccounts,
+        synced: result.synced,
+        notFoundInMeta: result.notFoundInMeta,
+      });
+    }
+
+    return {
+      totalTemplates: perTemplate.length,
+      totalAccounts: perTemplate.reduce((sum, t) => sum + t.totalAccounts, 0),
+      synced: perTemplate.reduce((sum, t) => sum + t.synced, 0),
+      notFoundInMeta: perTemplate.reduce(
+        (sum, t) => sum + t.notFoundInMeta,
+        0,
+      ),
+      templates: perTemplate,
     };
   }
 

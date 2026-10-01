@@ -134,6 +134,13 @@ export class GlobalTemplatesController {
     return this.globalTemplatesService.syncAccounts(id);
   }
 
+  // Boton "Sincronizar todas" en el listado general de plantillas: corre
+  // la sincronizacion de TODAS las plantillas globales de una sola vez.
+  @Post('sync-all')
+  syncAllTemplates() {
+    return this.globalTemplatesService.syncAllTemplates();
+  }
+
   // Alta de cuenta nueva: asigna TODO el catalogo de plantillas globales
   // vigentes a esta cuenta de una sola vez, en vez de agregarlas una por una
   // desde la UI. Pensado para el boton "Asignar plantillas" al dar de alta
