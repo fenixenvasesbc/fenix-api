@@ -1,8 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { AppNotificationType, Role } from '@prisma/client';
+import { PrismaService } from 'src/prisma/prisma.service';
 import {
   DESIGN_REQUEST_EVENTS,
+  DesignRequestApprovedEvent,
   DesignRequestCommentedEvent,
   DesignRequestReadyEvent,
   DesignRequestSentToModificationEvent,
@@ -22,7 +24,10 @@ import { NotificationsService } from '../notifications.service';
 export class DesignRequestNotificationsListener {
   private readonly logger = new Logger(DesignRequestNotificationsListener.name);
 
-  constructor(private readonly notifications: NotificationsService) {}
+  constructor(
+    private readonly notifications: NotificationsService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @OnEvent(DESIGN_REQUEST_EVENTS.READY)
   async onReady(event: DesignRequestReadyEvent) {
@@ -79,6 +84,48 @@ export class DesignRequestNotificationsListener {
         title: 'Boceto enviado a modificación',
         message: 'Un boceto que tenías asignado volvió a "Modificación".',
       }),
+    );
+  }
+
+  // Al aprobar (approve()/approveByLabel()) avisamos a DOS destinatarios
+  // distintos: el diseñador asignado (su trabajo quedo aprobado) y, a
+  // diferencia de los demas eventos de este listener, a TODO el Jefe de
+  // Diseño (Role.DESIGNER_MANAGER) -- no hay un unico "manager asignado" a
+  // la solicitud, asi que se notifica a cada DESIGNER_MANAGER activo con
+  // su propio dedupeKey para que la campanita de cada uno se actualice
+  // independientemente.
+  @OnEvent(DESIGN_REQUEST_EVENTS.APPROVED)
+  async onApproved(event: DesignRequestApprovedEvent) {
+    const recipientIds = new Set<string>();
+
+    if (event.assignedUserId) {
+      recipientIds.add(event.assignedUserId);
+    }
+
+    await this.safely(async () => {
+      const managers = await this.prisma.user.findMany({
+        where: { role: Role.DESIGNER_MANAGER, isActive: true },
+        select: { id: true },
+      });
+      for (const manager of managers) {
+        recipientIds.add(manager.id);
+      }
+    });
+
+    await Promise.all(
+      Array.from(recipientIds).map((recipientUserId) =>
+        this.safely(() =>
+          this.notifications.createNotification({
+            accountId: event.accountId,
+            leadId: event.leadId,
+            recipientUserId,
+            type: AppNotificationType.DESIGN_REQUEST_APPROVED,
+            dedupeKey: `design_request_approved:${event.designRequestId}:${recipientUserId}`,
+            title: 'Boceto aprobado',
+            message: 'Un boceto fue aprobado.',
+          }),
+        ),
+      ),
     );
   }
 

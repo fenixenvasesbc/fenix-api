@@ -30,6 +30,7 @@ import {
 } from './dto/create-design-request.dto';
 import {
   DESIGN_REQUEST_EVENTS,
+  DesignRequestApprovedEvent,
   DesignRequestCommentedEvent,
   DesignRequestReadyEvent,
   DesignRequestSentToModificationEvent,
@@ -994,6 +995,17 @@ export class DesignBoardService {
       return result;
     });
 
+    this.eventEmitter.emit(
+      DESIGN_REQUEST_EVENTS.APPROVED,
+      new DesignRequestApprovedEvent(
+        request.id,
+        request.accountId,
+        request.leadId,
+        request.assignedUserId,
+        now,
+      ),
+    );
+
     await this.emitDesignBoardEvent('design_request.moved', request, {
       toColumnId: approvedColumn.id,
     });
@@ -1393,6 +1405,17 @@ export class DesignBoardService {
 
       return result;
     });
+
+    this.eventEmitter.emit(
+      DESIGN_REQUEST_EVENTS.APPROVED,
+      new DesignRequestApprovedEvent(
+        request.id,
+        request.accountId,
+        request.leadId,
+        request.assignedUserId,
+        now,
+      ),
+    );
 
     await this.emitDesignBoardEvent('design_request.moved', request, {
       toColumnId: approvedColumn.id,

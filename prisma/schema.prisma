@@ -105,6 +105,11 @@ enum AppNotificationType {
   // ADR-004 Submodulo 6: se dispara con cada comentario nuevo en una
   // solicitud, hacia "la otra parte" (ver ADR SS9.8).
   DESIGN_REQUEST_COMMENTED
+  // Se dispara cuando una solicitud pasa de "Terminado" a "Aprobados"
+  // (approve()/approveByLabel()): avisa al diseñador asignado (su trabajo
+  // quedo aprobado) y a todo el Jefe de Diseño (DESIGNER_MANAGER) para que
+  // tengan visibilidad sin tener que entrar al tablero a revisar.
+  DESIGN_REQUEST_APPROVED
 }
 
 enum AppNotificationStatus {

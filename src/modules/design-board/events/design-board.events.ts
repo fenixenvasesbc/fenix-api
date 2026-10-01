@@ -17,6 +17,7 @@ export const DESIGN_REQUEST_EVENTS = {
   READY: 'design-request.ready',
   COMMENTED: 'design-request.commented',
   SENT_TO_MODIFICATION: 'design-request.sent-to-modification',
+  APPROVED: 'design-request.approved',
 } as const;
 
 export class DesignRequestReadyEvent {
@@ -42,6 +43,16 @@ export class DesignRequestCommentedEvent {
 }
 
 export class DesignRequestSentToModificationEvent {
+  constructor(
+    public readonly designRequestId: string,
+    public readonly accountId: string,
+    public readonly leadId: string,
+    public readonly assignedUserId: string | null,
+    public readonly occurredAt: Date,
+  ) {}
+}
+
+export class DesignRequestApprovedEvent {
   constructor(
     public readonly designRequestId: string,
     public readonly accountId: string,
