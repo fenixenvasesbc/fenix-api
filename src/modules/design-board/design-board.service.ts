@@ -1108,11 +1108,17 @@ export class DesignBoardService {
   // Si en el futuro cambian o hay que soportar mas de una cuenta con
   // nombres distintos, mover esto a configuracion.
   // -------------------------------------------------------------
+  // "boceto_jpg" quedo bloqueada por Meta: en algunos WABA, Meta le
+  // asocio categoria MARKETING en algun momento (aunque ya no quede nada
+  // vivo con ese nombre+idioma ahi) y no deja volver a crearla como
+  // UTILITY -- ver conversacion con el equipo del 01/oct/2026. Se creo
+  // "boceto_jpg2" desde cero como UTILITY para evitar ese bloqueo
+  // historico; "boceto_pdf" no tuvo el mismo problema y se deja igual.
   private static readonly BOCETO_TEMPLATE_NAMES: Record<
     'image' | 'document',
     string
   > = {
-    image: 'boceto_jpg',
+    image: 'boceto_jpg2',
     document: 'boceto_pdf',
   };
 
