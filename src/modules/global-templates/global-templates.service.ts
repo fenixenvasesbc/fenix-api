@@ -182,16 +182,50 @@ export class GlobalTemplatesService {
         if (reconciled) return;
       }
 
+      // Meta/YCloud responde 400 "Template Category Doesn't Match" cuando
+      // ESE WABA puntual ya tiene una plantilla con el mismo nombre+idioma
+      // pero con una categoria distinta a la que definimos aca (tipicamente
+      // porque se creo por fuera de Fenix, o quedo de un intento previo con
+      // otra categoria). No es reconciliable como el caso 409: Meta no deja
+      // cambiar la categoria de una plantilla existente via API, asi que el
+      // unico arreglo es borrarla a mano en Meta Business Manager / YCloud
+      // para esa cuenta y volver a intentar "Agregar cuenta" desde Fenix.
+      // Dejamos un statusDetail accionable en español en vez del JSON crudo
+      // de Meta, para que se entienda desde la pantalla de Plantillas sin
+      // tener que mirar los logs del backend.
+      const categoryMismatch = this.extractCategoryMismatch(error);
+
       await this.prisma.globalWhatsappTemplateAccount.create({
         data: {
           globalTemplateId: input.template.id,
           accountId: input.accountId,
           wabaId: input.wabaId,
           status: AccountGlobalTemplateStatus.ERROR,
-          statusDetail: this.errorMessage(error),
+          statusDetail: categoryMismatch
+            ? `La plantilla "${input.template.name}" ya existe en Meta para esta cuenta con categoria ${categoryMismatch.existingCategory}, pero esta definida aca como ${categoryMismatch.expectedCategory}. Meta no permite cambiar la categoria de una plantilla existente: hay que borrarla manualmente en el WhatsApp Manager de Meta (o YCloud) para esta cuenta y volver a intentar "Agregar cuenta".`
+            : this.errorMessage(error),
         },
       });
     }
+  }
+
+  // Busca el patron especifico del error 400 "Template Category Doesn't
+  // Match" en el mensaje que devuelve YCloud/Meta (ver propagateToAccount)
+  // y extrae ambas categorias para armar un mensaje claro. Devuelve null si
+  // el error no corresponde a este caso puntual.
+  private extractCategoryMismatch(
+    error: unknown,
+  ): { expectedCategory: string; existingCategory: string } | null {
+    if (!(error instanceof YcloudRequestError) || error.statusCode !== 400) {
+      return null;
+    }
+
+    const match = error.message.match(
+      /The category (\w+) doesn't match the one that's already associated with this template,\s*(\w+)/i,
+    );
+    if (!match) return null;
+
+    return { expectedCategory: match[1], existingCategory: match[2] };
   }
 
   // Busca en YCloud la plantilla que ya existe en el WABA (por nombre e
