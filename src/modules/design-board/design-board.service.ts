@@ -247,6 +247,95 @@ export class DesignBoardService {
     return resolved;
   }
 
+  // -------------------------------------------------------------
+  // Plazos diferenciados por tipo de solicitud (acordado con el cliente,
+  // 02/oct/2026, a partir del documento "Explicacion boceto/modificacion/
+  // repeticion"):
+  //   - Boceto (cliente nuevo, sin prefijo): 3 dias habiles (default del
+  //     tablero, sin cambios).
+  //   - Boceto sobre vasos/palas/paninis/hamburguesa folding/ensaladeras
+  //     (detectado en la DESCRIPCION): 4 dias habiles.
+  //   - Repeticion Boceto (diseño nuevo de un cliente que ya compro,
+  //     detectado en el TITULO): 2 dias habiles.
+  //   - Repeticion Mod / Repeticion Añade (detectado en el TITULO):
+  //     1 dia habil.
+  //   - Mod / Mod Añade (cliente nuevo, boceto aun no cerrado): NO se
+  //     detectan aca -- siguen usando el mecanismo ya existente de la
+  //     columna "Modificacion" (sendToModification(), 1 dia habil), que
+  //     ya cubre ambos casos por igual (confirmado con el cliente: misma
+  //     SLA, mismo mecanismo).
+  // La deteccion del prefijo en el titulo es tolerante: funciona con
+  // "REPET" o "REPETICION"/"REPETICIÓN", con o sin los dos puntos, sin
+  // distinguir mayusculas/minusculas ni tildes/eñe (confirmado con el
+  // cliente). Si el titulo no calza con ningun prefijo de Repeticion, se
+  // trata como Boceto normal y se revisa la descripcion por los productos
+  // de plazo extendido.
+  private static readonly REPETITION_SLA_BUSINESS_DAYS: Record<
+    'boceto' | 'mod' | 'anade',
+    number
+  > = {
+    boceto: 2,
+    mod: 1,
+    anade: 1,
+  };
+
+  private static readonly EXTENDED_SLA_PRODUCT_KEYWORDS = [
+    'vaso',
+    'pala',
+    'panini',
+    'hamburguesa folding',
+    'ensaladera',
+  ];
+
+  private static readonly EXTENDED_SLA_BUSINESS_DAYS = 4;
+
+  // Quita tildes/diacriticos y pasa a minusculas, para comparar texto
+  // escrito a mano sin depender de que todos tipeen igual (con/sin tilde,
+  // con/sin eñe, mayus/minus).
+  private static normalizeForMatch(value: string): string {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  }
+
+  // Devuelve los dias habiles de plazo para una solicitud NUEVA segun su
+  // titulo/instrucciones, o null si no aplica ninguna regla especial (en
+  // ese caso el caller usa el default del tablero).
+  private resolveCreationSlaBusinessDays(
+    title: string,
+    instructions: string | null | undefined,
+  ): number | null {
+    // normalizeForMatch ya quita tildes/eñe (ñ -> n via NFD + strip de
+    // diacriticos), asi que "anade" cubre "añade"/"anade" sin variantes.
+    const normalizedTitle = DesignBoardService.normalizeForMatch(title);
+    // Tolera un ":" opcional (y espacios de mas) entre "REPET"/
+    // "REPETICION" y el tipo -- "REPET BOCETO:", "REPETICION: BOCETO",
+    // "repet:boceto", etc. todas calzan.
+    const repetitionMatch = normalizedTitle.match(
+      /^repet(?:icion)?\s*:?\s*(boceto|mod|anade)\b/,
+    );
+    if (repetitionMatch) {
+      const type = repetitionMatch[1] as 'boceto' | 'mod' | 'anade';
+      return DesignBoardService.REPETITION_SLA_BUSINESS_DAYS[type];
+    }
+
+    if (instructions) {
+      const normalizedInstructions =
+        DesignBoardService.normalizeForMatch(instructions);
+      const hasExtendedProduct =
+        DesignBoardService.EXTENDED_SLA_PRODUCT_KEYWORDS.some((keyword) =>
+          normalizedInstructions.includes(keyword),
+        );
+      if (hasExtendedProduct) {
+        return DesignBoardService.EXTENDED_SLA_BUSINESS_DAYS;
+      }
+    }
+
+    return null;
+  }
+
   async createRequest(user: AuthUser, dto: CreateDesignRequestDto) {
     if (user.role !== Role.SALES && user.role !== Role.ADMIN) {
       throw new ForbiddenException(
@@ -277,11 +366,18 @@ export class DesignBoardService {
 
     const holidaySet = await this.businessDaysService.loadHolidaySet();
     const now = new Date();
+    // Plazo segun tipo de solicitud (ver resolveCreationSlaBusinessDays):
+    // Repeticion Boceto/Mod/Añade detectado en el titulo, o el producto de
+    // plazo extendido detectado en la descripcion; si ninguno aplica, cae
+    // al default del tablero (3 dias habiles = Boceto normal).
+    const requestSlaBusinessDays =
+      this.resolveCreationSlaBusinessDays(dto.title, dto.instructions) ??
+      board.defaultSlaDays;
     // ADR-004 SS7 (Submodulo 1): dias habiles + corte de las 14:00 hora
     // Europe/Madrid, en vez del placeholder de dias corridos del MVP core.
     const dueAt = this.businessDaysService.computeBusinessDueAt(
       now,
-      board.defaultSlaDays,
+      requestSlaBusinessDays,
       holidaySet,
       { cutoffHour: board.slaCutoffHour },
     );
@@ -303,7 +399,7 @@ export class DesignBoardService {
           instructions: dto.instructions ?? null,
           country: dto.country ?? DesignRequestCountry.ES,
           createdByUserId: user.userId,
-          slaBusinessDays: board.defaultSlaDays,
+          slaBusinessDays: requestSlaBusinessDays,
           dueAt,
           attachments: attachmentsCreateInput
             ? { create: attachmentsCreateInput }
