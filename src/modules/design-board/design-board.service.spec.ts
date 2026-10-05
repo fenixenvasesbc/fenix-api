@@ -266,6 +266,110 @@ describe('DesignBoardService', () => {
 
       expect(tx.designRequest.create).toHaveBeenCalled();
     });
+
+    // ---------------------------------------------------------------
+    // Plazos diferenciados por tipo de solicitud (resolveCreationSlaBusinessDays,
+    // acordado con el cliente 02/oct/2026). Se prueba a traves de
+    // createRequest() -- el metodo es privado -- verificando con que
+    // slaBusinessDays se llama a computeBusinessDueAt() y con que valor
+    // queda el create() de Prisma. El default del tablero en board() es 3.
+    // ---------------------------------------------------------------
+    describe('plazos por tipo de solicitud (REPET en el titulo / producto extendido en la descripcion)', () => {
+      beforeEach(() => {
+        prisma.lead.findUnique.mockResolvedValue({ id: 'lead-1', accountId: 'account-1' });
+        prisma.designBoard.findFirst.mockResolvedValue(board());
+        tx.designRequest.create.mockResolvedValue({ id: 'req-sla', columnId: 'col-new', attachments: [] });
+      });
+
+      async function createAndGetSlaBusinessDays(title: string, instructions?: string) {
+        await service.createRequest(SALES, { leadId: 'lead-1', title, instructions });
+        const dueAtCall = businessDaysService.computeBusinessDueAt.mock.calls.at(-1)!;
+        const createCall = tx.designRequest.create.mock.calls.at(-1)![0];
+        // Ambos deben coincidir siempre -- es el mismo valor pasado dos veces.
+        expect(dueAtCall[1]).toBe(createCall.data.slaBusinessDays);
+        return createCall.data.slaBusinessDays as number;
+      }
+
+      it('BOCETO normal (sin prefijo, sin producto extendido) usa el default del tablero: 3 dias', async () => {
+        await expect(createAndGetSlaBusinessDays('Boceto: Pepe Nuevo caja 35x24')).resolves.toBe(3);
+      });
+
+      it('REPET BOCETO (prefijo completo, con dos puntos) usa 2 dias', async () => {
+        await expect(
+          createAndGetSlaBusinessDays('REPET BOCETO: Pepe Cliente - Jose'),
+        ).resolves.toBe(2);
+      });
+
+      it('REPET MOD usa 1 dia', async () => {
+        await expect(createAndGetSlaBusinessDays('REPET MOD: Pepe Cliente')).resolves.toBe(1);
+      });
+
+      it('REPET AÑADE usa 1 dia', async () => {
+        await expect(createAndGetSlaBusinessDays('REPET AÑADE: Pepe Cliente')).resolves.toBe(1);
+      });
+
+      it('detecta el prefijo en minusculas y sin tilde ("repet anade")', async () => {
+        await expect(createAndGetSlaBusinessDays('repet anade: pepe cliente')).resolves.toBe(1);
+      });
+
+      it('detecta "REPETICION" (palabra completa) en vez de "REPET"', async () => {
+        await expect(
+          createAndGetSlaBusinessDays('REPETICION BOCETO: Pepe Cliente - Jose'),
+        ).resolves.toBe(2);
+      });
+
+      it('detecta "REPETICIÓN" con tilde y sin dos puntos antes del tipo', async () => {
+        await expect(createAndGetSlaBusinessDays('REPETICIÓN MOD Pepe Cliente')).resolves.toBe(1);
+      });
+
+      it('tolera el ":" pegado a REPETICION antes del tipo ("REPETICION: BOCETO")', async () => {
+        await expect(
+          createAndGetSlaBusinessDays('REPETICION: BOCETO Pepe Cliente'),
+        ).resolves.toBe(2);
+      });
+
+      it('un prefijo de Repeticion que no matchea ningun tipo conocido cae al default de 3 dias', async () => {
+        await expect(
+          createAndGetSlaBusinessDays('REPET ENVASE: Pepe Cliente'),
+        ).resolves.toBe(3);
+      });
+
+      it.each([
+        ['vasos', 'Cliente nuevo pide vasos de 8 onzas'],
+        ['vaso (singular)', 'Cliente nuevo pide un vaso de 8 onzas'],
+        ['palas', 'Boceto de palas para heladeria'],
+        ['paninis', 'Pedido de paninis con logo'],
+        ['hamburguesa folding', 'Caja hamburguesa folding con logo'],
+        ['ensaladeras', 'Cliente quiere ensaladeras recicladas'],
+        ['mayusculas', 'PEDIDO DE VASOS GRANDES'],
+        ['sin tilde ya no aplica, pero con mayus+tilde random', 'Vasos Para El Cliente'],
+      ])('BOCETO con producto de plazo extendido en la descripcion (%s) usa 4 dias', async (_case, instructions) => {
+        await expect(
+          createAndGetSlaBusinessDays('Boceto: Pepe Nuevo', instructions),
+        ).resolves.toBe(4);
+      });
+
+      it('BOCETO sin producto de plazo extendido en la descripcion usa el default de 3 dias', async () => {
+        await expect(
+          createAndGetSlaBusinessDays('Boceto: Pepe Nuevo', 'Caja de envio 35x24 con logo'),
+        ).resolves.toBe(3);
+      });
+
+      it('sin instructions (undefined) no rompe y usa el default de 3 dias', async () => {
+        await expect(createAndGetSlaBusinessDays('Boceto: Pepe Nuevo', undefined)).resolves.toBe(3);
+      });
+
+      it('REPET BOCETO con un producto de plazo extendido en la descripcion sigue usando 2 dias (el titulo manda, no se suma la excepcion de 4 dias)', async () => {
+        await expect(
+          createAndGetSlaBusinessDays('REPET BOCETO: Pepe Cliente', 'Pide vasos nuevos con el mismo diseño'),
+        ).resolves.toBe(2);
+      });
+
+      it('MOD / MOD AÑADE en el titulo NO se detectan aca (no son Repeticion) y usan el default de 3 dias al crearse -- su 1 dia real llega despues via "Enviar a modificacion"', async () => {
+        await expect(createAndGetSlaBusinessDays('MOD: Pepe Nuevo')).resolves.toBe(3);
+        await expect(createAndGetSlaBusinessDays('MOD AÑADE: Pepe Nuevo')).resolves.toBe(3);
+      });
+    });
   });
 
   // ---------------------------------------------------------------
