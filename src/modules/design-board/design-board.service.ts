@@ -25,6 +25,7 @@ import {
   EditDesignRequestCommentDto,
   CreateDesignRequestAttachmentDto,
   CreateDesignRequestDto,
+  DesignRequestType,
   ListDesignRequestsQueryDto,
   MoveDesignRequestDto,
 } from './dto/create-design-request.dto';
@@ -250,33 +251,30 @@ export class DesignBoardService {
   // -------------------------------------------------------------
   // Plazos diferenciados por tipo de solicitud (acordado con el cliente,
   // 02/oct/2026, a partir del documento "Explicacion boceto/modificacion/
-  // repeticion"):
-  //   - Boceto (cliente nuevo, sin prefijo): 3 dias habiles (default del
-  //     tablero, sin cambios).
-  //   - Boceto sobre vasos/palas/paninis/hamburguesa folding/ensaladeras
-  //     (detectado en la DESCRIPCION): 4 dias habiles.
-  //   - Repeticion Boceto (diseño nuevo de un cliente que ya compro,
-  //     detectado en el TITULO): 2 dias habiles.
-  //   - Repeticion Mod / Repeticion Añade (detectado en el TITULO):
-  //     1 dia habil.
+  // repeticion"; actualizado 06/oct/2026: el tipo ya NO se infiere del
+  // titulo por regex -- SALES/ADMIN lo elige explicitamente en el modal
+  // de creacion via dto.requestType):
+  //   - BOCETO (default si no se manda requestType): 3 dias habiles
+  //     (default del tablero), salvo que la descripcion mencione un
+  //     producto de plazo extendido (4 dias, ver mas abajo).
+  //   - REPET_BOCETO: 2 dias habiles.
+  //   - REPET_MOD / REPET_ANADE: 1 dia habil.
   //   - Mod / Mod Añade (cliente nuevo, boceto aun no cerrado): NO se
-  //     detectan aca -- siguen usando el mecanismo ya existente de la
+  //     eligen aca -- siguen usando el mecanismo ya existente de la
   //     columna "Modificacion" (sendToModification(), 1 dia habil), que
   //     ya cubre ambos casos por igual (confirmado con el cliente: misma
   //     SLA, mismo mecanismo).
-  // La deteccion del prefijo en el titulo es tolerante: funciona con
-  // "REPET" o "REPETICION"/"REPETICIÓN", con o sin los dos puntos, sin
-  // distinguir mayusculas/minusculas ni tildes/eñe (confirmado con el
-  // cliente). Si el titulo no calza con ningun prefijo de Repeticion, se
-  // trata como Boceto normal y se revisa la descripcion por los productos
-  // de plazo extendido.
-  private static readonly REPETITION_SLA_BUSINESS_DAYS: Record<
-    'boceto' | 'mod' | 'anade',
-    number
+  // La excepcion de 4 dias por producto (vasos/palas/paninis/hamburguesa
+  // folding/ensaladeras) sigue detectandose por texto en la DESCRIPCION
+  // (sin cambios), y solo aplica cuando el tipo elegido es BOCETO --
+  // un REPET_BOCETO con esos productos en la descripcion sigue dando 2
+  // dias (el tipo elegido manda).
+  private static readonly REQUEST_TYPE_SLA_BUSINESS_DAYS: Partial<
+    Record<DesignRequestType, number>
   > = {
-    boceto: 2,
-    mod: 1,
-    anade: 1,
+    REPET_BOCETO: 2,
+    REPET_MOD: 1,
+    REPET_ANADE: 1,
   };
 
   private static readonly EXTENDED_SLA_PRODUCT_KEYWORDS = [
@@ -300,27 +298,24 @@ export class DesignBoardService {
       .trim();
   }
 
-  // Devuelve los dias habiles de plazo para una solicitud NUEVA segun su
-  // titulo/instrucciones, o null si no aplica ninguna regla especial (en
-  // ese caso el caller usa el default del tablero).
+  // Devuelve los dias habiles de plazo para una solicitud NUEVA segun el
+  // tipo elegido explicitamente (requestType) y la descripcion, o null si
+  // no aplica ninguna regla especial (en ese caso el caller usa el
+  // default del tablero).
   private resolveCreationSlaBusinessDays(
-    title: string,
+    requestType: DesignRequestType | null | undefined,
     instructions: string | null | undefined,
   ): number | null {
-    // normalizeForMatch ya quita tildes/eñe (ñ -> n via NFD + strip de
-    // diacriticos), asi que "anade" cubre "añade"/"anade" sin variantes.
-    const normalizedTitle = DesignBoardService.normalizeForMatch(title);
-    // Tolera un ":" opcional (y espacios de mas) entre "REPET"/
-    // "REPETICION" y el tipo -- "REPET BOCETO:", "REPETICION: BOCETO",
-    // "repet:boceto", etc. todas calzan.
-    const repetitionMatch = normalizedTitle.match(
-      /^repet(?:icion)?\s*:?\s*(boceto|mod|anade)\b/,
-    );
-    if (repetitionMatch) {
-      const type = repetitionMatch[1] as 'boceto' | 'mod' | 'anade';
-      return DesignBoardService.REPETITION_SLA_BUSINESS_DAYS[type];
+    if (requestType && requestType !== 'BOCETO') {
+      const days =
+        DesignBoardService.REQUEST_TYPE_SLA_BUSINESS_DAYS[requestType];
+      if (days !== undefined) {
+        return days;
+      }
     }
 
+    // BOCETO (o sin requestType, que se trata como BOCETO) revisa la
+    // descripcion por productos de plazo extendido.
     if (instructions) {
       const normalizedInstructions =
         DesignBoardService.normalizeForMatch(instructions);
@@ -371,7 +366,7 @@ export class DesignBoardService {
     // plazo extendido detectado en la descripcion; si ninguno aplica, cae
     // al default del tablero (3 dias habiles = Boceto normal).
     const requestSlaBusinessDays =
-      this.resolveCreationSlaBusinessDays(dto.title, dto.instructions) ??
+      this.resolveCreationSlaBusinessDays(dto.requestType, dto.instructions) ??
       board.defaultSlaDays;
     // ADR-004 SS7 (Submodulo 1): dias habiles + corte de las 14:00 hora
     // Europe/Madrid, en vez del placeholder de dias corridos del MVP core.

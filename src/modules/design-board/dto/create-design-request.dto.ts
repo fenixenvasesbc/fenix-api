@@ -55,6 +55,28 @@ export class CreateDesignRequestAttachmentDto {
   sizeBytes?: number;
 }
 
+// Tipo de solicitud elegido explicitamente por SALES/ADMIN en el modal de
+// creacion (reemplaza la deteccion por regex en el titulo -- acordado con
+// el cliente, 06/oct/2026). Determina el plazo (ver
+// DesignBoardService.resolveCreationSlaBusinessDays):
+//   - BOCETO: 3 dias habiles (default del tablero), salvo que la
+//     descripcion mencione un producto de plazo extendido (4 dias).
+//   - REPET_BOCETO: 2 dias habiles.
+//   - REPET_MOD / REPET_ANADE: 1 dia habil.
+// El titulo sigue siendo texto libre, ya no se interpreta para esto.
+export type DesignRequestType =
+  | 'BOCETO'
+  | 'REPET_BOCETO'
+  | 'REPET_MOD'
+  | 'REPET_ANADE';
+
+export const DESIGN_REQUEST_TYPES: DesignRequestType[] = [
+  'BOCETO',
+  'REPET_BOCETO',
+  'REPET_MOD',
+  'REPET_ANADE',
+];
+
 export class CreateDesignRequestDto {
   @IsUUID()
   leadId!: string;
@@ -63,6 +85,10 @@ export class CreateDesignRequestDto {
   @MinLength(1)
   @MaxLength(200)
   title!: string;
+
+  @IsOptional()
+  @IsIn(DESIGN_REQUEST_TYPES)
+  requestType?: DesignRequestType;
 
   @IsOptional()
   @IsString()
