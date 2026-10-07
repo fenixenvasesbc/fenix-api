@@ -3,6 +3,8 @@ import { AccountGlobalTemplateStatus, Prisma, WebhookEventStatus } from '@prisma
 import { WebhookInboxJob } from 'src/common/types/webhook-inbox-job';
 import type { YcloudTemplateReviewedWebhook } from 'src/common/types/ycloud-types';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { CampaignTemplateSyncService } from '../campaign-templates/campaign-template-sync.service';
+import { CAMPAIGN_TEMPLATE_REGISTRY } from '../campaign-templates/campaign-template-registry';
 
 const VALID_STATUSES = new Set(Object.values(AccountGlobalTemplateStatus));
 
@@ -14,7 +16,10 @@ const VALID_STATUSES = new Set(Object.values(AccountGlobalTemplateStatus));
 export class TemplateStatusService {
   private readonly logger = new Logger(TemplateStatusService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly campaignTemplateSyncService: CampaignTemplateSyncService,
+  ) {}
 
   async process(job: WebhookInboxJob): Promise<void> {
     this.logger.log(
@@ -70,6 +75,54 @@ export class TemplateStatusService {
       this.logger.warn(
         `Template-status webhook did not match any GlobalWhatsappTemplateAccount wabaId=${wabaId} name=${name} language=${language} (puede ser una plantilla creada fuera de la gestion global)`,
       );
+    }
+
+    await this.syncCampaignDefinitionsIfRegistered(wabaId, name);
+  }
+
+  // Ademas de GlobalWhatsappTemplateAccount (arriba), si el nombre de la
+  // plantilla coincide con una entrada de CAMPAIGN_TEMPLATE_REGISTRY (hoy:
+  // re_enganche, recordatorio_repeticion), reflejar tambien el cambio en
+  // CampaignDefinition/AccountCampaignTemplate -- antes de esto, ese sistema
+  // (usado por Reenganche/Repeticion) solo se actualizaba corriendo un
+  // script a mano para cada cuenta (ver ADR-003). Reusa
+  // CampaignTemplateSyncService.syncAccount(), la misma logica que ya usa
+  // el sync manual (POST /campaign-templates/accounts/:id/sync) -- incluye
+  // el fix que evita crear CampaignDefinition duplicadas para type+language
+  // (ver incidente cuenta 5575c85f-..., Diana).
+  //
+  // Best-effort por diseno: un fallo aqui no debe tumbar el procesamiento
+  // del webhook de GlobalWhatsappTemplateAccount, que ya se aplico arriba y
+  // es el camino critico de Etiquetas.
+  private async syncCampaignDefinitionsIfRegistered(
+    wabaId: string,
+    templateName: string,
+  ): Promise<void> {
+    const isRegistered = CAMPAIGN_TEMPLATE_REGISTRY.some(
+      (entry) => entry.templateName === templateName,
+    );
+    if (!isRegistered) return;
+
+    // Un mismo wabaId puede tener varios numeros/cuentas (ver comentario de
+    // clase mas arriba) -- se sincroniza cada una.
+    const accounts = await this.prisma.account.findMany({
+      where: { wabaId },
+      select: { id: true, user: { select: { isActive: true } } },
+    });
+
+    for (const account of accounts) {
+      if (!account.user?.isActive) continue;
+
+      try {
+        await this.campaignTemplateSyncService.syncAccount(account.id);
+        this.logger.log(
+          `Campaign template sync (via webhook) ok accountId=${account.id} wabaId=${wabaId} templateName=${templateName}`,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Campaign template sync (via webhook) failed accountId=${account.id} wabaId=${wabaId} templateName=${templateName}: ${this.formatError(error)}`,
+        );
+      }
     }
   }
 

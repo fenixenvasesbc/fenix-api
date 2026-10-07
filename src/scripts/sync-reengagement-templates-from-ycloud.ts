@@ -305,8 +305,34 @@ async function ensureCampaignDefinition(input: {
   dryRunPlannedDefinitionKeys: Set<string>;
 }) {
   const key = campaignDefinitionKey(input.internalLanguage);
-  const existing = await input.prisma.campaignDefinition.findUnique({
-    where: { key },
+
+  const updateData = {
+    name: CAMPAIGN_NAME,
+    type: CampaignDefinitionType.WEEK1_REENGAGEMENT,
+    language: input.internalLanguage,
+    category: nonEmpty(input.template.category),
+    payload: buildDefinitionPayload(input.templateName, input.template),
+    status: CampaignDefinitionStatus.ACTIVE,
+    isActive: true,
+  };
+
+  // Preferir una CampaignDefinition ya activa para WEEK1_REENGAGEMENT +
+  // este idioma, sea cual sea su `key` -- antes de este fix se buscaba
+  // unicamente por `key` (derivada de CAMPAIGN_KEY_PREFIX), lo que permitia
+  // que una generacion de claves anterior ("re_enganche_*", usada hoy por
+  // varias cuentas) y esta ("week1_reengagement_*") coexistieran para el
+  // mismo idioma. Cada corrida de este script terminaba creando una fila
+  // duplicada en vez de reusar la que ya tenian las cuentas existentes, lo
+  // que rompio el envio de reenganche para la cuenta 5575c85f-... (Diana)
+  // aun con el sync aplicado. Buscar primero por type+language evita que
+  // esto se repita.
+  const existing = await input.prisma.campaignDefinition.findFirst({
+    where: {
+      type: CampaignDefinitionType.WEEK1_REENGAGEMENT,
+      language: input.internalLanguage,
+      isActive: true,
+    },
+    orderBy: { createdAt: 'asc' },
     select: { id: true },
   });
 
@@ -316,15 +342,7 @@ async function ensureCampaignDefinition(input: {
     if (input.apply) {
       await input.prisma.campaignDefinition.update({
         where: { id: existing.id },
-        data: {
-          name: CAMPAIGN_NAME,
-          type: CampaignDefinitionType.WEEK1_REENGAGEMENT,
-          language: input.internalLanguage,
-          category: nonEmpty(input.template.category),
-          payload: buildDefinitionPayload(input.templateName, input.template),
-          status: CampaignDefinitionStatus.ACTIVE,
-          isActive: true,
-        },
+        data: updateData,
       });
     }
 
@@ -340,21 +358,34 @@ async function ensureCampaignDefinition(input: {
     return `dry-run:${key}`;
   }
 
-  const definition = await input.prisma.campaignDefinition.create({
-    data: {
-      key,
-      name: CAMPAIGN_NAME,
-      type: CampaignDefinitionType.WEEK1_REENGAGEMENT,
-      language: input.internalLanguage,
-      category: nonEmpty(input.template.category),
-      payload: buildDefinitionPayload(input.templateName, input.template),
-      status: CampaignDefinitionStatus.ACTIVE,
-      isActive: true,
-    },
-    select: { id: true },
-  });
-
-  return definition.id;
+  try {
+    const definition = await input.prisma.campaignDefinition.create({
+      data: { key, ...updateData },
+      select: { id: true },
+    });
+    return definition.id;
+  } catch (error) {
+    // Carrera/choque de `key` unico: ya existe una fila con esta key
+    // exacta (probablemente una duplicada antigua desactivada) -- se
+    // reactiva en vez de abortar la corrida completa.
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      const conflicting = await input.prisma.campaignDefinition.findUnique({
+        where: { key },
+        select: { id: true },
+      });
+      if (conflicting) {
+        await input.prisma.campaignDefinition.update({
+          where: { id: conflicting.id },
+          data: updateData,
+        });
+        return conflicting.id;
+      }
+    }
+    throw error;
+  }
 }
 
 function buildDefinitionPayload(templateName: string, template: YcloudTemplate) {

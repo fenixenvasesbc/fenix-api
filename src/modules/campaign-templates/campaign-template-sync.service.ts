@@ -259,11 +259,6 @@ export class CampaignTemplateSyncService {
   }): Promise<string> {
     const key = `${input.registryEntry.keyPrefix}_${input.internalLanguage.toLowerCase()}`;
 
-    const existing = await this.prisma.campaignDefinition.findUnique({
-      where: { key },
-      select: { id: true },
-    });
-
     const payload = {
       provider: 'YCLOUD',
       templateName: input.registryEntry.templateName,
@@ -273,36 +268,75 @@ export class CampaignTemplateSyncService {
       variables: [],
     } satisfies Prisma.InputJsonObject;
 
+    const updateData = {
+      name: input.registryEntry.campaignName,
+      type: input.registryEntry.type,
+      language: input.internalLanguage,
+      category: this.nonEmpty(input.template.category),
+      payload,
+      status: CampaignDefinitionStatus.ACTIVE,
+      isActive: true,
+    };
+
+    // Preferir una CampaignDefinition ya activa para este type+language,
+    // sea cual sea su `key` -- antes de este fix se buscaba unicamente por
+    // `key` (derivado del keyPrefix del registro), lo que permitia que dos
+    // generaciones de claves distintas ("re_enganche_*" de un mecanismo
+    // anterior y "week1_reengagement_*" de este servicio) coexistieran para
+    // el mismo idioma. Cada sync nueva terminaba creando una fila duplicada
+    // en vez de reusar la que ya tenian las cuentas existentes, y
+    // CampaignTemplateResolverService (sin orderBy) podia resolver
+    // cualquiera de las dos de forma no determinista -- asi se rompio el
+    // envio de reenganche para la cuenta 5575c85f-... (Diana) aun con el
+    // sync aplicado. Buscar primero por type+language evita que esto se
+    // repita, sin importar que prefijo de key tenga la definicion existente.
+    const existing = await this.prisma.campaignDefinition.findFirst({
+      where: {
+        type: input.registryEntry.type,
+        language: input.internalLanguage,
+        isActive: true,
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+
     if (existing) {
       await this.prisma.campaignDefinition.update({
         where: { id: existing.id },
-        data: {
-          name: input.registryEntry.campaignName,
-          type: input.registryEntry.type,
-          language: input.internalLanguage,
-          category: this.nonEmpty(input.template.category),
-          payload,
-          status: CampaignDefinitionStatus.ACTIVE,
-          isActive: true,
-        },
+        data: updateData,
       });
       return existing.id;
     }
 
-    const created = await this.prisma.campaignDefinition.create({
-      data: {
-        key,
-        name: input.registryEntry.campaignName,
-        type: input.registryEntry.type,
-        language: input.internalLanguage,
-        category: this.nonEmpty(input.template.category),
-        payload,
-        status: CampaignDefinitionStatus.ACTIVE,
-        isActive: true,
-      },
-      select: { id: true },
-    });
-    return created.id;
+    try {
+      const created = await this.prisma.campaignDefinition.create({
+        data: { key, ...updateData },
+        select: { id: true },
+      });
+      return created.id;
+    } catch (error) {
+      // Carrera/choque de `key` unico: alguien mas (otra corrida del sync,
+      // otro evento de webhook casi simultaneo) ya creo una fila con esta
+      // key exacta -- probablemente una duplicada antigua desactivada.
+      // Reactivarla en vez de fallar, para no bloquear el sync completo.
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const conflicting = await this.prisma.campaignDefinition.findUnique({
+          where: { key },
+          select: { id: true },
+        });
+        if (conflicting) {
+          await this.prisma.campaignDefinition.update({
+            where: { id: conflicting.id },
+            data: updateData,
+          });
+          return conflicting.id;
+        }
+      }
+      throw error;
+    }
   }
 
   private toInternalLanguage(ycloudLanguage: string) {
