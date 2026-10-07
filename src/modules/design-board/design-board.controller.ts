@@ -221,6 +221,16 @@ export class DesignBoardController {
     return this.designBoardService.getReportsSummary(req.user, query);
   }
 
+  // Tasa de aprobacion personal del comercial (ultimos 3 meses, ver
+  // DesignBoardService.getMyMonthlyApprovalRate) -- a diferencia de
+  // reports/summary (solo Jefe de Diseno/Admin, agregado de todos),
+  // cada SALES ve unicamente SUS propias solicitudes.
+  @Roles(Role.SALES)
+  @Get('reports/my-approval-rate')
+  getMyMonthlyApprovalRate(@Req() req: { user: AuthUser }) {
+    return this.designBoardService.getMyMonthlyApprovalRate(req.user);
+  }
+
   @Roles(Role.ADMIN, Role.SALES)
   @Post('requests/:id/attachments/:attachmentId/forward')
   forwardAttachment(

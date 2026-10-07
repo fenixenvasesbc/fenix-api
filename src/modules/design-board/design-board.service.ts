@@ -1462,6 +1462,65 @@ export class DesignBoardService {
   }
 
   // -------------------------------------------------------------
+  // Tasa de aprobación personal por comercial, últimos 3 meses
+  // (pedido por el cliente 07/oct/2026): cada SALES puede ver su propia
+  // tasa de aprobación (no la de otros comerciales), desglosada mes por
+  // mes, de SUS solicitudes de boceto presentadas (createdByUserId).
+  // Misma cohorte que getReportsSummary: un boceto cuenta como
+  // "aprobado" del mes en que se TERMINÓ (completedAt), aunque la
+  // aprobación (approvedAt) haya llegado despues, en un mes posterior.
+  // -------------------------------------------------------------
+
+  async getMyMonthlyApprovalRate(user: AuthUser) {
+    if (user.role !== Role.SALES) {
+      throw new ForbiddenException(
+        'Esta vista es solo para comerciales (SALES)',
+      );
+    }
+
+    // Los ultimos 3 meses, incluyendo el actual, ordenados del mas
+    // antiguo al mas reciente (para leer la tendencia de izquierda a
+    // derecha en el widget).
+    const now = new Date();
+    const months: { start: Date; end: Date; monthKey: string }[] = [];
+    for (let offset = 2; offset >= 0; offset -= 1) {
+      // UTC Date normaliza meses negativos/fuera de rango automaticamente
+      // (ej. mes actual=0/enero, offset=2 -> month=-1 -> noviembre del
+      // año anterior), asi que no hace falta un chequeo de borde propio.
+      const shifted = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1),
+      );
+      const monthKey = `${shifted.getUTCFullYear()}-${String(
+        shifted.getUTCMonth() + 1,
+      ).padStart(2, '0')}`;
+      const { start, end } = this.monthRange(monthKey);
+      months.push({ start, end, monthKey });
+    }
+
+    const rows = await Promise.all(
+      months.map(async ({ start, end, monthKey }) => {
+        const completedInMonth = {
+          createdByUserId: user.userId,
+          completedAt: { gte: start, lt: end },
+        };
+        const [completedCount, approvedCount] = await Promise.all([
+          this.prisma.designRequest.count({ where: completedInMonth }),
+          this.prisma.designRequest.count({
+            where: { ...completedInMonth, approvedAt: { not: null } },
+          }),
+        ]);
+
+        const approvalRate =
+          completedCount > 0 ? (approvedCount / completedCount) * 100 : 0;
+
+        return { month: monthKey, completedCount, approvedCount, approvalRate };
+      }),
+    );
+
+    return { months: rows };
+  }
+
+  // -------------------------------------------------------------
   // Aprobación automática por etiqueta (ADR-004 Submódulo 2): invocado por
   // LeadsController.setLabel cuando alguien le pone BOCETO_APROBADO a un
   // lead. Mueve la solicitud en "Terminado" a "Aprobados", o bloquea la

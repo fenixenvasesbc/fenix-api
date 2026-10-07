@@ -24,6 +24,7 @@ describe('DesignBoardController', () => {
     pause: jest.Mock;
     resume: jest.Mock;
     getReportsSummary: jest.Mock;
+    getMyMonthlyApprovalRate: jest.Mock;
   };
   let chatEvents: { stream: jest.Mock };
 
@@ -42,6 +43,7 @@ describe('DesignBoardController', () => {
       pause: jest.fn(),
       resume: jest.fn(),
       getReportsSummary: jest.fn(),
+      getMyMonthlyApprovalRate: jest.fn(),
     };
     chatEvents = { stream: jest.fn().mockReturnValue(of()) };
 
@@ -181,6 +183,15 @@ describe('DesignBoardController', () => {
 
     expect(service.getReportsSummary).toHaveBeenCalledWith(SALES, query);
     expect(result).resolves.toEqual({ month: '2026-01' });
+  });
+
+  it('getMyMonthlyApprovalRate delegates to the service with req.user', () => {
+    service.getMyMonthlyApprovalRate.mockResolvedValue({ months: [] });
+
+    const result = controller.getMyMonthlyApprovalRate(req);
+
+    expect(service.getMyMonthlyApprovalRate).toHaveBeenCalledWith(SALES);
+    expect(result).resolves.toEqual({ months: [] });
   });
 
   // ADR-004 Submódulo 11

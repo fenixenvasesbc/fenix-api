@@ -1411,6 +1411,81 @@ describe('DesignBoardService', () => {
   });
 
   // ---------------------------------------------------------------
+  // getMyMonthlyApprovalRate (07/oct/2026): cada SALES ve su propia tasa
+  // de aprobacion, desglosada mes por mes, de los ultimos 3 meses
+  // (incluyendo el actual). Misma cohorte que getReportsSummary: cuenta
+  // por completedAt del mes, "aprobado" = approvedAt no nulo.
+  // ---------------------------------------------------------------
+
+  describe('getMyMonthlyApprovalRate', () => {
+    it('rejects roles other than SALES', async () => {
+      await expect(
+        service.getMyMonthlyApprovalRate(MANAGER),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(
+        service.getMyMonthlyApprovalRate(ADMIN),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.designRequest.count).not.toHaveBeenCalled();
+    });
+
+    it('returns 3 months (oldest to newest, including the current one), each scoped to createdByUserId and with its own approval rate', async () => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-03-15T10:00:00.000Z'));
+
+      // 3 meses x (completedCount, approvedCount) = 6 llamadas a count(),
+      // en el orden en que el service las dispara (Promise.all por mes).
+      prisma.designRequest.count
+        .mockResolvedValueOnce(5) // enero: completed
+        .mockResolvedValueOnce(2) // enero: approved
+        .mockResolvedValueOnce(0) // febrero: completed
+        .mockResolvedValueOnce(0) // febrero: approved
+        .mockResolvedValueOnce(4) // marzo: completed
+        .mockResolvedValueOnce(4); // marzo: approved
+
+      const result = await service.getMyMonthlyApprovalRate(SALES);
+
+      expect(result).toEqual({
+        months: [
+          { month: '2026-01', completedCount: 5, approvedCount: 2, approvalRate: 40 },
+          { month: '2026-02', completedCount: 0, approvedCount: 0, approvalRate: 0 },
+          { month: '2026-03', completedCount: 4, approvedCount: 4, approvalRate: 100 },
+        ],
+      });
+
+      // Todas las llamadas deben filtrar por el createdByUserId de quien pregunta.
+      for (const [arg] of prisma.designRequest.count.mock.calls) {
+        expect(arg.where.createdByUserId).toBe('sales-1');
+      }
+      // Las de "approved" (posiciones pares: 1, 3, 5) exigen approvedAt no nulo.
+      expect(prisma.designRequest.count.mock.calls[1][0].where.approvedAt).toEqual({
+        not: null,
+      });
+      expect(prisma.designRequest.count.mock.calls[3][0].where.approvedAt).toEqual({
+        not: null,
+      });
+      expect(prisma.designRequest.count.mock.calls[5][0].where.approvedAt).toEqual({
+        not: null,
+      });
+
+      jest.useRealTimers();
+    });
+
+    it('spans a year boundary correctly (ej. consultado en enero -> incluye noviembre/diciembre del año anterior)', async () => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-01-10T10:00:00.000Z'));
+      prisma.designRequest.count.mockResolvedValue(0);
+
+      const result = await service.getMyMonthlyApprovalRate(SALES);
+
+      expect(result.months.map((m) => m.month)).toEqual([
+        '2025-11',
+        '2025-12',
+        '2026-01',
+      ]);
+
+      jest.useRealTimers();
+    });
+  });
+
+  // ---------------------------------------------------------------
   // approveByLabel (ADR-004 Submódulo 2: aprobación automática por etiqueta)
   // ---------------------------------------------------------------
 
