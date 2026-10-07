@@ -1406,27 +1406,42 @@ export class DesignBoardService {
       query.month ??
       `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}`;
 
+    // Cohorte por mes de TERMINADO (06/oct/2026, correccion pedida por el
+    // cliente): un boceto terminado en un mes pero aprobado recien en un
+    // mes posterior debe contar como aprobado del mes en que se termino,
+    // no del mes en que se aprobo -- antes `approvedCount`/los breakdowns
+    // se filtraban por `approvedAt` (mes de la aprobacion), lo que podia
+    // dar aprobados > terminados o un 0% enganoso cuando la aprobacion
+    // caia en otro mes. Ahora todo se filtra por `completedAt` dentro del
+    // mes pedido, y "aprobado" simplemente exige `approvedAt` no nulo
+    // (sin importar en que mes caiga esa fecha).
+    const completedInMonth = { completedAt: { gte: start, lt: end } };
+    const approvedFromMonthCohort = {
+      ...completedInMonth,
+      approvedAt: { not: null },
+    };
+
     const [completedCount, approvedCount, approvedByCountry, approvedByCreator] =
       await Promise.all([
         this.prisma.designRequest.count({
-          where: { completedAt: { gte: start, lt: end } },
+          where: completedInMonth,
         }),
         this.prisma.designRequest.count({
-          where: { approvedAt: { gte: start, lt: end } },
+          where: approvedFromMonthCohort,
         }),
         this.prisma.designRequest.groupBy({
           by: ['country'],
-          where: { approvedAt: { gte: start, lt: end } },
+          where: approvedFromMonthCohort,
           _count: { _all: true },
         }),
         this.prisma.designRequest.groupBy({
           by: ['createdByUserId'],
-          where: { approvedAt: { gte: start, lt: end } },
+          where: approvedFromMonthCohort,
           _count: { _all: true },
         }),
       ]);
 
-    // ADR-004 §10 / asunción 🔶 §9.13: aprobados / terminados del período.
+    // ADR-004 §10: aprobados (cohorte de terminados del mes) / terminados del período.
     const approvalRate =
       completedCount > 0 ? (approvedCount / completedCount) * 100 : 0;
 

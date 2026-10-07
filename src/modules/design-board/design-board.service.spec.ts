@@ -1346,6 +1346,51 @@ describe('DesignBoardService', () => {
       );
     });
 
+    // Cohorte por mes de TERMINADO (06/oct/2026): un boceto terminado en el
+    // mes consultado pero aprobado recien en un mes posterior debe seguir
+    // contando como aprobado de ESTE mes -- todas las queries de
+    // "aprobado" filtran por completedAt del mes pedido + approvedAt no
+    // nulo (sin importar en que mes caiga approvedAt).
+    it('counts a request completed in the queried month but approved in a LATER month as approved of the queried month', async () => {
+      prisma.designRequest.count.mockResolvedValueOnce(1).mockResolvedValueOnce(1);
+      prisma.designRequest.groupBy
+        .mockResolvedValueOnce([{ country: 'ES', _count: { _all: 1 } }])
+        .mockResolvedValueOnce([{ createdByUserId: 'sales-1', _count: { _all: 1 } }]);
+
+      const result = await service.getReportsSummary(MANAGER, { month: '2026-01' });
+
+      expect(result.completedCount).toBe(1);
+      expect(result.approvedCount).toBe(1);
+      expect(result.approvalRate).toBe(100);
+
+      // Las 4 queries (count x2, groupBy x2) deben filtrar por completedAt
+      // del mes pedido; las de "aprobado" ademas exigen approvedAt no nulo,
+      // NUNCA por approvedAt dentro de un rango de fechas.
+      const calls = [
+        ...prisma.designRequest.count.mock.calls,
+        ...prisma.designRequest.groupBy.mock.calls,
+      ];
+      for (const [arg] of calls) {
+        expect(arg.where.completedAt).toEqual({
+          gte: expect.any(Date),
+          lt: expect.any(Date),
+        });
+        expect(arg.where.approvedAt).not.toEqual(
+          expect.objectContaining({ gte: expect.any(Date) }),
+        );
+      }
+      // Las de "aprobado" (la 2da de count, y las 2 de groupBy) piden approvedAt: { not: null }.
+      expect(prisma.designRequest.count.mock.calls[1][0].where.approvedAt).toEqual({
+        not: null,
+      });
+      expect(prisma.designRequest.groupBy.mock.calls[0][0].where.approvedAt).toEqual({
+        not: null,
+      });
+      expect(prisma.designRequest.groupBy.mock.calls[1][0].where.approvedAt).toEqual({
+        not: null,
+      });
+    });
+
     it('returns a 0% approval rate when nothing was completed in the period (avoids dividing by zero)', async () => {
       prisma.designRequest.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
       prisma.designRequest.groupBy.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
