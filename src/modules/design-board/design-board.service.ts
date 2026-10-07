@@ -830,6 +830,14 @@ export class DesignBoardService {
           // Se reinicia para que el cron de SLA (Submódulo 1) pueda volver
           // a aplicar BOCETOS_ATRASADOS bajo el nuevo plazo si corresponde.
           overdueLabelAppliedAt: null,
+          // Fix: la tarjeta sale de "Terminado" -- si no se limpia,
+          // completedAt queda con la fecha de la primera vez que llego a
+          // "Terminado" y el filtro por mes / los reportes (que leen
+          // completedAt) la siguen contando como terminada en ese mes
+          // mientras esta dando vueltas en Modificacion/En revision.
+          // move() ya vuelve a setear completedAt = now cuando la tarjeta
+          // reingresa a "Terminado", asi que limpiarlo aca no pierde nada.
+          completedAt: null,
         },
       });
 

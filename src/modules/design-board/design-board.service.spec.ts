@@ -778,6 +778,7 @@ describe('DesignBoardService', () => {
             dueAt: new Date('2026-01-13T13:00:00.000Z'),
             sentToModificationAt: expect.any(Date),
             overdueLabelAppliedAt: null,
+            completedAt: null,
           }),
         }),
       );
@@ -812,6 +813,32 @@ describe('DesignBoardService', () => {
       tx.designRequest.update.mockResolvedValue({ id: 'req-1', columnId: 'col-modification' });
 
       await expect(service.sendToModification(MANAGER, 'req-1')).resolves.toBeDefined();
+    });
+
+    // Regresión: antes de este fix, completedAt no se limpiaba al salir de
+    // "Terminado" hacia "Modificación" -- quedaba con la fecha de la
+    // primera vez que la tarjeta llego a "Terminado", y el filtro por mes
+    // (listRequests, §Submódulo 9) y los reportes (getReportsSummary,
+    // §Submódulo 10) la seguian contando como terminada ese mes aunque la
+    // tarjeta ya no estuviera ahi. move() ya vuelve a setear completedAt
+    // cuando reingresa a "Terminado" (ver test de move()), asi que
+    // limpiarlo aca no pierde el dato cuando corresponde.
+    it('clears completedAt so a request sent back to modification stops counting as "terminada" in reports until it completes again', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue({
+        ...doneRequest(),
+        completedAt: new Date('2026-01-05T10:00:00.000Z'),
+      });
+      businessDaysService.loadHolidaySet.mockResolvedValue(new Set());
+      businessDaysService.computeBusinessDueAt.mockReturnValue(new Date('2026-01-13T13:00:00.000Z'));
+      tx.designRequest.update.mockResolvedValue({ id: 'req-1', columnId: 'col-modification' });
+
+      await service.sendToModification(MANAGER, 'req-1');
+
+      expect(tx.designRequest.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ completedAt: null }),
+        }),
+      );
     });
   });
 
