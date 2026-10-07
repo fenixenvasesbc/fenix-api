@@ -213,6 +213,18 @@ export class BusinessDaysService {
    * dia habil siguiente. Desde ahi cuenta `businessDays` dias habiles
    * (saltando fines de semana y `holidaySet`) y devuelve el instante
    * `cutoffHour`:00 (hora local) de ese dia habil final.
+   *
+   * Excepcion (06/oct/2026, reportado por el cliente con la columna
+   * "Modificacion"): para un plazo de 1 dia habil, contar el dia de
+   * `anchor` como dia 1 cuando todavia faltan horas para el corte deja un
+   * plazo real de apenas minutos/horas en vez de "un dia completo" (ej.
+   * creada a las 7am -> vence ese mismo dia a las 14:00). Con 2+ dias
+   * habiles ese mismo margen se absorbe en los dias siguientes, pero con 1
+   * dia no hay margen -- asi que para `businessDays === 1` el plazo
+   * siempre arranca al dia habil SIGUIENTE, sin importar la hora de
+   * `anchor` (mismo criterio que "pastCutoff", forzado). Esto garantiza un
+   * dia habil completo de verdad, coherente con "se reinicia el tiempo y
+   * solo tiene un dia para entregarse".
    */
   computeBusinessDueAt(
     anchor: Date,
@@ -229,6 +241,7 @@ export class BusinessDaysService {
     );
 
     const pastCutoff =
+      businessDays <= 1 ||
       anchorParts.hour > cutoffHour ||
       (anchorParts.hour === cutoffHour && anchorParts.minute > 0);
 
