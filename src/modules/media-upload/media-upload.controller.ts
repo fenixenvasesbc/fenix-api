@@ -50,6 +50,32 @@ export class MediaUploadController {
     });
   }
 
+  // Adjuntos internos (hoy: tablero de bocetos) que no deben depender de
+  // YCloud -- ver el comentario largo en MediaUploadService.uploadInternal.
+  // Mismos roles/resolucion de accountId que /media/upload.
+  @Roles(Role.ADMIN, Role.SALES, Role.DESIGNER, Role.DESIGNER_MANAGER)
+  @Post('upload-internal')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: {
+        fileSize: 100 * 1024 * 1024,
+      },
+    }),
+  )
+  async uploadInternal(
+    @UploadedFile() file: Express.Multer.File,
+    @Query('accountId') accountIdFromQuery: string | undefined,
+    @Req() req: { user: AuthUser },
+  ) {
+    const accountId = this.resolveAccountId(req.user, accountIdFromQuery);
+
+    return this.mediaUploadService.uploadInternal({
+      accountId,
+      file,
+    });
+  }
+
   private resolveAccountId(user: AuthUser, accountIdFromQuery?: string): string {
     if (user.role === Role.SALES || user.role === Role.SALES_MANAGER) {
       if (!user.accountId) {

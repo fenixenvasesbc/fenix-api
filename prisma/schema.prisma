@@ -1078,6 +1078,17 @@ model LeadCampaign {
 
 enum ProviderType {
   YCLOUD
+  // Adjuntos que nunca pasan por YCloud: hoy, los del tablero de bocetos
+  // (DesignRequestAttachment vive de UPLOADED attachments que se guardan
+  // solo en el storage propio de Fenix -- el boceto terminado recien se
+  // sube/envia a YCloud si y cuando la comercial usa "Reenviar al lead",
+  // que manda por mediaUrl/link, no por un MediaUpload previo). Antes de
+  // esto, MediaUploadService.uploadToYcloud() exigia subir a YCloud (y
+  // tener account.phoneE164) para CUALQUIER adjunto, lo que rompia con
+  // formatos que YCloud/WhatsApp no acepta en su endpoint de upload
+  // (ej. audio/webm, lo unico que graba MediaRecorder en la mayoria de
+  // navegadores) aunque el archivo nunca fuera a enviarse al lead.
+  INTERNAL
 }
 
 enum MediaUploadStatus {
