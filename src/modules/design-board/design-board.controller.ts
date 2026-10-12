@@ -29,6 +29,7 @@ import {
   EditDesignRequestCommentDto,
   ListDesignRequestsQueryDto,
   MoveDesignRequestDto,
+  UpdateDesignRequestDto,
 } from './dto/create-design-request.dto';
 
 @Controller('design-board')
@@ -64,6 +65,20 @@ export class DesignBoardController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.designBoardService.getRequestDetail(req.user, id);
+  }
+
+  // Edicion de titulo/descripcion por la comercial propietaria -- el
+  // service valida la propiedad (createdByUserId) y que no este
+  // archivada; aca se habilita el rol igual que en createRequest
+  // (ADMIN, SALES) para no duplicar esa regla en dos lugares.
+  @Roles(Role.ADMIN, Role.SALES)
+  @Patch('requests/:id')
+  updateRequest(
+    @Req() req: { user: AuthUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateDesignRequestDto,
+  ) {
+    return this.designBoardService.updateRequest(req.user, id, dto);
   }
 
   @Roles(Role.ADMIN, Role.DESIGNER_MANAGER)

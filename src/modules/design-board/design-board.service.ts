@@ -28,6 +28,7 @@ import {
   DesignRequestType,
   ListDesignRequestsQueryDto,
   MoveDesignRequestDto,
+  UpdateDesignRequestDto,
 } from './dto/create-design-request.dto';
 import {
   DESIGN_REQUEST_EVENTS,
@@ -429,6 +430,60 @@ export class DesignBoardService {
     await this.emitDesignBoardEvent('design_request.created', designRequest);
 
     return designRequest;
+  }
+
+  // -------------------------------------------------------------
+  // Editar titulo/descripcion (la comercial propietaria, o ADMIN) --
+  // pedido explicito del cliente: una vez enviada la solicitud, la
+  // comercial puede corregir un typo o afinar las instrucciones sin tener
+  // que pedirle al diseñador que adivine o crear una solicitud nueva.
+  // -------------------------------------------------------------
+
+  async updateRequest(
+    user: AuthUser,
+    id: string,
+    dto: UpdateDesignRequestDto,
+  ) {
+    if (dto.title === undefined && dto.instructions === undefined) {
+      throw new BadRequestException(
+        'Debes indicar al menos title o instructions para editar',
+      );
+    }
+
+    const request = await this.findOrThrow(id);
+
+    const isOwnerSales =
+      user.role === Role.SALES && request.createdByUserId === user.userId;
+    const isAdmin = user.role === Role.ADMIN;
+
+    if (!isOwnerSales && !isAdmin) {
+      throw new ForbiddenException(
+        'Solo la comercial que creó la solicitud puede editarla',
+      );
+    }
+
+    // Una solicitud archivada ("Aprobados" -> "Marcar como hecho") ya es
+    // historico para estadisticas/reportes -- no se edita retroactivamente.
+    if (request.archivedAt) {
+      throw new BadRequestException(
+        'No se puede editar una solicitud ya archivada',
+      );
+    }
+
+    const data: { title?: string; instructions?: string | null } = {};
+    if (dto.title !== undefined) data.title = dto.title.trim();
+    if (dto.instructions !== undefined) {
+      data.instructions = dto.instructions.trim() || null;
+    }
+
+    const updated = await this.prisma.designRequest.update({
+      where: { id: request.id },
+      data,
+    });
+
+    await this.emitDesignBoardEvent('design_request.updated', request);
+
+    return updated;
   }
 
   // -------------------------------------------------------------

@@ -266,6 +266,113 @@ describe('DesignBoardService', () => {
 
       expect(tx.designRequest.create).toHaveBeenCalled();
     });
+  });
+
+  // ---------------------------------------------------------------
+  // updateRequest (editar titulo/instrucciones -- pedido explicito del
+  // cliente: la comercial propietaria puede corregir la solicitud ya
+  // enviada sin crear una nueva ni depender del diseñador)
+  // ---------------------------------------------------------------
+
+  describe('updateRequest', () => {
+    function ownedRequest(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'req-1',
+        accountId: 'account-1',
+        leadId: 'lead-1',
+        createdByUserId: 'sales-1',
+        archivedAt: null,
+        column: COLUMNS[0],
+        board: board(),
+        ...overrides,
+      };
+    }
+
+    it('rejects when neither title nor instructions is provided', async () => {
+      await expect(service.updateRequest(SALES, 'req-1', {})).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(prisma.designRequest.findUnique).not.toHaveBeenCalled();
+    });
+
+    it("forbids a SALES user who doesn't own the request", async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(ownedRequest());
+
+      await expect(
+        service.updateRequest(OTHER_SALES, 'req-1', { title: 'Nuevo titulo' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('forbids DESIGNER/DESIGNER_MANAGER entirely (only the owning SALES or ADMIN)', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(ownedRequest());
+
+      await expect(
+        service.updateRequest(MANAGER, 'req-1', { title: 'Nuevo titulo' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('rejects editing an already-archived request', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(
+        ownedRequest({ archivedAt: new Date('2026-01-01T00:00:00.000Z') }),
+      );
+
+      await expect(
+        service.updateRequest(SALES, 'req-1', { title: 'Nuevo titulo' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('lets the owning SALES update the title, trimmed', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(ownedRequest());
+      prisma.designRequest.update.mockResolvedValue({ id: 'req-1', title: 'Boceto corregido' });
+
+      const result = await service.updateRequest(SALES, 'req-1', {
+        title: '  Boceto corregido  ',
+      });
+
+      expect(prisma.designRequest.update).toHaveBeenCalledWith({
+        where: { id: 'req-1' },
+        data: { title: 'Boceto corregido' },
+      });
+      expect(result).toEqual({ id: 'req-1', title: 'Boceto corregido' });
+    });
+
+    it('lets ADMIN update instructions, and clearing it to blank stores null', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(ownedRequest());
+      prisma.designRequest.update.mockResolvedValue({ id: 'req-1' });
+
+      await service.updateRequest(ADMIN, 'req-1', { instructions: '   ' });
+
+      expect(prisma.designRequest.update).toHaveBeenCalledWith({
+        where: { id: 'req-1' },
+        data: { instructions: null },
+      });
+    });
+
+    it('does not recompute slaBusinessDays/dueAt even if instructions mentions an extended-SLA product', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(ownedRequest());
+      prisma.designRequest.update.mockResolvedValue({ id: 'req-1' });
+
+      await service.updateRequest(SALES, 'req-1', {
+        instructions: 'Repetición con producto de plazo extendido',
+      });
+
+      expect(prisma.designRequest.update).toHaveBeenCalledWith({
+        where: { id: 'req-1' },
+        data: { instructions: 'Repetición con producto de plazo extendido' },
+      });
+      expect(businessDaysService.computeBusinessDueAt).not.toHaveBeenCalled();
+    });
+
+    it('emits design_request.updated', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(ownedRequest());
+      prisma.designRequest.update.mockResolvedValue({ id: 'req-1' });
+
+      await service.updateRequest(SALES, 'req-1', { title: 'X' });
+
+      expect(chatEvents.publish).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'design_request.updated' }),
+      );
+    });
 
     // ---------------------------------------------------------------
     // Plazos diferenciados por tipo de solicitud (resolveCreationSlaBusinessDays,

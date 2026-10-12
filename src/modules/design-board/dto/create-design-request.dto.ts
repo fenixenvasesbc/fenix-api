@@ -145,6 +145,28 @@ export class DesignBoardReportsQueryDto {
   month?: string;
 }
 
+// Edicion de titulo/descripcion por la comercial propietaria (o ADMIN)
+// despues de creada la solicitud -- pedido explicito del cliente. A
+// proposito NO permite tocar requestType/country/attachments (eso se
+// gestiona con sus propios flujos ya existentes) y nunca recalcula
+// slaBusinessDays/dueAt: el plazo se fija una sola vez al crear
+// (resolveCreationSlaBusinessDays) y no se re-evalua al editar la
+// descripcion despues, para no mover un plazo que el diseñador ya esta
+// viendo correr. Al menos un campo es obligatorio (ver
+// DesignBoardService.updateRequest).
+export class UpdateDesignRequestDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  instructions?: string;
+}
+
 export class AssignDesignRequestDto {
   @IsUUID()
   assignedUserId!: string;
