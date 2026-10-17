@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { FirstMessageMetricsDto } from './dto/first-message-metrics.dto';
 import { AccountFirstMessageMetricsDto } from './dto/first-message-metrics.dto';
 import { SpendMetricsDto } from './dto/spend-metrics.dto';
+import { CampaignResponseMetricsDto } from './dto/campaign-response-metrics.dto';
 
 type FirstMessageRow = {
   accountId?: string;
@@ -12,6 +13,14 @@ type FirstMessageRow = {
   sentFirst: bigint;
   responded: bigint;
   notResponded: bigint;
+};
+
+type CampaignResponseRow = {
+  type: string;
+  templateName: string | null;
+  sent: bigint;
+  responded: bigint;
+  avgResponseSeconds: number | null;
 };
 
 @Injectable()
@@ -533,6 +542,97 @@ export class DashboardService {
       appliedAccountId: effectiveAccountId,
       grandTotal,
       totalMessages,
+      data,
+    };
+  }
+
+  /**
+   * ADR-006: tasa de respuesta de LeadCampaign (reenganche, repeticion,
+   * reglas de etiqueta -- y cualquier tipo futuro, ya que todos se apoyan
+   * en LeadCampaign.respondedAt/sentAt). Agrupa por tipo + plantilla
+   * enviada (targetTemplateName).
+   *
+   * - ADMIN/SUPPORT: global, o acotado a accountId si lo pasan.
+   * - SALES/SALES_MANAGER: siempre su propia cuenta (accountId del query se ignora).
+   */
+  async getCampaignResponseMetrics(
+    dto: CampaignResponseMetricsDto,
+    user: { role: Role; accountId?: string | null },
+  ) {
+    const { from, to, type } = dto;
+    const { fromDate, toExclusiveDate } = this.buildInclusiveDateRange(
+      from,
+      to,
+    );
+
+    const isAdmin = user.role === Role.ADMIN || user.role === Role.SUPPORT;
+    const isSales =
+      user.role === Role.SALES || user.role === Role.SALES_MANAGER;
+
+    let effectiveAccountId: string | null = null;
+
+    if (isAdmin) {
+      effectiveAccountId = dto.accountId ?? null;
+    } else if (isSales) {
+      if (!user.accountId) {
+        throw new ForbiddenException('User has no accountId');
+      }
+      effectiveAccountId = user.accountId;
+    } else {
+      throw new ForbiddenException('Invalid role');
+    }
+
+    const conditions: Prisma.Sql[] = [
+      Prisma.sql`lc."status" = 'SENT'`,
+      Prisma.sql`lc."sentAt" >= ${fromDate}`,
+      Prisma.sql`lc."sentAt" < ${toExclusiveDate}`,
+    ];
+
+    if (effectiveAccountId) {
+      conditions.push(Prisma.sql`lc."accountId" = ${effectiveAccountId}`);
+    }
+
+    if (type) {
+      conditions.push(Prisma.sql`lc."type" = ${type}::"LeadCampaignType"`);
+    }
+
+    const rows = await this.prisma.$queryRaw<CampaignResponseRow[]>(Prisma.sql`
+      SELECT
+        lc."type"::text as "type",
+        lc."targetTemplateName" as "templateName",
+        COUNT(*)::bigint as "sent",
+        COUNT(lc."respondedAt")::bigint as "responded",
+        AVG(EXTRACT(EPOCH FROM (lc."respondedAt" - lc."sentAt")))::float as "avgResponseSeconds"
+      FROM "LeadCampaign" lc
+      WHERE ${Prisma.join(conditions, ' AND ')}
+      GROUP BY lc."type", lc."targetTemplateName"
+      ORDER BY lc."type" ASC, lc."targetTemplateName" ASC
+    `);
+
+    const data = rows.map((row) => {
+      const sent = Number(row.sent);
+      const responded = Number(row.responded);
+
+      return {
+        type: row.type,
+        templateName: row.templateName,
+        sent,
+        responded,
+        responseRate: sent ? Number(((responded / sent) * 100).toFixed(2)) : 0,
+        avgResponseSeconds:
+          row.avgResponseSeconds !== null
+            ? Number(row.avgResponseSeconds.toFixed(0))
+            : null,
+      };
+    });
+
+    return {
+      from,
+      to,
+      dateMode: 'INCLUSIVE',
+      scope: effectiveAccountId ? 'ACCOUNT' : 'GLOBAL',
+      appliedAccountId: effectiveAccountId,
+      appliedType: type ?? null,
       data,
     };
   }

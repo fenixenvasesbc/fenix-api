@@ -270,6 +270,35 @@ export class InboundMessageService {
         },
       });
 
+      // ADR-006: si hay una LeadCampaign (reenganche/repeticion/regla de
+      // etiqueta) ya enviada a este lead y todavia sin respuesta, este
+      // inbound es su respuesta. Se atribuye siempre a la mas reciente sin
+      // respuesta (orderBy sentAt desc) para no inflar campanas viejas
+      // cuando se solapan varios envios pendientes. Solo en mensajes
+      // nuevos -- un reintento del mismo webhook no debe volver a evaluarlo.
+      if (isNewMessage) {
+        const pendingCampaign = await tx.leadCampaign.findFirst({
+          where: {
+            leadId: lead.id,
+            status: 'SENT',
+            sentAt: { lte: inboundAt },
+            respondedAt: null,
+          },
+          orderBy: { sentAt: 'desc' },
+          select: { id: true },
+        });
+
+        if (pendingCampaign) {
+          await tx.leadCampaign.update({
+            where: { id: pendingCampaign.id },
+            data: {
+              respondedAt: inboundAt,
+              responseMessageId: message.id,
+            },
+          });
+        }
+      }
+
       const conversation = await this.conversationService.touchInboundTx(tx, {
         accountId: account.id,
         leadId: lead.id,

@@ -758,6 +758,7 @@ model Message {
   webhookEvents                      WebhookEvent[]
   statusHistory                      MessageStatusHistory[]
   leadCampaigns                      LeadCampaign[]
+  leadCampaignResponses               LeadCampaign[]            @relation("LeadCampaignResponse") // ADR-006
   conversationsAsLastMessage         Conversation[]         @relation("ConversationLastMessage")
   conversationsAsLastInboundMessage  Conversation[]         @relation("ConversationLastInboundMessage")
   conversationsAsLastOutboundMessage Conversation[]         @relation("ConversationLastOutboundMessage")
@@ -1062,6 +1063,14 @@ model LeadCampaign {
   processedAt  DateTime?
   sentAt       DateTime?
 
+  // ADR-006: se setea cuando llega el primer inbound del lead despues de
+  // sentAt sin que ninguna otra LeadCampaign mas reciente de ese lead ya
+  // lo haya "ganado" (ver InboundMessageService) -- permite medir tasa de
+  // respuesta por campana/regla sin depender de que el lead use la funcion
+  // de "Responder" de WhatsApp (Message.responseToId, mucho mas angosta).
+  respondedAt       DateTime?
+  responseMessageId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1069,11 +1078,14 @@ model LeadCampaign {
   account                 Account                  @relation(fields: [accountId], references: [id], onDelete: Cascade)
   accountCampaignTemplate AccountCampaignTemplate? @relation(fields: [accountCampaignTemplateId], references: [id], onDelete: SetNull)
   message                 Message?                 @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  responseMessage         Message?                 @relation("LeadCampaignResponse", fields: [responseMessageId], references: [id], onDelete: SetNull)
 
   @@unique([leadId, type, businessWindowKey])
   @@index([accountId, type, status, createdAt])
   @@index([accountCampaignTemplateId])
   @@index([messageId])
+  @@index([responseMessageId])
+  @@index([accountId, type, respondedAt])
 }
 
 enum ProviderType {

@@ -12,6 +12,7 @@ import { DashboardService } from './dashboard.service';
 import { FirstMessageMetricsDto } from './dto/first-message-metrics.dto';
 import { AccountFirstMessageMetricsDto } from './dto/first-message-metrics.dto';
 import { SpendMetricsDto } from './dto/spend-metrics.dto';
+import { CampaignResponseMetricsDto } from './dto/campaign-response-metrics.dto';
 
 @Controller('dashboard')
 @UseGuards(JwtAuthGuard)
@@ -75,5 +76,30 @@ export class DashboardController {
   @Get('metrics/spend')
   getSpendMetrics(@Query() dto: SpendMetricsDto, @Req() req: any) {
     return this.dashboardService.getSpendMetrics(dto, req.user);
+  }
+
+  /**
+   * GET /dashboard/metrics/campaign-responses
+   *
+   * Query params:
+   * - from
+   * - to
+   * - type (opcional: WEEK1_REENGAGEMENT | REPETITION_REMINDER | LABEL_RULE)
+   * - accountId (opcional, solo ADMIN/SUPPORT)
+   *
+   * ADR-006: tasa de respuesta de LeadCampaign, agrupada por tipo +
+   * plantilla enviada -- cubre reenganche, repeticion y reglas de
+   * etiqueta (y cualquier tipo futuro) con el mismo endpoint.
+   *
+   * Comportamiento:
+   * - ADMIN/SUPPORT -> global, o acotado a accountId si lo pasan.
+   * - SALES/SALES_MANAGER -> siempre su propia cuenta.
+   */
+  @Get('metrics/campaign-responses')
+  getCampaignResponseMetrics(
+    @Query() dto: CampaignResponseMetricsDto,
+    @Req() req: any,
+  ) {
+    return this.dashboardService.getCampaignResponseMetrics(dto, req.user);
   }
 }
