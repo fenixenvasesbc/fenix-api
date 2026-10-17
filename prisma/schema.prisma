@@ -1086,6 +1086,12 @@ model LeadCampaign {
   @@index([messageId])
   @@index([responseMessageId])
   @@index([accountId, type, respondedAt])
+  // Cubre exactamente la consulta de InboundMessageService (ADR-006): "esta
+  // lead tiene una LeadCampaign SENT sin respuesta?", con leadId como
+  // prefijo de igualdad (un solo lead, nunca un scan de cuenta/tabla
+  // completa) y sentAt al final para resolver el ORDER BY ... LIMIT 1
+  // dentro del mismo index sin sort adicional.
+  @@index([leadId, status, respondedAt, sentAt])
 }
 
 enum ProviderType {
