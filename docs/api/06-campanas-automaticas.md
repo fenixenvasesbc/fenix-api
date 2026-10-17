@@ -204,6 +204,99 @@ Nombre recomendado de plantilla:
 recordatorio_repeticion
 ```
 
+## Reglas de mensajes por etiqueta (LabelMessageRule)
+
+A diferencia de Reenganche y Repetición (arriba), este no es un job dedicado
+por caso de uso: es un **catálogo configurable** (ADR-002) y un único job
+genérico que lo recorre. Sirve para reglas del tipo "si un lead lleva N días
+en esta etiqueta, mándale esta plantilla" sin escribir código ni desplegar
+— por ejemplo, el recordatorio de presupuesto (lead que lleva varios días en
+una etiqueta de "presupuesto enviado"/"pendiente de confirmar" sin avanzar).
+No hay nada hardcodeado por este caso puntual: es una fila más en
+`LabelMessageRule`, igual que cualquier otra regla que se cree desde
+Configuración → Reglas de mensajes.
+
+Tipo:
+
+```txt
+LABEL_RULE
+```
+
+### Entidad `LabelMessageRule`
+
+| Campo | Uso |
+|---|---|
+| `labelCode` | Código de `LeadLabelDefinition` que dispara la regla (de sistema o personalizada). |
+| `triggerAfterDays` | Días hábiles que el lead debe llevar con esa etiqueta asignada (sin quitársela) antes de disparar. |
+| `templateName` | `name` de un `GlobalWhatsappTemplate` — **no** pasa por `CampaignDefinition`/`AccountCampaignTemplate` (ver ADR-002: se apoya en el sistema de plantillas vigente, no en el viejo que solo usan Reenganche/Repetición). |
+| `active` | Si está apagada, el scheduler la ignora por completo. |
+
+Administración: `Configuración → Reglas de mensajes`, solo rol `SUPPORT`
+(`GET/POST/PATCH/DELETE /label-message-rules` — a propósito `ADMIN` no está
+en la lista de roles de ese controller, aunque `SUPPORT` hereda el resto de
+los permisos de `ADMIN`).
+
+### Scheduler
+
+```txt
+09:30 Europe/Madrid, todos los días
+```
+
+Por cada regla activa:
+
+1. Filtro SQL amplio por días calendario (`assignedAt <= now - triggerAfterDays días`) — superconjunto seguro, nunca excluye un candidato real.
+2. Filtro exacto en memoria con `BusinessDaysService` (días hábiles, no calendario).
+3. Candidatos: `LeadLabelAssignment` con `label = rule.labelCode`, `removedAt = null`.
+
+Idempotencia (una sola vez por **asignación** de etiqueta, no recurrente):
+
+```txt
+businessWindowKey = LABEL_MESSAGE_RULE:<ruleId>:<assignmentId>
+externalId = label-rule:<ruleId>:<assignmentId>
+```
+
+Si al lead se le quita la etiqueta y se le vuelve a asignar después, es una
+`LeadLabelAssignment` nueva → puede volver a disparar la misma regla.
+
+### Resolución de plantilla (distinta a Reenganche/Repetición)
+
+1. Resolver idioma: `lead.preferredLanguage` o fallback por prefijo telefónico.
+2. Buscar `GlobalWhatsappTemplate` por `name = rule.templateName` + `language`.
+3. Buscar `GlobalWhatsappTemplateAccount` de esa plantilla para la cuenta del lead, exigiendo `status = APPROVED`.
+
+Si no hay plantilla o no está aprobada para esa cuenta, se marca `SKIPPED`.
+
+Skip reasons:
+
+| Motivo | Significado |
+|---|---|
+| `RULE_NOT_FOUND` | La regla fue borrada entre encolar y despachar. |
+| `RULE_INACTIVE` | La regla se desactivó entre encolar y despachar. |
+| `LEAD_LABEL_CHANGED` | Al lead ya no le queda esa asignación activa (se la quitaron). |
+| `LEAD_WITHOUT_ACCOUNT` | Lead sin cuenta. |
+| `LEAD_WITHOUT_LANGUAGE` | No se pudo resolver idioma. |
+| `TEMPLATE_NOT_FOUND` | No existe `GlobalWhatsappTemplate` con ese nombre+idioma. |
+| `TEMPLATE_NOT_APPROVED` | Existe pero no está `APPROVED` para la cuenta del lead. |
+
+Después de enviar:
+
+- crea `Message` outbound `TEMPLATE` (con `templateName`/`templateLang`);
+- actualiza la conversación (`ConversationService.touchOutbound`);
+- marca `LeadCampaign.status = SENT`, `targetTemplateName`, `messageId`, `sentAt`;
+- publica `message.created` y `conversation.updated` (payload `source: 'label_message_rule'`).
+
+Operación manual (sin esperar al cron de las 9:30):
+
+```bash
+npm run label-message-rule:run
+```
+
+Corre el mismo código que el cron (`LabelMessageRuleSchedulerService.run()`)
+y reporta por consola cuántos `LeadCampaign` nuevos se crearon. **No acepta
+una fecha "now" simulada** — para probar con un lead específico hay que
+retrasar `LeadLabelAssignment.assignedAt` en la base de datos antes de correr
+el script.
+
 ## Retries de campañas
 
 Reenganche y repetición usan retries especializados:
