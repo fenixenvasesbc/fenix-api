@@ -30,7 +30,8 @@
     "ycloud:backfill-lead-names": "ts-node src/scripts/backfill-lead-names-from-ycloud.ts",
     "ycloud:sync-repetition-templates": "ts-node src/scripts/sync-repetition-templates-from-ycloud.ts",
     "ycloud:sync-reengagement-templates": "ts-node src/scripts/sync-reengagement-templates-from-ycloud.ts",
-    "templates:backfill-global": "ts-node src/scripts/backfill-global-templates.ts"
+    "templates:backfill-global": "ts-node src/scripts/backfill-global-templates.ts",
+    "campaigns:backfill-responses": "ts-node src/scripts/backfill-lead-campaign-responses.ts"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.1",
