@@ -333,9 +333,19 @@ export class DesignBoardService {
   }
 
   async createRequest(user: AuthUser, dto: CreateDesignRequestDto) {
-    if (user.role !== Role.SALES && user.role !== Role.ADMIN) {
+    // El guard del controller (@Roles(Role.ADMIN, Role.SALES)) ya deja
+    // pasar a SALES_MANAGER via ROLE_INHERITANCE (ver roles.guard.ts), pero
+    // este chequeo literal no lo respetaba y lo bloqueaba de todas formas
+    // -- SALES_MANAGER es un SALES normal (puede ademas gestionar leads de
+    // cualquier cuenta, ver LeadsController.resolveAccountId) y debe poder
+    // crear solicitudes de boceto igual que SALES.
+    if (
+      user.role !== Role.SALES &&
+      user.role !== Role.SALES_MANAGER &&
+      user.role !== Role.ADMIN
+    ) {
       throw new ForbiddenException(
-        'Solo SALES o ADMIN pueden crear solicitudes de boceto',
+        'Solo SALES, SALES_MANAGER o ADMIN pueden crear solicitudes de boceto',
       );
     }
 
@@ -348,6 +358,8 @@ export class DesignBoardService {
       throw new NotFoundException('Lead not found');
     }
 
+    // SALES_MANAGER, igual que en LeadsController, puede operar sobre
+    // leads de cualquier cuenta -- solo SALES queda acotado a la propia.
     if (user.role === Role.SALES && lead.accountId !== user.accountId) {
       throw new ForbiddenException('El lead no pertenece a tu cuenta');
     }

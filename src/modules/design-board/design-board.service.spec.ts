@@ -12,6 +12,10 @@ import { DesignBoardService, AuthUser } from './design-board.service';
 const SALES: AuthUser = { userId: 'sales-1', role: Role.SALES, accountId: 'account-1' };
 const OTHER_SALES: AuthUser = { userId: 'sales-2', role: Role.SALES, accountId: 'account-2' };
 const ADMIN: AuthUser = { userId: 'admin-1', role: Role.ADMIN, accountId: null };
+// SALES_MANAGER: igual que SALES pasa el guard del controller via
+// ROLE_INHERITANCE, pero createRequest() tenia un chequeo literal propio
+// que lo bloqueaba de todas formas -- ver los tests de abajo.
+const SALES_MANAGER: AuthUser = { userId: 'sales-mgr-1', role: Role.SALES_MANAGER, accountId: 'account-1' };
 const DESIGNER: AuthUser = { userId: 'designer-1', role: Role.DESIGNER, accountId: null };
 const OTHER_DESIGNER: AuthUser = { userId: 'designer-2', role: Role.DESIGNER, accountId: null };
 const MANAGER: AuthUser = { userId: 'manager-1', role: Role.DESIGNER_MANAGER, accountId: null };
@@ -263,6 +267,26 @@ describe('DesignBoardService', () => {
       tx.designRequest.create.mockResolvedValue({ id: 'req-2' });
 
       await service.createRequest(ADMIN, dto);
+
+      expect(tx.designRequest.create).toHaveBeenCalled();
+    });
+
+    it('lets SALES_MANAGER create a request for its own account (regression: literal role check used to reject it even though the controller guard allows it via ROLE_INHERITANCE)', async () => {
+      prisma.lead.findUnique.mockResolvedValue({ id: 'lead-1', accountId: 'account-1' });
+      prisma.designBoard.findFirst.mockResolvedValue(board());
+      tx.designRequest.create.mockResolvedValue({ id: 'req-3' });
+
+      await service.createRequest(SALES_MANAGER, dto);
+
+      expect(tx.designRequest.create).toHaveBeenCalled();
+    });
+
+    it('lets SALES_MANAGER create a request for a lead of ANOTHER account (unlike SALES, which is restricted to its own -- see LeadsController.resolveAccountId for the same pattern)', async () => {
+      prisma.lead.findUnique.mockResolvedValue({ id: 'lead-9', accountId: 'account-9' });
+      prisma.designBoard.findFirst.mockResolvedValue(board());
+      tx.designRequest.create.mockResolvedValue({ id: 'req-4' });
+
+      await service.createRequest(SALES_MANAGER, dto);
 
       expect(tx.designRequest.create).toHaveBeenCalled();
     });
