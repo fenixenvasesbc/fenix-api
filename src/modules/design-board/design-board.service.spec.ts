@@ -12,9 +12,13 @@ import { DesignBoardService, AuthUser } from './design-board.service';
 const SALES: AuthUser = { userId: 'sales-1', role: Role.SALES, accountId: 'account-1' };
 const OTHER_SALES: AuthUser = { userId: 'sales-2', role: Role.SALES, accountId: 'account-2' };
 const ADMIN: AuthUser = { userId: 'admin-1', role: Role.ADMIN, accountId: null };
-// SALES_MANAGER: igual que SALES pasa el guard del controller via
-// ROLE_INHERITANCE, pero createRequest() tenia un chequeo literal propio
-// que lo bloqueaba de todas formas -- ver los tests de abajo.
+// SALES_MANAGER: en el modulo de bocetos se comporta EXACTAMENTE igual
+// que SALES (pedido explicito del usuario, ver DesignBoardService.
+// isSalesLike()) -- pasa el guard del controller via ROLE_INHERITANCE,
+// pero createRequest() tenia un chequeo literal propio que lo bloqueaba
+// de todas formas. Una vez corregido ese chequeo, sigue acotado a su
+// propia cuenta igual que SALES (a diferencia de otros modulos como
+// Leads, donde SALES_MANAGER si tiene mas alcance).
 const SALES_MANAGER: AuthUser = { userId: 'sales-mgr-1', role: Role.SALES_MANAGER, accountId: 'account-1' };
 const DESIGNER: AuthUser = { userId: 'designer-1', role: Role.DESIGNER, accountId: null };
 const OTHER_DESIGNER: AuthUser = { userId: 'designer-2', role: Role.DESIGNER, accountId: null };
@@ -281,14 +285,12 @@ describe('DesignBoardService', () => {
       expect(tx.designRequest.create).toHaveBeenCalled();
     });
 
-    it('lets SALES_MANAGER create a request for a lead of ANOTHER account (unlike SALES, which is restricted to its own -- see LeadsController.resolveAccountId for the same pattern)', async () => {
+    it('throws Forbidden if SALES_MANAGER tries to create a request for a lead of another account (same restriction as SALES in this module)', async () => {
       prisma.lead.findUnique.mockResolvedValue({ id: 'lead-9', accountId: 'account-9' });
-      prisma.designBoard.findFirst.mockResolvedValue(board());
-      tx.designRequest.create.mockResolvedValue({ id: 'req-4' });
 
-      await service.createRequest(SALES_MANAGER, dto);
-
-      expect(tx.designRequest.create).toHaveBeenCalled();
+      await expect(service.createRequest(SALES_MANAGER, dto)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
     });
   });
 
@@ -691,6 +693,12 @@ describe('DesignBoardService', () => {
     it('forbids SALES from moving cards', async () => {
       await expect(
         service.move(SALES, 'req-1', { direction: 'FORWARD' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('forbids SALES_MANAGER from moving cards too (parity with SALES in this module)', async () => {
+      await expect(
+        service.move(SALES_MANAGER, 'req-1', { direction: 'FORWARD' }),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
@@ -1576,7 +1584,7 @@ describe('DesignBoardService', () => {
   // ---------------------------------------------------------------
 
   describe('getMyMonthlyApprovalRate', () => {
-    it('rejects roles other than SALES', async () => {
+    it('rejects roles other than SALES/SALES_MANAGER', async () => {
       await expect(
         service.getMyMonthlyApprovalRate(MANAGER),
       ).rejects.toBeInstanceOf(ForbiddenException);
@@ -1584,6 +1592,15 @@ describe('DesignBoardService', () => {
         service.getMyMonthlyApprovalRate(ADMIN),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(prisma.designRequest.count).not.toHaveBeenCalled();
+    });
+
+    it('allows SALES_MANAGER too (parity with SALES in this module -- regression: this used to 403 even though the controller guard already allowed it via ROLE_INHERITANCE)', async () => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-03-15T10:00:00.000Z'));
+      prisma.designRequest.count.mockResolvedValue(0);
+
+      await expect(
+        service.getMyMonthlyApprovalRate(SALES_MANAGER),
+      ).resolves.toBeDefined();
     });
 
     it('returns 3 months (oldest to newest, including the current one), each scoped to createdByUserId and with its own approval rate', async () => {

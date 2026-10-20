@@ -83,6 +83,17 @@ export class DesignBoardService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
+  // Pedido explicito del usuario: en el modulo de bocetos, SALES_MANAGER
+  // debe comportarse EXACTAMENTE igual que SALES (misma visibilidad, mismas
+  // restricciones de cuenta, no puede mover tarjetas, etc.) -- a diferencia
+  // de otros modulos (Leads, Dashboard) donde SALES_MANAGER si tiene mas
+  // alcance que SALES. Centralizar esta equivalencia en un solo metodo evita
+  // que un chequeo literal `user.role === Role.SALES` se quede desactualizado
+  // si se agrega otro rol "tipo SALES" en el futuro.
+  private isSalesLike(role: Role): boolean {
+    return role === Role.SALES || role === Role.SALES_MANAGER;
+  }
+
   // ADR-004 Submódulo 11: publica al mismo bus de eventos que ya usa el
   // chat (RabbitMQ + SSE vía ChatEventsService), en vez de una
   // infraestructura de tiempo real nueva. El payload es deliberadamente
@@ -335,15 +346,11 @@ export class DesignBoardService {
   async createRequest(user: AuthUser, dto: CreateDesignRequestDto) {
     // El guard del controller (@Roles(Role.ADMIN, Role.SALES)) ya deja
     // pasar a SALES_MANAGER via ROLE_INHERITANCE (ver roles.guard.ts), pero
-    // este chequeo literal no lo respetaba y lo bloqueaba de todas formas
-    // -- SALES_MANAGER es un SALES normal (puede ademas gestionar leads de
-    // cualquier cuenta, ver LeadsController.resolveAccountId) y debe poder
-    // crear solicitudes de boceto igual que SALES.
-    if (
-      user.role !== Role.SALES &&
-      user.role !== Role.SALES_MANAGER &&
-      user.role !== Role.ADMIN
-    ) {
+    // este chequeo literal no lo respetaba y lo bloqueaba de todas formas.
+    // SALES_MANAGER debe comportarse EXACTAMENTE como SALES en este modulo
+    // (ver isSalesLike()), asi que tambien queda acotado a su propia cuenta
+    // -- a diferencia de otros modulos (Leads), donde si tiene mas alcance.
+    if (!this.isSalesLike(user.role) && user.role !== Role.ADMIN) {
       throw new ForbiddenException(
         'Solo SALES, SALES_MANAGER o ADMIN pueden crear solicitudes de boceto',
       );
@@ -358,9 +365,7 @@ export class DesignBoardService {
       throw new NotFoundException('Lead not found');
     }
 
-    // SALES_MANAGER, igual que en LeadsController, puede operar sobre
-    // leads de cualquier cuenta -- solo SALES queda acotado a la propia.
-    if (user.role === Role.SALES && lead.accountId !== user.accountId) {
+    if (this.isSalesLike(user.role) && lead.accountId !== user.accountId) {
       throw new ForbiddenException('El lead no pertenece a tu cuenta');
     }
 
@@ -465,7 +470,7 @@ export class DesignBoardService {
     const request = await this.findOrThrow(id);
 
     const isOwnerSales =
-      user.role === Role.SALES && request.createdByUserId === user.userId;
+      this.isSalesLike(user.role) && request.createdByUserId === user.userId;
     const isAdmin = user.role === Role.ADMIN;
 
     if (!isOwnerSales && !isAdmin) {
@@ -519,7 +524,7 @@ export class DesignBoardService {
     // comentarios/adjuntos) es un chequeo aparte y no se ve afectado, asi
     // que SALES sigue pudiendo comentar mientras su boceto esta en esos
     // estados intermedios, solo no lo ve en el tablero.
-    if (user.role === Role.SALES) {
+    if (this.isSalesLike(user.role)) {
       return {
         createdByUserId: user.userId,
         accountId: user.accountId ?? '__none__',
@@ -702,7 +707,7 @@ export class DesignBoardService {
   ) {
     if (user.role === Role.ADMIN || user.role === Role.DESIGNER_MANAGER) return;
 
-    if (user.role === Role.SALES) {
+    if (this.isSalesLike(user.role)) {
       if (request.createdByUserId !== user.userId) {
         throw new NotFoundException('Design request not found');
       }
@@ -760,7 +765,7 @@ export class DesignBoardService {
   // -------------------------------------------------------------
 
   async move(user: AuthUser, id: string, dto: MoveDesignRequestDto) {
-    if (user.role === Role.SALES) {
+    if (this.isSalesLike(user.role)) {
       throw new ForbiddenException('Las comerciales no mueven tarjetas del tablero');
     }
 
@@ -854,7 +859,7 @@ export class DesignBoardService {
   async sendToModification(user: AuthUser, id: string) {
     const request = await this.findOrThrow(id);
 
-    const isOwnerSales = user.role === Role.SALES && request.createdByUserId === user.userId;
+    const isOwnerSales = this.isSalesLike(user.role) && request.createdByUserId === user.userId;
     const isManagerOrAdmin = user.role === Role.DESIGNER_MANAGER || user.role === Role.ADMIN;
 
     if (!isOwnerSales && !isManagerOrAdmin) {
@@ -1120,7 +1125,7 @@ export class DesignBoardService {
   async approve(user: AuthUser, id: string) {
     const request = await this.findOrThrow(id);
 
-    const isOwnerSales = user.role === Role.SALES && request.createdByUserId === user.userId;
+    const isOwnerSales = this.isSalesLike(user.role) && request.createdByUserId === user.userId;
     const isManagerOrAdmin = user.role === Role.DESIGNER_MANAGER || user.role === Role.ADMIN;
 
     if (!isOwnerSales && !isManagerOrAdmin) {
@@ -1189,7 +1194,7 @@ export class DesignBoardService {
     const request = await this.findOrThrow(id);
 
     const isOwnerSales =
-      user.role === Role.SALES && request.createdByUserId === user.userId;
+      this.isSalesLike(user.role) && request.createdByUserId === user.userId;
     const isAdmin = user.role === Role.ADMIN;
 
     if (!isOwnerSales && !isAdmin) {
@@ -1547,7 +1552,7 @@ export class DesignBoardService {
   // -------------------------------------------------------------
 
   async getMyMonthlyApprovalRate(user: AuthUser) {
-    if (user.role !== Role.SALES) {
+    if (!this.isSalesLike(user.role)) {
       throw new ForbiddenException(
         'Esta vista es solo para comerciales (SALES)',
       );
