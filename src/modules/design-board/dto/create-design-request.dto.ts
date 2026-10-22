@@ -61,17 +61,20 @@ export class CreateDesignRequestAttachmentDto {
 // DesignBoardService.resolveCreationSlaBusinessDays):
 //   - BOCETO: 3 dias habiles (default del tablero), salvo que la
 //     descripcion mencione un producto de plazo extendido (4 dias).
+//   - MOD: 1 dia habil (mismo plazo que REPET_MOD/REPET_ANADE).
 //   - REPET_BOCETO: 2 dias habiles.
 //   - REPET_MOD / REPET_ANADE: 1 dia habil.
 // El titulo sigue siendo texto libre, ya no se interpreta para esto.
 export type DesignRequestType =
   | 'BOCETO'
+  | 'MOD'
   | 'REPET_BOCETO'
   | 'REPET_MOD'
   | 'REPET_ANADE';
 
 export const DESIGN_REQUEST_TYPES: DesignRequestType[] = [
   'BOCETO',
+  'MOD',
   'REPET_BOCETO',
   'REPET_MOD',
   'REPET_ANADE',

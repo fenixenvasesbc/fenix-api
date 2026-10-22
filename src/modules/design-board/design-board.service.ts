@@ -269,13 +269,14 @@ export class DesignBoardService {
   //   - BOCETO (default si no se manda requestType): 3 dias habiles
   //     (default del tablero), salvo que la descripcion mencione un
   //     producto de plazo extendido (4 dias, ver mas abajo).
+  //   - MOD: 1 dia habil (mismo plazo que las demas MOD -- REPET_MOD y
+  //     REPET_ANADE -- agregado a pedido del usuario, 22/oct/2026).
   //   - REPET_BOCETO: 2 dias habiles.
   //   - REPET_MOD / REPET_ANADE: 1 dia habil.
-  //   - Mod / Mod Añade (cliente nuevo, boceto aun no cerrado): NO se
-  //     eligen aca -- siguen usando el mecanismo ya existente de la
-  //     columna "Modificacion" (sendToModification(), 1 dia habil), que
-  //     ya cubre ambos casos por igual (confirmado con el cliente: misma
-  //     SLA, mismo mecanismo).
+  //   - Enviar a la columna "Modificacion" de una solicitud YA creada
+  //     (sendToModification(), para cualquier tipo): mecanismo aparte,
+  //     tambien 1 dia habil -- no se confunde con el tipo MOD de arriba,
+  //     que es para crear una solicitud NUEVA que ya nace como mod.
   // La excepcion de 4 dias por producto (vasos/palas/paninis/hamburguesa
   // folding/ensaladeras) sigue detectandose por texto en la DESCRIPCION
   // (sin cambios), y solo aplica cuando el tipo elegido es BOCETO --
@@ -284,6 +285,7 @@ export class DesignBoardService {
   private static readonly REQUEST_TYPE_SLA_BUSINESS_DAYS: Partial<
     Record<DesignRequestType, number>
   > = {
+    MOD: 1,
     REPET_BOCETO: 2,
     REPET_MOD: 1,
     REPET_ANADE: 1,

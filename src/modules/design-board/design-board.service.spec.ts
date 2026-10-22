@@ -417,7 +417,7 @@ describe('DesignBoardService', () => {
       });
 
       async function createAndGetSlaBusinessDays(
-        requestType?: 'BOCETO' | 'REPET_BOCETO' | 'REPET_MOD' | 'REPET_ANADE',
+        requestType?: 'BOCETO' | 'MOD' | 'REPET_BOCETO' | 'REPET_MOD' | 'REPET_ANADE',
         instructions?: string,
       ) {
         await service.createRequest(SALES, {
@@ -439,6 +439,10 @@ describe('DesignBoardService', () => {
 
       it('sin requestType (no se manda) se trata igual que BOCETO: 3 dias', async () => {
         await expect(createAndGetSlaBusinessDays(undefined)).resolves.toBe(3);
+      });
+
+      it('MOD usa 1 dia (mismo plazo que REPET_MOD/REPET_ANADE)', async () => {
+        await expect(createAndGetSlaBusinessDays('MOD')).resolves.toBe(1);
       });
 
       it('REPET_BOCETO usa 2 dias', async () => {
@@ -488,7 +492,10 @@ describe('DesignBoardService', () => {
         ).resolves.toBe(2);
       });
 
-      it('REPET_MOD / REPET_ANADE con un producto de plazo extendido en la descripcion siguen usando 1 dia (no se suma la excepcion)', async () => {
+      it('MOD / REPET_MOD / REPET_ANADE con un producto de plazo extendido en la descripcion siguen usando 1 dia (no se suma la excepcion)', async () => {
+        await expect(
+          createAndGetSlaBusinessDays('MOD', 'Pide vasos nuevos'),
+        ).resolves.toBe(1);
         await expect(
           createAndGetSlaBusinessDays('REPET_MOD', 'Pide palas nuevas'),
         ).resolves.toBe(1);
