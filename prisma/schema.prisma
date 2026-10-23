@@ -110,6 +110,11 @@ enum AppNotificationType {
   // quedo aprobado) y a todo el Jefe de Diseño (DESIGNER_MANAGER) para que
   // tengan visibilidad sin tener que entrar al tablero a revisar.
   DESIGN_REQUEST_APPROVED
+  // Pedido explicito del usuario, 23/oct/2026: se dispara cuando una
+  // solicitud entra a "Boceto en revision" (columna isInReview) -- avisa a
+  // TODO el Jefe de Diseño (no hay un "manager asignado" a la solicitud),
+  // ya que es quien revisa los bocetos antes de aprobarlos.
+  DESIGN_REQUEST_IN_REVIEW
 }
 
 enum AppNotificationStatus {
@@ -1389,6 +1394,10 @@ model DesignBoardColumn {
 
   isInitial      Boolean @default(false)
   isModification Boolean @default(false) // Submodulo 4: columna "Modificacion" con plazo especial
+  // Columna "Boceto en revision" -- pedido explicito del usuario,
+  // 23/oct/2026: al entrar aqui se notifica a todo el Jefe de Diseño (ver
+  // DESIGN_REQUEST_IN_REVIEW / move() en DesignBoardService).
+  isInReview     Boolean @default(false)
   isFinal        Boolean @default(false)
   isApproved     Boolean @default(false)
 

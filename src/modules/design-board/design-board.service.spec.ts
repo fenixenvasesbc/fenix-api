@@ -25,15 +25,15 @@ const OTHER_DESIGNER: AuthUser = { userId: 'designer-2', role: Role.DESIGNER, ac
 const MANAGER: AuthUser = { userId: 'manager-1', role: Role.DESIGNER_MANAGER, accountId: null };
 
 const COLUMNS = [
-  { id: 'col-new', boardId: 'board-1', code: 'NEW', name: 'Bocetos nuevos', sortOrder: 0, isInitial: true, isModification: false, isFinal: false, isApproved: false, modificationSlaBusinessDays: null },
-  { id: 'col-review', boardId: 'board-1', code: 'IN_REVIEW', name: 'Boceto en revisión', sortOrder: 1, isInitial: false, isModification: false, isFinal: false, isApproved: false, modificationSlaBusinessDays: null },
-  { id: 'col-done', boardId: 'board-1', code: 'DONE', name: 'Boceto terminado', sortOrder: 2, isInitial: false, isModification: false, isFinal: true, isApproved: false, modificationSlaBusinessDays: null },
-  { id: 'col-approved', boardId: 'board-1', code: 'APPROVED', name: 'Aprobados', sortOrder: 3, isInitial: false, isModification: false, isFinal: false, isApproved: true, modificationSlaBusinessDays: null },
+  { id: 'col-new', boardId: 'board-1', code: 'NEW', name: 'Bocetos nuevos', sortOrder: 0, isInitial: true, isModification: false, isInReview: false, isFinal: false, isApproved: false, modificationSlaBusinessDays: null },
+  { id: 'col-review', boardId: 'board-1', code: 'IN_REVIEW', name: 'Boceto en revisión', sortOrder: 1, isInitial: false, isModification: false, isInReview: true, isFinal: false, isApproved: false, modificationSlaBusinessDays: null },
+  { id: 'col-done', boardId: 'board-1', code: 'DONE', name: 'Boceto terminado', sortOrder: 2, isInitial: false, isModification: false, isInReview: false, isFinal: true, isApproved: false, modificationSlaBusinessDays: null },
+  { id: 'col-approved', boardId: 'board-1', code: 'APPROVED', name: 'Aprobados', sortOrder: 3, isInitial: false, isModification: false, isInReview: false, isFinal: false, isApproved: true, modificationSlaBusinessDays: null },
   // ADR-004 Submódulo 4: sortOrder 0.5 la coloca, al reordenar, entre "NEW"
   // (0) y "IN_REVIEW" (1) -- solo relevante para los tests que resuelven
   // el orden real vía move()/sendToModification(); los índices COLUMNS[0..3]
   // de arriba se mantienen intactos para no tocar el resto de este archivo.
-  { id: 'col-modification', boardId: 'board-1', code: 'MODIFICATION', name: 'Modificación', sortOrder: 0.5, isInitial: false, isModification: true, isFinal: false, isApproved: false, modificationSlaBusinessDays: 1 },
+  { id: 'col-modification', boardId: 'board-1', code: 'MODIFICATION', name: 'Modificación', sortOrder: 0.5, isInitial: false, isModification: true, isInReview: false, isFinal: false, isApproved: false, modificationSlaBusinessDays: 1 },
 ];
 
 function board() {
@@ -661,7 +661,7 @@ describe('DesignBoardService', () => {
     it('scopes SALES to only their own requests within their account, their own columns (Nuevos/Modificacion/Terminado), excluding deleted/archivadas', async () => {
       prisma.designRequest.findMany.mockResolvedValue([]);
 
-      await service.listRequests(SALES, {});
+      await service.listRequests(SALES, { month: 'all' });
 
       expect(prisma.designRequest.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -681,7 +681,7 @@ describe('DesignBoardService', () => {
     it('scopes SALES_MANAGER exactly like SALES in this module (pedido explicito del usuario, 23/oct/2026)', async () => {
       prisma.designRequest.findMany.mockResolvedValue([]);
 
-      await service.listRequests(SALES_MANAGER, {});
+      await service.listRequests(SALES_MANAGER, { month: 'all' });
 
       expect(prisma.designRequest.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -701,7 +701,7 @@ describe('DesignBoardService', () => {
     it('scopes DESIGNER to only their assigned requests, excluding "Aprobados"', async () => {
       prisma.designRequest.findMany.mockResolvedValue([]);
 
-      await service.listRequests(DESIGNER, {});
+      await service.listRequests(DESIGNER, { month: 'all' });
 
       expect(prisma.designRequest.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -718,12 +718,12 @@ describe('DesignBoardService', () => {
     it('excludes deleted/archived requests by default for DESIGNER_MANAGER/ADMIN, and includeArchived does not bring back deleted ones', async () => {
       prisma.designRequest.findMany.mockResolvedValue([]);
 
-      await service.listRequests(MANAGER, {});
+      await service.listRequests(MANAGER, { month: 'all' });
       expect(prisma.designRequest.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: { deletedAt: null, archivedAt: null } }),
       );
 
-      await service.listRequests(MANAGER, { includeArchived: true });
+      await service.listRequests(MANAGER, { includeArchived: true, month: 'all' });
       const call = prisma.designRequest.findMany.mock.calls[1][0];
       expect(call.where.deletedAt).toBeNull();
       expect(call.where.archivedAt).toBeUndefined();
@@ -737,6 +737,7 @@ describe('DesignBoardService', () => {
         assignedUserId: 'designer-9',
         createdByUserId: 'sales-9',
         columnId: 'col-new',
+        month: 'all',
       });
 
       expect(prisma.designRequest.findMany).toHaveBeenCalledWith(
@@ -789,6 +790,84 @@ describe('DesignBoardService', () => {
 
       const call = prisma.designRequest.findMany.mock.calls[0][0];
       expect(call.where.completedAt).toBeUndefined();
+    });
+
+    // Pedido explicito del usuario, 23/oct/2026: filtro general del
+    // tablero por mes (TODAS las columnas, segun createdAt) -- distinto
+    // del filtro completedMonth de arriba (solo afecta "Terminado" via
+    // columnId). Por defecto el mes actual; 'all' para ver todo; "YYYY-MM"
+    // para un mes puntual, con el rango exacto del 1ro al ultimo dia de
+    // ESE mes (28/29 para febrero, 30 o 31 segun corresponda).
+    describe('filtro general por mes (createdAt)', () => {
+      it('defaults to the current month when no month is given', async () => {
+        prisma.designRequest.findMany.mockResolvedValue([]);
+
+        await service.listRequests(MANAGER, {});
+
+        const call = prisma.designRequest.findMany.mock.calls[0][0];
+        expect(call.where.createdAt).toEqual({
+          gte: expect.any(Date),
+          lt: expect.any(Date),
+        });
+      });
+
+      it('skips the filter entirely when month is "all"', async () => {
+        prisma.designRequest.findMany.mockResolvedValue([]);
+
+        await service.listRequests(MANAGER, { month: 'all' });
+
+        const call = prisma.designRequest.findMany.mock.calls[0][0];
+        expect(call.where.createdAt).toBeUndefined();
+      });
+
+      it('resolves an explicit "YYYY-MM" to the exact first-to-last-day range (31-day month)', async () => {
+        prisma.designRequest.findMany.mockResolvedValue([]);
+
+        await service.listRequests(MANAGER, { month: '2026-10' });
+
+        const call = prisma.designRequest.findMany.mock.calls[0][0];
+        expect(call.where.createdAt).toEqual({
+          gte: new Date(Date.UTC(2026, 9, 1)),
+          lt: new Date(Date.UTC(2026, 10, 1)),
+        });
+      });
+
+      it('covers all 28 days of February in a non-leap year', async () => {
+        prisma.designRequest.findMany.mockResolvedValue([]);
+
+        await service.listRequests(MANAGER, { month: '2026-02' });
+
+        const call = prisma.designRequest.findMany.mock.calls[0][0];
+        expect(call.where.createdAt).toEqual({
+          gte: new Date(Date.UTC(2026, 1, 1)),
+          lt: new Date(Date.UTC(2026, 2, 1)),
+        });
+      });
+
+      it('covers all 29 days of February in a leap year', async () => {
+        prisma.designRequest.findMany.mockResolvedValue([]);
+
+        await service.listRequests(MANAGER, { month: '2028-02' });
+
+        const call = prisma.designRequest.findMany.mock.calls[0][0];
+        expect(call.where.createdAt).toEqual({
+          gte: new Date(Date.UTC(2028, 1, 1)),
+          lt: new Date(Date.UTC(2028, 2, 1)),
+        });
+      });
+
+      it('applies the same filter for SALES too, on top of their own visibility scope', async () => {
+        prisma.designRequest.findMany.mockResolvedValue([]);
+
+        await service.listRequests(SALES, { month: '2026-09' });
+
+        const call = prisma.designRequest.findMany.mock.calls[0][0];
+        expect(call.where.createdByUserId).toBe('sales-1');
+        expect(call.where.createdAt).toEqual({
+          gte: new Date(Date.UTC(2026, 8, 1)),
+          lt: new Date(Date.UTC(2026, 9, 1)),
+        });
+      });
     });
   });
 
@@ -1309,7 +1388,10 @@ describe('DesignBoardService', () => {
     function doneRequest() {
       return {
         id: 'req-1',
+        accountId: 'account-1',
+        leadId: 'lead-1',
         createdByUserId: 'sales-1',
+        assignedUserId: 'designer-1',
         column: COLUMNS[2],
         board: board(),
       };
@@ -1365,6 +1447,24 @@ describe('DesignBoardService', () => {
       await service.approve(ADMIN, 'req-1');
 
       expect(tx.designRequest.update).toHaveBeenCalledTimes(2);
+    });
+
+    // Pedido explicito del usuario, 23/oct/2026: al aprobar desde el
+    // tablero, el lead debia dejar de mostrar "Boceto en proceso" --
+    // currentLabel es un valor unico, asi que aplicar BOCETO_APROBADO
+    // reemplaza/oculta BOCETO_EN_PROCESO (ver DesignBoardService.approve()).
+    it('applies BOCETO_APROBADO to the lead so it stops showing "Boceto en proceso"', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(doneRequest());
+      tx.designRequest.update.mockResolvedValue({ id: 'req-1', columnId: 'col-approved' });
+
+      await service.approve(SALES, 'req-1');
+
+      expect(leadsService.setLabel).toHaveBeenCalledWith({
+        accountId: 'account-1',
+        leadId: 'lead-1',
+        label: SYSTEM_LABEL_CODES.BOCETO_APROBADO,
+        changedByUserId: 'sales-1',
+      });
     });
   });
 

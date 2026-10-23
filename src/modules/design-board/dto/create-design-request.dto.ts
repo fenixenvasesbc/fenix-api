@@ -138,6 +138,22 @@ export class ListDesignRequestsQueryDto {
   @Type(() => Boolean)
   @IsBoolean()
   includeArchived?: boolean;
+
+  // Pedido explicito del usuario, 23/oct/2026: buscar solicitudes por
+  // titulo (contains, insensible a mayusculas -- ver listRequests() en
+  // DesignBoardService).
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  title?: string;
+
+  // Pedido explicito del usuario, 23/oct/2026: filtro general del tablero
+  // por mes (TODAS las columnas, segun createdAt) -- "YYYY-MM" para un
+  // mes puntual, 'all' para ver el historico completo. Si se omite,
+  // listRequests() usa el mes actual por defecto (ver monthRange()).
+  @IsOptional()
+  @Matches(/^(\d{4}-(0[1-9]|1[0-2])|all)$/)
+  month?: string;
 }
 
 export class DesignBoardReportsQueryDto {

@@ -44,6 +44,7 @@ import {
   DESIGN_REQUEST_EVENTS,
   DesignRequestApprovedEvent,
   DesignRequestCommentedEvent,
+  DesignRequestInReviewEvent,
   DesignRequestReadyEvent,
   DesignRequestSentToModificationEvent,
 } from './events/design-board.events';
@@ -71,7 +72,7 @@ const DEFAULT_COLUMNS = [
     isModification: true,
     modificationSlaBusinessDays: 1,
   },
-  { code: 'IN_REVIEW', name: 'Boceto en revisión', sortOrder: 2 },
+  { code: 'IN_REVIEW', name: 'Boceto en revisión', sortOrder: 2, isInReview: true },
   { code: 'DONE', name: 'Boceto terminado', sortOrder: 3, isFinal: true },
   { code: 'APPROVED', name: 'Aprobados', sortOrder: 4, isApproved: true },
 ] as const;
@@ -149,6 +150,7 @@ export class DesignBoardService {
             'modificationSlaBusinessDays' in col
               ? col.modificationSlaBusinessDays
               : null,
+          isInReview: 'isInReview' in col ? col.isInReview : false,
           isFinal: 'isFinal' in col ? col.isFinal : false,
           isApproved: 'isApproved' in col ? col.isApproved : false,
         })),
@@ -175,6 +177,7 @@ export class DesignBoardService {
               'modificationSlaBusinessDays' in col
                 ? col.modificationSlaBusinessDays
                 : null,
+            isInReview: 'isInReview' in col ? col.isInReview : false,
             isFinal: 'isFinal' in col ? col.isFinal : false,
             isApproved: 'isApproved' in col ? col.isApproved : false,
           })),
@@ -677,7 +680,29 @@ export class DesignBoardService {
       // (siguen existiendo íntegras para reportes/historial -- ver
       // getRequestDetail(), que sí las deja consultar por id).
       ...(query.includeArchived ? {} : { archivedAt: null }),
+      // Pedido explicito del usuario, 23/oct/2026: buscar por titulo
+      // (contains, insensible a mayusculas) -- se aplica DESPUES de
+      // visibilityWhere(), asi que respeta igual las reglas de visibilidad
+      // de cada rol (SALES solo busca dentro de sus propias solicitudes).
+      ...(query.title?.trim()
+        ? { title: { contains: query.title.trim(), mode: 'insensitive' } }
+        : {}),
     };
+
+    // Pedido explicito del usuario, 23/oct/2026: filtro general del
+    // tablero por mes (TODAS las columnas, segun createdAt -- cuando se
+    // creo la solicitud, el unico campo de fecha que absolutamente todas
+    // tienen desde el dia 1) -- por defecto el mes actual (dia 1 al
+    // ultimo dia de ese mes, el que sea segun el mes: 28/29/30/31, ver
+    // monthRange()), 'all' para ver el historico completo, o "YYYY-MM"
+    // para un mes puntual. Distinto del filtro completedMonth de
+    // Submodulo 9 (que solo afecta a la columna "Terminado" cuando se
+    // pide con columnId, usado hoy por la pestaña de Reportes) -- este es
+    // independiente y se aplica siempre, salvo que se pida "all".
+    if (query.month !== 'all') {
+      const { start, end } = this.monthRange(query.month);
+      where.createdAt = { gte: start, lt: end };
+    }
 
     // ADR-004 Submódulo 9: la columna "Terminado" (isFinal) filtra por
     // defecto al mes actual (según completedAt); completedMonth="all" ve
@@ -1036,6 +1061,24 @@ export class DesignBoardService {
           request.accountId,
           request.leadId,
           request.createdByUserId,
+          now,
+        ),
+      );
+    }
+
+    // Pedido explicito del usuario, 23/oct/2026: avisar a TODO el Jefe de
+    // Diseño cuando una solicitud entra a "Boceto en revision" -- es quien
+    // la revisa antes de aprobarla. Puede volver a dispararse mas de una
+    // vez para la misma solicitud (si vuelve a "Modificacion" y avanza de
+    // nuevo), por eso incluye `now` en el dedupeKey del listener.
+    if (targetColumn.isInReview) {
+      this.eventEmitter.emit(
+        DESIGN_REQUEST_EVENTS.IN_REVIEW,
+        new DesignRequestInReviewEvent(
+          request.id,
+          request.accountId,
+          request.leadId,
+          now,
         ),
       );
     }
@@ -1363,6 +1406,22 @@ export class DesignBoardService {
       });
 
       return result;
+    });
+
+    // Pedido explicito del usuario, 23/oct/2026: al aprobar desde el
+    // tablero (este boton), el lead debia dejar de mostrar "Boceto en
+    // proceso" -- antes solo pasaba al aprobar automaticamente por
+    // etiqueta (approveByLabel(), donde el controller aplica
+    // BOCETO_APROBADO como currentLabel justo despues). currentLabel es
+    // un valor unico (no una lista), asi que aplicar BOCETO_APROBADO aca
+    // reemplaza/oculta BOCETO_EN_PROCESO sin necesidad de "quitarla"
+    // aparte -- mismo mecanismo, mismo resultado visible, por los dos
+    // caminos de aprobacion.
+    await this.leadsService.setLabel({
+      accountId: request.accountId,
+      leadId: request.leadId,
+      label: SYSTEM_LABEL_CODES.BOCETO_APROBADO,
+      changedByUserId: user.userId,
     });
 
     this.eventEmitter.emit(

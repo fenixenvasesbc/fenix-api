@@ -6,6 +6,7 @@ import {
   DESIGN_REQUEST_EVENTS,
   DesignRequestApprovedEvent,
   DesignRequestCommentedEvent,
+  DesignRequestInReviewEvent,
   DesignRequestReadyEvent,
   DesignRequestSentToModificationEvent,
 } from '../../design-board/events/design-board.events';
@@ -29,6 +30,13 @@ export class DesignRequestNotificationsListener {
     private readonly prisma: PrismaService,
   ) {}
 
+  // Bug encontrado al revisar el ciclo Terminado -> Modificacion ->
+  // Terminado (23/oct/2026): el dedupeKey no llevaba timestamp, asi que
+  // si la misma solicitud volvia a llegar a "Terminado" una segunda vez,
+  // esta alerta se descartaba por dedupe (ya existia una con esa misma
+  // clave de la primera vez) y la comercial nunca se enteraba -- se
+  // incluye occurredAt, mismo criterio que SENT_TO_MODIFICATION/APPROVED/
+  // IN_REVIEW.
   @OnEvent(DESIGN_REQUEST_EVENTS.READY)
   async onReady(event: DesignRequestReadyEvent) {
     await this.safely(() =>
@@ -37,7 +45,7 @@ export class DesignRequestNotificationsListener {
         leadId: event.leadId,
         recipientUserId: event.createdByUserId,
         type: AppNotificationType.DESIGN_REQUEST_READY,
-        dedupeKey: `design_request_ready:${event.designRequestId}`,
+        dedupeKey: `design_request_ready:${event.designRequestId}:${event.occurredAt.getTime()}`,
         title: 'Boceto terminado',
         message: 'Un boceto que pediste ya está listo para tu revisión.',
       }),
@@ -127,6 +135,53 @@ export class DesignRequestNotificationsListener {
         ),
       ),
     );
+  }
+
+  // Pedido explicito del usuario, 23/oct/2026: avisar a TODO el Jefe de
+  // Diseño cuando una solicitud entra a "Boceto en revision" -- es quien
+  // la revisa antes de aprobarla (mismo criterio que onApproved: no hay un
+  // "manager asignado" a la solicitud, asi que se notifica a cada
+  // DESIGNER_MANAGER activo con su propio dedupeKey, incluyendo
+  // occurredAt para permitir que la misma solicitud vuelva a notificar si
+  // entra a revision mas de una vez, ej. tras pasar de nuevo por
+  // "Modificacion").
+  @OnEvent(DESIGN_REQUEST_EVENTS.IN_REVIEW)
+  async onInReview(event: DesignRequestInReviewEvent) {
+    const managers = await this.safelyList(() =>
+      this.prisma.user.findMany({
+        where: { role: Role.DESIGNER_MANAGER, isActive: true },
+        select: { id: true },
+      }),
+    );
+
+    await Promise.all(
+      managers.map((manager) =>
+        this.safely(() =>
+          this.notifications.createNotification({
+            accountId: event.accountId,
+            leadId: event.leadId,
+            recipientUserId: manager.id,
+            type: AppNotificationType.DESIGN_REQUEST_IN_REVIEW,
+            dedupeKey: `design_request_in_review:${event.designRequestId}:${event.occurredAt.getTime()}:${manager.id}`,
+            title: 'Boceto en revisión',
+            message: 'Un boceto está listo para revisar.',
+          }),
+        ),
+      ),
+    );
+  }
+
+  // Igual que safely() pero para una consulta que devuelve una lista (la
+  // necesitamos ANTES de poder crear las notificaciones) -- si falla,
+  // simplemente no hay a quien avisar en este disparo, sin tumbar el
+  // flujo del tablero.
+  private async safelyList<T>(fn: () => Promise<T[]>): Promise<T[]> {
+    try {
+      return await fn();
+    } catch (error) {
+      this.logger.warn(`No se pudo listar destinatarios para notificacion de boceto: ${String(error)}`);
+      return [];
+    }
   }
 
   // EventEmitter2.emit() no espera a los listeners (fire-and-forget): un

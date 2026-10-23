@@ -18,6 +18,10 @@ export const DESIGN_REQUEST_EVENTS = {
   COMMENTED: 'design-request.commented',
   SENT_TO_MODIFICATION: 'design-request.sent-to-modification',
   APPROVED: 'design-request.approved',
+  // Pedido explicito del usuario, 23/oct/2026: una solicitud entra a
+  // "Boceto en revision" (columna isInReview) -- ver move() en
+  // DesignBoardService.
+  IN_REVIEW: 'design-request.in-review',
 } as const;
 
 export class DesignRequestReadyEvent {
@@ -26,6 +30,15 @@ export class DesignRequestReadyEvent {
     public readonly accountId: string,
     public readonly leadId: string,
     public readonly createdByUserId: string,
+    // Bug encontrado al revisar el ciclo Terminado -> Modificacion ->
+    // Terminado (23/oct/2026): antes no llevaba timestamp, asi que el
+    // dedupeKey del listener era SIEMPRE el mismo para una misma
+    // solicitud -- si volvia a llegar a "Terminado" una segunda vez (tras
+    // pasar de nuevo por Modificacion), la comercial NO volvia a recibir
+    // la alerta "Boceto terminado" (createNotification() la descartaba
+    // por dedupe), aunque la tarjeta si estuviera, de hecho, en la
+    // columna. Mismo criterio que SENT_TO_MODIFICATION/APPROVED/IN_REVIEW.
+    public readonly occurredAt: Date,
   ) {}
 }
 
@@ -58,6 +71,17 @@ export class DesignRequestApprovedEvent {
     public readonly accountId: string,
     public readonly leadId: string,
     public readonly assignedUserId: string | null,
+    public readonly occurredAt: Date,
+  ) {}
+}
+
+// Solo notifica a TODO el Jefe de Diseño (igual que APPROVED) -- no hay un
+// "manager asignado" a la solicitud, es quien revisa los bocetos.
+export class DesignRequestInReviewEvent {
+  constructor(
+    public readonly designRequestId: string,
+    public readonly accountId: string,
+    public readonly leadId: string,
     public readonly occurredAt: Date,
   ) {}
 }
