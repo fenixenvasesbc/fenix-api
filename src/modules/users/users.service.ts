@@ -33,7 +33,7 @@ const SAFE_USER_SELECT = {
   account: { select: { name: true } },
 } as const;
 
-type SafeUserRaw = {
+export type SafeUserRaw = {
   id: string;
   email: string;
   name: string | null;
@@ -49,7 +49,12 @@ type SafeUserRaw = {
 // que ya se pedia obligatoriamente al crearlo, ver adminCreateUser()) --
 // nunca un campo propio del User, para que no puedan divergir. El resto de
 // roles (DESIGNER, ADMIN, etc.) usan su propio User.name.
-function resolveDisplayName(user: Pick<SafeUserRaw, 'role' | 'name' | 'account'>) {
+// Exportada para que otros modulos (p.ej. DesignBoardService, al mostrar
+// 'Creado por'/'Asignado a' en el tablero de bocetos) puedan resolver el
+// mismo nombre a mostrar que el resto de la app sin duplicar la regla ni
+// pasar por GET /users/:id (que no todos los roles pueden llamar) --
+// pedido explicito del usuario, 23/oct/2026.
+export function resolveDisplayName(user: Pick<SafeUserRaw, 'role' | 'name' | 'account'>) {
   return user.role === Role.SALES ? (user.account?.name ?? null) : user.name;
 }
 

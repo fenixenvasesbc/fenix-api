@@ -314,7 +314,7 @@ describe('DesignBoardService', () => {
       };
     }
 
-    it('rejects when neither title nor instructions is provided', async () => {
+    it('rejects when no editable field is provided', async () => {
       await expect(service.updateRequest(SALES, 'req-1', {})).rejects.toBeInstanceOf(
         BadRequestException,
       );
@@ -400,6 +400,68 @@ describe('DesignBoardService', () => {
       );
     });
 
+    it('lets the owning SALES_MANAGER update its own request too (parity with SALES in this module)', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(
+        ownedRequest({ createdByUserId: 'sales-mgr-1' }),
+      );
+      prisma.designRequest.update.mockResolvedValue({ id: 'req-1', title: 'Nuevo' });
+
+      await service.updateRequest(SALES_MANAGER, 'req-1', { title: 'Nuevo' });
+
+      expect(prisma.designRequest.update).toHaveBeenCalledWith({
+        where: { id: 'req-1' },
+        data: { title: 'Nuevo' },
+      });
+    });
+
+    it('lets the owning SALES update country', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(ownedRequest());
+      prisma.designRequest.update.mockResolvedValue({ id: 'req-1' });
+
+      await service.updateRequest(SALES, 'req-1', { country: DesignRequestCountry.FR });
+
+      expect(prisma.designRequest.update).toHaveBeenCalledWith({
+        where: { id: 'req-1' },
+        data: { country: DesignRequestCountry.FR },
+      });
+    });
+
+    it('re-sending the same requestType the request already has does not recompute the deadline (comparing null as BOCETO for requests created before this field existed)', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(ownedRequest({ requestType: null }));
+      prisma.designRequest.update.mockResolvedValue({ id: 'req-1' });
+
+      await service.updateRequest(SALES, 'req-1', { requestType: 'BOCETO' });
+
+      expect(prisma.designRequest.update).toHaveBeenCalledWith({
+        where: { id: 'req-1' },
+        data: { requestType: 'BOCETO' },
+      });
+      expect(businessDaysService.computeBusinessDueAt).not.toHaveBeenCalled();
+    });
+
+    it('changing requestType to a different one recomputes slaBusinessDays/dueAt from now, using the same rules as creation', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(
+        ownedRequest({ requestType: 'BOCETO', instructions: null }),
+      );
+      prisma.designRequest.update.mockResolvedValue({ id: 'req-1' });
+
+      await service.updateRequest(SALES, 'req-1', { requestType: 'MOD' });
+
+      expect(businessDaysService.computeBusinessDueAt).toHaveBeenCalledWith(
+        expect.any(Date),
+        1,
+        expect.any(Set),
+        { cutoffHour: 14 },
+      );
+      expect(prisma.designRequest.update).toHaveBeenCalledWith({
+        where: { id: 'req-1' },
+        data: {
+          requestType: 'MOD',
+          slaBusinessDays: 1,
+          dueAt: new Date('2026-10-01T13:00:00.000Z'),
+        },
+      });
+    });
     // ---------------------------------------------------------------
     // Plazos diferenciados por tipo de solicitud (resolveCreationSlaBusinessDays,
     // acordado con el cliente 02/oct/2026; actualizado 06/oct/2026: el tipo
@@ -505,13 +567,98 @@ describe('DesignBoardService', () => {
       });
     });
   });
+  // ---------------------------------------------------------------
+  // deleteRequest (eliminacion logica -- pedido explicito del usuario,
+  // 23/oct/2026)
+  // ---------------------------------------------------------------
+
+  describe('deleteRequest', () => {
+    function ownedInitialRequest(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'req-1',
+        accountId: 'account-1',
+        leadId: 'lead-1',
+        createdByUserId: 'sales-1',
+        archivedAt: null,
+        column: COLUMNS[0], // isInitial: true ("Nuevos")
+        board: board(),
+        ...overrides,
+      };
+    }
+
+    it("forbids a SALES user who doesn't own the request", async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(ownedInitialRequest());
+
+      await expect(service.deleteRequest(OTHER_SALES, 'req-1')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it('forbids DESIGNER/DESIGNER_MANAGER entirely', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(ownedInitialRequest());
+
+      await expect(service.deleteRequest(MANAGER, 'req-1')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it('rejects deleting a request that is no longer in "Nuevos" (e.g. already in Modificacion)', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(
+        ownedInitialRequest({ column: COLUMNS[4] }), // col-modification
+      );
+
+      await expect(service.deleteRequest(SALES, 'req-1')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
+
+    it('lets the owning SALES delete its own request while still in "Nuevos"', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(ownedInitialRequest());
+      prisma.designRequest.update.mockResolvedValue({ id: 'req-1' });
+
+      const result = await service.deleteRequest(SALES, 'req-1');
+
+      expect(prisma.designRequest.update).toHaveBeenCalledWith({
+        where: { id: 'req-1' },
+        data: { deletedAt: expect.any(Date), deletedByUserId: 'sales-1' },
+      });
+      expect(result).toEqual({ id: 'req-1' });
+      expect(chatEvents.publish).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'design_request.updated' }),
+      );
+    });
+
+    it('lets the owning SALES_MANAGER delete its own request too (parity with SALES in this module)', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(
+        ownedInitialRequest({ createdByUserId: 'sales-mgr-1' }),
+      );
+      prisma.designRequest.update.mockResolvedValue({ id: 'req-1' });
+
+      await service.deleteRequest(SALES_MANAGER, 'req-1');
+
+      expect(prisma.designRequest.update).toHaveBeenCalledWith({
+        where: { id: 'req-1' },
+        data: { deletedAt: expect.any(Date), deletedByUserId: 'sales-mgr-1' },
+      });
+    });
+
+    it('lets ADMIN delete any request while still in "Nuevos"', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(ownedInitialRequest());
+      prisma.designRequest.update.mockResolvedValue({ id: 'req-1' });
+
+      await service.deleteRequest(ADMIN, 'req-1');
+
+      expect(prisma.designRequest.update).toHaveBeenCalled();
+    });
+  });
+
 
   // ---------------------------------------------------------------
   // listRequests / getRequestDetail (visibilidad por rol)
   // ---------------------------------------------------------------
 
   describe('listRequests', () => {
-    it('scopes SALES to only their own requests within their account, excluding "Aprobados"', async () => {
+    it('scopes SALES to only their own requests within their account, their own columns (Nuevos/Modificacion/Terminado), excluding deleted/archivadas', async () => {
       prisma.designRequest.findMany.mockResolvedValue([]);
 
       await service.listRequests(SALES, {});
@@ -521,7 +668,30 @@ describe('DesignBoardService', () => {
           where: {
             createdByUserId: 'sales-1',
             accountId: 'account-1',
-            column: { isApproved: false },
+            column: {
+              OR: [{ isInitial: true }, { isModification: true }, { isFinal: true }],
+            },
+            deletedAt: null,
+            archivedAt: null,
+          },
+        }),
+      );
+    });
+
+    it('scopes SALES_MANAGER exactly like SALES in this module (pedido explicito del usuario, 23/oct/2026)', async () => {
+      prisma.designRequest.findMany.mockResolvedValue([]);
+
+      await service.listRequests(SALES_MANAGER, {});
+
+      expect(prisma.designRequest.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            createdByUserId: 'sales-mgr-1',
+            accountId: 'account-1',
+            column: {
+              OR: [{ isInitial: true }, { isModification: true }, { isFinal: true }],
+            },
+            deletedAt: null,
             archivedAt: null,
           },
         }),
@@ -538,22 +708,24 @@ describe('DesignBoardService', () => {
           where: {
             assignedUserId: 'designer-1',
             column: { isApproved: false },
+            deletedAt: null,
             archivedAt: null,
           },
         }),
       );
     });
 
-    it('excludes archived requests by default for DESIGNER_MANAGER/ADMIN, and includes them with includeArchived', async () => {
+    it('excludes deleted/archived requests by default for DESIGNER_MANAGER/ADMIN, and includeArchived does not bring back deleted ones', async () => {
       prisma.designRequest.findMany.mockResolvedValue([]);
 
       await service.listRequests(MANAGER, {});
       expect(prisma.designRequest.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { archivedAt: null } }),
+        expect.objectContaining({ where: { deletedAt: null, archivedAt: null } }),
       );
 
       await service.listRequests(MANAGER, { includeArchived: true });
       const call = prisma.designRequest.findMany.mock.calls[1][0];
+      expect(call.where.deletedAt).toBeNull();
       expect(call.where.archivedAt).toBeUndefined();
     });
 
@@ -572,6 +744,7 @@ describe('DesignBoardService', () => {
           where: {
             assignedUserId: 'designer-9',
             createdByUserId: 'sales-9',
+            deletedAt: null,
             columnId: 'col-new',
             archivedAt: null,
           },
@@ -678,6 +851,33 @@ describe('DesignBoardService', () => {
         }),
       );
       expect(result).toEqual({ id: 'req-1', assignedUserId: 'designer-1' });
+    });
+
+    it('lets DESIGNER_MANAGER self-assign a request (pedido explicito del usuario, 23/oct/2026)', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue({ id: 'req-1', board: board(), column: COLUMNS[0] });
+      prisma.user.findUnique.mockResolvedValue({ id: 'manager-1', role: Role.DESIGNER_MANAGER });
+      prisma.designRequest.update.mockResolvedValue({ id: 'req-1', assignedUserId: 'manager-1' });
+
+      const result = await service.assign(MANAGER, 'req-1', { assignedUserId: 'manager-1' });
+
+      expect(prisma.designRequest.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            assignedUserId: 'manager-1',
+            assignedByUserId: 'manager-1',
+          }),
+        }),
+      );
+      expect(result).toEqual({ id: 'req-1', assignedUserId: 'manager-1' });
+    });
+
+    it('does not let a DESIGNER_MANAGER assign a request to ANOTHER DESIGNER_MANAGER', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue({ id: 'req-1', board: board(), column: COLUMNS[0] });
+      prisma.user.findUnique.mockResolvedValue({ id: 'other-manager', role: Role.DESIGNER_MANAGER });
+
+      await expect(
+        service.assign(MANAGER, 'req-1', { assignedUserId: 'other-manager' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 

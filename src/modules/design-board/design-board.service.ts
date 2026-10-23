@@ -19,6 +19,16 @@ import { ChatPolicyService } from '../outbound/chat-policy.service';
 import { BusinessDaysService } from 'src/common/business-days/business-days.service';
 import { ChatEventsService } from '../chat-events/chat-events.service';
 import { withLeadDisplayName } from 'src/common/utils/lead-name';
+// Resuelve el mismo 'nombre a mostrar' que usa el resto de la app (para
+// SALES: Account.name; para el resto: User.name) -- pedido explicito del
+// usuario, 23/oct/2026: 'Creado por' en el detalle de una solicitud de
+// boceto mostraba un id truncado (p.ej. 'a3b7079f') en vez del nombre
+// cuando quien veia el detalle no tenia acceso a GET /users/:id (SALES
+// normal viendo su propia solicitud). Se adjunta directamente en la
+// respuesta en vez de ampliar ese endpoint (que sigue restringido a
+// ADMIN/SALES_MANAGER/DESIGNER_MANAGER por ser el directorio general de
+// usuarios).
+import { resolveDisplayName } from '../users/users.service';
 import {
   AddDesignRequestCommentDto,
   AssignDesignRequestDto,
@@ -413,6 +423,11 @@ export class DesignBoardService {
           title: dto.title,
           instructions: dto.instructions ?? null,
           country: dto.country ?? DesignRequestCountry.ES,
+          // Se persiste normalizado (nunca queda null en una solicitud
+          // NUEVA) para poder mostrarlo/editarlo despues -- antes se
+          // usaba solo transitoriamente para calcular el plazo y se
+          // descartaba (23/oct/2026).
+          requestType: dto.requestType ?? 'BOCETO',
           createdByUserId: user.userId,
           slaBusinessDays: requestSlaBusinessDays,
           dueAt,
@@ -452,10 +467,13 @@ export class DesignBoardService {
   }
 
   // -------------------------------------------------------------
-  // Editar titulo/descripcion (la comercial propietaria, o ADMIN) --
-  // pedido explicito del cliente: una vez enviada la solicitud, la
-  // comercial puede corregir un typo o afinar las instrucciones sin tener
-  // que pedirle al diseñador que adivine o crear una solicitud nueva.
+  // Editar titulo/descripcion/pais/tipo (la comercial propietaria, o
+  // ADMIN) -- pedido explicito del cliente: una vez enviada la solicitud,
+  // la comercial puede corregir un typo o afinar las instrucciones sin
+  // tener que pedirle al diseñador que adivine o crear una solicitud
+  // nueva. Ampliado 23/oct/2026 a pais y tipo (mismos campos que el modal
+  // de creacion) -- la gestion de adjuntos queda igual (endpoints
+  // aparte, no se tocan aca).
   // -------------------------------------------------------------
 
   async updateRequest(
@@ -463,9 +481,14 @@ export class DesignBoardService {
     id: string,
     dto: UpdateDesignRequestDto,
   ) {
-    if (dto.title === undefined && dto.instructions === undefined) {
+    if (
+      dto.title === undefined &&
+      dto.instructions === undefined &&
+      dto.country === undefined &&
+      dto.requestType === undefined
+    ) {
       throw new BadRequestException(
-        'Debes indicar al menos title o instructions para editar',
+        'Debes indicar al menos un campo para editar',
       );
     }
 
@@ -489,10 +512,58 @@ export class DesignBoardService {
       );
     }
 
-    const data: { title?: string; instructions?: string | null } = {};
+    const data: {
+      title?: string;
+      instructions?: string | null;
+      country?: DesignRequestCountry;
+      requestType?: string;
+      slaBusinessDays?: number;
+      dueAt?: Date;
+    } = {};
     if (dto.title !== undefined) data.title = dto.title.trim();
     if (dto.instructions !== undefined) {
       data.instructions = dto.instructions.trim() || null;
+    }
+    if (dto.country !== undefined) data.country = dto.country;
+
+    if (dto.requestType !== undefined) {
+      // Las solicitudes creadas antes de persistir requestType (ver
+      // migracion 20261023100000) tienen el campo en null -- se trata
+      // como 'BOCETO' (el default historico) solo para esta comparacion,
+      // asi no se dispara un recalculo de plazo la primera vez que se
+      // edita una de esas solicitudes sin tocar realmente el tipo.
+      const currentEffectiveType = (request.requestType ??
+        'BOCETO') as DesignRequestType;
+
+      data.requestType = dto.requestType;
+
+      // Pedido explicito del usuario (23/oct/2026): si el tipo
+      // REALMENTE cambia, se recalcula el plazo con las mismas reglas
+      // que al crear (resolveCreationSlaBusinessDays), tomando "ahora"
+      // como nuevo punto de partida -- no se toca si se vuelve a
+      // enviar el mismo tipo que ya tenia (p.ej. una edicion que solo
+      // corrige el titulo no debe resetear el plazo).
+      if (dto.requestType !== currentEffectiveType) {
+        const holidaySet = await this.businessDaysService.loadHolidaySet();
+        const effectiveInstructions =
+          dto.instructions !== undefined
+            ? dto.instructions
+            : request.instructions;
+
+        const slaBusinessDays =
+          this.resolveCreationSlaBusinessDays(
+            dto.requestType,
+            effectiveInstructions,
+          ) ?? request.board.defaultSlaDays;
+
+        data.slaBusinessDays = slaBusinessDays;
+        data.dueAt = this.businessDaysService.computeBusinessDueAt(
+          new Date(),
+          slaBusinessDays,
+          holidaySet,
+          { cutoffHour: request.board.slaCutoffHour },
+        );
+      }
     }
 
     const updated = await this.prisma.designRequest.update({
@@ -506,6 +577,47 @@ export class DesignBoardService {
   }
 
   // -------------------------------------------------------------
+  // Eliminar (eliminacion logica) -- pedido explicito del usuario,
+  // 23/oct/2026: la comercial propietaria (o ADMIN) puede eliminar su
+  // propia solicitud solo mientras sigue en la columna inicial "Nuevos"
+  // (si Diseño ya la tomo -- Modificacion/En revision/Terminado -- ya no
+  // se puede, evita perder trabajo o historial de SLA en curso). Igual
+  // criterio que archivedAt: el registro se conserva en la base (ver
+  // deletedAt/deletedByUserId en el schema) pero deja de ser visible en
+  // el tablero y en los listados (findOrThrow/listRequests/
+  // getRequestDetail ya filtran deletedAt: null).
+  // -------------------------------------------------------------
+
+  async deleteRequest(user: AuthUser, id: string) {
+    const request = await this.findOrThrow(id);
+
+    const isOwnerSales =
+      this.isSalesLike(user.role) && request.createdByUserId === user.userId;
+    const isAdmin = user.role === Role.ADMIN;
+
+    if (!isOwnerSales && !isAdmin) {
+      throw new ForbiddenException(
+        'Solo la comercial que creó la solicitud puede eliminarla',
+      );
+    }
+
+    if (!request.column.isInitial) {
+      throw new BadRequestException(
+        'Solo se puede eliminar una solicitud que todavía está en "Nuevos"',
+      );
+    }
+
+    await this.prisma.designRequest.update({
+      where: { id: request.id },
+      data: { deletedAt: new Date(), deletedByUserId: user.userId },
+    });
+
+    await this.emitDesignBoardEvent('design_request.updated', request);
+
+    return { id: request.id };
+  }
+
+  // -------------------------------------------------------------
   // Listar / detalle (con reglas de visibilidad por rol, ver ADR-004 §5)
   // -------------------------------------------------------------
 
@@ -516,21 +628,26 @@ export class DesignBoardService {
     // ADR-004 Submódulo 8: "Aprobados" (isApproved) queda restringida a
     // DESIGNER_MANAGER/ADMIN -- SALES y DESIGNER nunca ven esas tarjetas,
     // archivadas o no.
-    // Ademas (pedido explicito de negocio, 2026-09-30): SALES solo ve sus
-    // propios bocetos y, dentro de esos, solo las columnas "Nuevos"
-    // (isInitial) y "Terminado" (isFinal) -- nunca "Modificacion" ni "En
-    // revision", que son estados internos del area de Diseno. Esto aplica
-    // tanto al listado (listRequests) como al detalle (getRequestDetail,
-    // que reusa este mismo where), asi que una tarjeta en un estado
-    // intermedio tampoco es abrible por id -- assertCanView() (usado por
-    // comentarios/adjuntos) es un chequeo aparte y no se ve afectado, asi
-    // que SALES sigue pudiendo comentar mientras su boceto esta en esos
-    // estados intermedios, solo no lo ve en el tablero.
+    // Ademas (pedido explicito de negocio, 2026-09-30, ampliado 23/oct/2026):
+    // SALES (y SALES_MANAGER, tratado igual en este modulo -- ver
+    // isSalesLike()) solo ve sus propios bocetos y, dentro de esos, solo
+    // las columnas "Nuevos" (isInitial), "Modificacion" (isModification) y
+    // "Terminado" (isFinal) -- nunca "En revision", que sigue siendo un
+    // estado interno del area de Diseno. Esto aplica tanto al listado
+    // (listRequests) como al detalle (getRequestDetail, que reusa este
+    // mismo where), asi que una tarjeta en "En revision" tampoco es
+    // abrible por id -- assertCanView() (usado por comentarios/adjuntos)
+    // es un chequeo aparte y no se ve afectado, asi que SALES sigue
+    // pudiendo comentar mientras su boceto esta en "En revision", solo no
+    // lo ve en el tablero.
     if (this.isSalesLike(user.role)) {
       return {
         createdByUserId: user.userId,
         accountId: user.accountId ?? '__none__',
-        column: { OR: [{ isInitial: true }, { isFinal: true }] },
+        // Pedido explicito del usuario, 23/oct/2026: ahora tambien ve la
+        // columna "Modificacion" (antes solo Nuevos/Terminado) -- "En
+        // revision" sigue oculta, es un estado interno de Diseno.
+        column: { OR: [{ isInitial: true }, { isModification: true }, { isFinal: true }] },
       };
     }
 
@@ -550,6 +667,11 @@ export class DesignBoardService {
   async listRequests(user: AuthUser, query: ListDesignRequestsQueryDto) {
     const where: Prisma.DesignRequestWhereInput = {
       ...this.visibilityWhere(user, query),
+      // Eliminacion logica (23/oct/2026): a diferencia de archivedAt, una
+      // solicitud eliminada nunca se vuelve a mostrar, ni con
+      // includeArchived -- el registro sigue en la base para reportes/
+      // auditoria, pero no para nadie que use la app.
+      deletedAt: null,
       ...(query.columnId ? { columnId: query.columnId } : {}),
       // ADR-004 Submódulo 8: el tablero excluye archivadas por defecto
       // (siguen existiendo íntegras para reportes/historial -- ver
@@ -592,9 +714,19 @@ export class DesignBoardService {
     });
 
     const holidaySet = await this.businessDaysService.loadHolidaySet();
+    const userDisplayMap = await this.loadUserDisplayMap(
+      requests.flatMap((r) => [r.createdByUserId, r.assignedUserId]),
+    );
     return requests.map((request) =>
       this.withSlaStatus(
-        { ...request, lead: request.lead ? withLeadDisplayName(request.lead) : null },
+        {
+          ...request,
+          lead: request.lead ? withLeadDisplayName(request.lead) : null,
+          createdByUser: userDisplayMap.get(request.createdByUserId) ?? null,
+          assignedUser: request.assignedUserId
+            ? userDisplayMap.get(request.assignedUserId) ?? null
+            : null,
+        },
         holidaySet,
       ),
     );
@@ -616,6 +748,7 @@ export class DesignBoardService {
   async getRequestDetail(user: AuthUser, id: string) {
     const where: Prisma.DesignRequestWhereInput = {
       id,
+      deletedAt: null,
       ...this.visibilityWhere(user),
     };
 
@@ -648,8 +781,25 @@ export class DesignBoardService {
     if (!request) throw new NotFoundException('Design request not found');
 
     const holidaySet = await this.businessDaysService.loadHolidaySet();
+    const userDisplayMap = await this.loadUserDisplayMap([
+      request.createdByUserId,
+      request.assignedUserId,
+      ...request.comments.map((c) => c.authorUserId),
+    ]);
+
     return this.withSlaStatus(
-      { ...request, lead: request.lead ? withLeadDisplayName(request.lead) : null },
+      {
+        ...request,
+        lead: request.lead ? withLeadDisplayName(request.lead) : null,
+        createdByUser: userDisplayMap.get(request.createdByUserId) ?? null,
+        assignedUser: request.assignedUserId
+          ? userDisplayMap.get(request.assignedUserId) ?? null
+          : null,
+        comments: request.comments.map((comment) => ({
+          ...comment,
+          author: userDisplayMap.get(comment.authorUserId) ?? null,
+        })),
+      },
       holidaySet,
     );
   }
@@ -658,6 +808,39 @@ export class DesignBoardService {
   // 1 día hábil para `dueAt`, naranja si queda 1 día hábil o menos (vence
   // hoy o mañana hábil), rojo si ya venció. Una solicitud que ya llegó a
   // "Terminado" deja de considerarse en riesgo de atraso.
+  // Devuelve un Map id -> {id,email,name} con el mismo 'nombre a mostrar'
+  // que el resto de la app (ver resolveDisplayName en users.service.ts),
+  // para poder mostrar 'Creado por'/'Asignado a'/autor de comentario sin
+  // depender de GET /users/:id (restringido a ADMIN/SALES_MANAGER/
+  // DESIGNER_MANAGER) -- pedido explicito del usuario, 23/oct/2026.
+  private async loadUserDisplayMap(
+    userIds: Array<string | null | undefined>,
+  ): Promise<Map<string, { id: string; email: string; name: string | null }>> {
+    const ids = Array.from(
+      new Set(userIds.filter((id): id is string => Boolean(id))),
+    );
+
+    if (ids.length === 0) return new Map();
+
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        account: { select: { name: true } },
+      },
+    });
+
+    return new Map(
+      users.map((u) => [
+        u.id,
+        { id: u.id, email: u.email, name: resolveDisplayName(u) },
+      ]),
+    );
+  }
+
   private withSlaStatus<
     T extends { dueAt: Date; completedAt: Date | null; pausedAt?: Date | null },
   >(
@@ -698,7 +881,13 @@ export class DesignBoardService {
       include: { column: true, board: { include: { columns: true } } },
     });
 
-    if (!request) throw new NotFoundException('Design request not found');
+    // Eliminacion logica (23/oct/2026): una vez eliminada, ninguna accion
+    // (comentar, mover, aprobar, editar, etc.) debe poder seguir operando
+    // sobre ella, igual que si no existiera -- se trata exactamente igual
+    // que "no encontrada" en vez de exponer que existio.
+    if (!request || request.deletedAt) {
+      throw new NotFoundException('Design request not found');
+    }
 
     return request;
   }
@@ -744,7 +933,15 @@ export class DesignBoardService {
       select: { id: true, role: true },
     });
 
-    if (!designer || designer.role !== Role.DESIGNER) {
+    // Pedido explicito del usuario, 23/oct/2026: el Jefe de Diseño puede
+    // autoasignarse una solicitud (para poder tener sus propias tareas y
+    // contarlas luego con los filtros), aunque su rol no sea DESIGNER --
+    // sigue viendo/gestionando TODAS las solicitudes igual que antes, esto
+    // solo habilita asignarse a si mismo, nunca a otro DESIGNER_MANAGER.
+    const isSelfAssignByManager =
+      user.role === Role.DESIGNER_MANAGER && dto.assignedUserId === user.userId;
+
+    if (!designer || (designer.role !== Role.DESIGNER && !isSelfAssignByManager)) {
       throw new BadRequestException('El usuario indicado no es un diseñador');
     }
 

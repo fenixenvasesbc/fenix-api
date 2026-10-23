@@ -67,8 +67,8 @@ export class DesignBoardController {
     return this.designBoardService.getRequestDetail(req.user, id);
   }
 
-  // Edicion de titulo/descripcion por la comercial propietaria -- el
-  // service valida la propiedad (createdByUserId) y que no este
+  // Edicion de titulo/descripcion/pais/tipo por la comercial propietaria --
+  // el service valida la propiedad (createdByUserId) y que no este
   // archivada; aca se habilita el rol igual que en createRequest
   // (ADMIN, SALES) para no duplicar esa regla en dos lugares.
   @Roles(Role.ADMIN, Role.SALES)
@@ -79,6 +79,18 @@ export class DesignBoardController {
     @Body() dto: UpdateDesignRequestDto,
   ) {
     return this.designBoardService.updateRequest(req.user, id, dto);
+  }
+
+  // Eliminacion logica por la comercial propietaria -- pedido explicito
+  // del usuario, 23/oct/2026 (ver DesignBoardService.deleteRequest). Mismo
+  // criterio de rol que updateRequest/createRequest.
+  @Roles(Role.ADMIN, Role.SALES)
+  @Delete('requests/:id')
+  deleteRequest(
+    @Req() req: { user: AuthUser },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.designBoardService.deleteRequest(req.user, id);
   }
 
   @Roles(Role.ADMIN, Role.DESIGNER_MANAGER)

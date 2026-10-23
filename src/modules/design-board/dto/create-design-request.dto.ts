@@ -157,6 +157,12 @@ export class DesignBoardReportsQueryDto {
 // descripcion despues, para no mover un plazo que el diseñador ya esta
 // viendo correr. Al menos un campo es obligatorio (ver
 // DesignBoardService.updateRequest).
+// Pedido explicito del usuario (23/oct/2026): la comercial propietaria (o
+// ADMIN) puede editar los mismos campos que elige al crear la solicitud --
+// titulo, descripcion, pais y tipo -- no solo titulo/instructions como
+// antes. Editar requestType puede recalcular el plazo (ver
+// DesignBoardService.updateRequest): solo si el tipo efectivo realmente
+// cambia respecto al que ya tenia.
 export class UpdateDesignRequestDto {
   @IsOptional()
   @IsString()
@@ -168,6 +174,14 @@ export class UpdateDesignRequestDto {
   @IsString()
   @MaxLength(4000)
   instructions?: string;
+
+  @IsOptional()
+  @IsEnum(DesignRequestCountry)
+  country?: DesignRequestCountry;
+
+  @IsOptional()
+  @IsIn(DESIGN_REQUEST_TYPES)
+  requestType?: DesignRequestType;
 }
 
 export class AssignDesignRequestDto {

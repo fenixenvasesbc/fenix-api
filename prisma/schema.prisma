@@ -1423,6 +1423,15 @@ model DesignRequest {
   title        String
   country      DesignRequestCountry @default(ES)
   instructions String?              @db.Text
+  // Tipo elegido por SALES/ADMIN en el modal de creacion (BOCETO/MOD/
+  // REPET_BOCETO/REPET_MOD/REPET_ANADE -- ver DesignRequestType en
+  // create-design-request.dto.ts). String simple, no enum de Prisma, para
+  // seguir el mismo criterio que ya usa ese DTO (@IsIn en vez de @IsEnum).
+  // Null en solicitudes creadas antes de este campo (23/oct/2026) -- no
+  // se puede reconstruir retroactivamente, se trata como 'BOCETO' donde
+  // haga falta un valor por defecto (ver resolveCreationSlaBusinessDays /
+  // la UI de edicion).
+  requestType  String?
 
   createdByUserId  String
   assignedUserId   String?
@@ -1449,6 +1458,15 @@ model DesignRequest {
 
   archivedAt       DateTime? // Submodulo 8: "Marcar como hecho" desde Aprobados
   archivedByUserId String?
+
+  // Eliminacion logica (pedido explicito del usuario, 23/oct/2026): la
+  // comercial propietaria (o ADMIN) puede eliminar su propia solicitud
+  // mientras siga en la columna inicial "Nuevos" -- igual criterio que
+  // archivedAt, el registro se conserva en la base (reportes/auditoria)
+  // pero deja de ser visible en el tablero y en los listados (ver
+  // findOrThrow/listRequests/getRequestDetail en DesignBoardService).
+  deletedAt       DateTime?
+  deletedByUserId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
