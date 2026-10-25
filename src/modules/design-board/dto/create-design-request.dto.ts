@@ -157,11 +157,17 @@ export class ListDesignRequestsQueryDto {
 }
 
 export class DesignBoardReportsQueryDto {
-  // ADR-004 Submódulo 10: "YYYY-MM" para un mes puntual; si se omite, el
-  // mes actual (mismo formato/convención que ListDesignRequestsQueryDto).
+  // Pedido explicito del usuario, 25/oct/2026: las estadisticas ya no se
+  // filtran por mes completo, sino por un rango de fechas (Desde/Hasta).
+  // "YYYY-MM-DD"; si se omite cualquiera de los dos, se usa la semana en
+  // curso (lunes a domingo) -- ver DesignBoardService.reportsDateRange().
   @IsOptional()
-  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/)
-  month?: string;
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  dateFrom?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  dateTo?: string;
 }
 
 // Edicion de titulo/descripcion por la comercial propietaria (o ADMIN)

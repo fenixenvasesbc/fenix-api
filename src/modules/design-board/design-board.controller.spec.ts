@@ -176,13 +176,13 @@ describe('DesignBoardController', () => {
   });
 
   it('getReportsSummary delegates to the service with req.user and the query', () => {
-    const query = { month: '2026-01' } as any;
-    service.getReportsSummary.mockResolvedValue({ month: '2026-01' });
+    const query = { dateFrom: '2026-01-05', dateTo: '2026-01-11' } as any;
+    service.getReportsSummary.mockResolvedValue({ dateFrom: '2026-01-05', dateTo: '2026-01-11' });
 
     const result = controller.getReportsSummary(req, query);
 
     expect(service.getReportsSummary).toHaveBeenCalledWith(SALES, query);
-    expect(result).resolves.toEqual({ month: '2026-01' });
+    expect(result).resolves.toEqual({ dateFrom: '2026-01-05', dateTo: '2026-01-11' });
   });
 
   it('getMyMonthlyApprovalRate delegates to the service with req.user', () => {

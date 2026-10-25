@@ -1782,7 +1782,7 @@ describe('DesignBoardService', () => {
       expect(prisma.designRequest.count).not.toHaveBeenCalled();
     });
 
-    it('aggregates completed/approved counts, breakdowns, and the approval rate for the given month', async () => {
+    it('aggregates completed/approved counts, breakdowns, and the approval rate for the given date range', async () => {
       prisma.designRequest.count
         .mockResolvedValueOnce(10) // completedCount
         .mockResolvedValueOnce(4); // approvedCount
@@ -1796,10 +1796,14 @@ describe('DesignBoardService', () => {
           { createdByUserId: 'sales-2', _count: { _all: 2 } },
         ]);
 
-      const result = await service.getReportsSummary(MANAGER, { month: '2026-01' });
+      const result = await service.getReportsSummary(MANAGER, {
+        dateFrom: '2026-01-05',
+        dateTo: '2026-01-11',
+      });
 
       expect(result).toEqual({
-        month: '2026-01',
+        dateFrom: '2026-01-05',
+        dateTo: '2026-01-11',
         completedCount: 10,
         approvedCount: 4,
         approvalRate: 40,
@@ -1824,13 +1828,16 @@ describe('DesignBoardService', () => {
     // contando como aprobado de ESTE mes -- todas las queries de
     // "aprobado" filtran por completedAt del mes pedido + approvedAt no
     // nulo (sin importar en que mes caiga approvedAt).
-    it('counts a request completed in the queried month but approved in a LATER month as approved of the queried month', async () => {
+    it('counts a request completed in the queried range but approved LATER as approved of the queried range', async () => {
       prisma.designRequest.count.mockResolvedValueOnce(1).mockResolvedValueOnce(1);
       prisma.designRequest.groupBy
         .mockResolvedValueOnce([{ country: 'ES', _count: { _all: 1 } }])
         .mockResolvedValueOnce([{ createdByUserId: 'sales-1', _count: { _all: 1 } }]);
 
-      const result = await service.getReportsSummary(MANAGER, { month: '2026-01' });
+      const result = await service.getReportsSummary(MANAGER, {
+        dateFrom: '2026-01-01',
+        dateTo: '2026-01-31',
+      });
 
       expect(result.completedCount).toBe(1);
       expect(result.approvedCount).toBe(1);
@@ -1868,18 +1875,37 @@ describe('DesignBoardService', () => {
       prisma.designRequest.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
       prisma.designRequest.groupBy.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
 
-      const result = await service.getReportsSummary(ADMIN, { month: '2026-02' });
+      const result = await service.getReportsSummary(ADMIN, {
+        dateFrom: '2026-02-01',
+        dateTo: '2026-02-28',
+      });
 
       expect(result.approvalRate).toBe(0);
     });
 
-    it('defaults to the current month when none is given', async () => {
+    it('defaults to the current week (Monday-Sunday) when no range is given', async () => {
       prisma.designRequest.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
       prisma.designRequest.groupBy.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
 
       const result = await service.getReportsSummary(MANAGER, {});
 
-      expect(result.month).toMatch(/^\d{4}-\d{2}$/);
+      expect(result.dateFrom).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(result.dateTo).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      const from = new Date(`${result.dateFrom}T00:00:00.000Z`);
+      const to = new Date(`${result.dateTo}T00:00:00.000Z`);
+      expect(from.getUTCDay()).toBe(1); // lunes
+      expect(to.getUTCDay()).toBe(0); // domingo
+      expect((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)).toBe(6);
+    });
+
+    it('only defaults to the current week when BOTH dateFrom and dateTo are missing', async () => {
+      prisma.designRequest.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+      prisma.designRequest.groupBy.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+      const result = await service.getReportsSummary(MANAGER, { dateFrom: '2026-01-05' });
+
+      // Falta dateTo -> se ignora el rango parcial y se usa la semana en curso.
+      expect(result.dateFrom).not.toBe('2026-01-05');
     });
   });
 

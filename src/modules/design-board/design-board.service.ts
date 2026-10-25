@@ -770,6 +770,42 @@ export class DesignBoardService {
     return { start, end };
   }
 
+  // Semana en curso (lunes a domingo, en UTC) -- pedido explicito del
+  // usuario, 25/oct/2026, para el default del filtro de estadisticas del
+  // tablero de bocetos cuando no se pasa un rango explicito.
+  private currentWeekRange(): { start: Date; end: Date } {
+    const now = new Date();
+    const startOfToday = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
+    const day = startOfToday.getUTCDay(); // 0 domingo, 1 lunes, ... 6 sabado
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    const start = new Date(startOfToday);
+    start.setUTCDate(start.getUTCDate() + diffToMonday);
+    const end = new Date(start);
+    end.setUTCDate(end.getUTCDate() + 7);
+    return { start, end };
+  }
+
+  // "YYYY-MM-DD"/"YYYY-MM-DD" (ambos opcionales; si falta alguno, se usa
+  // la semana en curso) -> limites [inicio, fin) del rango, con dateTo
+  // INCLUSIVO (fin = dia siguiente a dateTo).
+  private reportsDateRange(
+    dateFrom?: string,
+    dateTo?: string,
+  ): { start: Date; end: Date } {
+    if (!dateFrom || !dateTo) {
+      return this.currentWeekRange();
+    }
+
+    const [fy, fm, fd] = dateFrom.split('-').map(Number);
+    const [ty, tm, td] = dateTo.split('-').map(Number);
+    const start = new Date(Date.UTC(fy, fm - 1, fd));
+    const end = new Date(Date.UTC(ty, tm - 1, td));
+    end.setUTCDate(end.getUTCDate() + 1);
+    return { start, end };
+  }
+
   async getRequestDetail(user: AuthUser, id: string) {
     const where: Prisma.DesignRequestWhereInput = {
       id,
@@ -1732,59 +1768,68 @@ export class DesignBoardService {
   // estadísticas").
   // -------------------------------------------------------------
 
-  async getReportsSummary(user: AuthUser, query: { month?: string }) {
+  async getReportsSummary(
+    user: AuthUser,
+    query: { dateFrom?: string; dateTo?: string },
+  ) {
     if (user.role !== Role.DESIGNER_MANAGER && user.role !== Role.ADMIN) {
       throw new ForbiddenException(
         'Solo el Jefe de Diseño puede ver los reportes',
       );
     }
 
-    const { start, end } = this.monthRange(query.month);
-    const monthKey =
-      query.month ??
-      `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}`;
+    // Pedido explicito del usuario, 25/oct/2026: las estadisticas dejaron
+    // de filtrarse solo por mes completo -- ahora por un rango de fechas
+    // (Desde/Hasta, mismo patron que el dashboard de administrador), que
+    // por defecto es la semana en curso (lunes a domingo, en UTC, igual
+    // convencion que monthRange()). dateTo es INCLUSIVO (se cuenta el dia
+    // completo).
+    const { start, end } = this.reportsDateRange(query.dateFrom, query.dateTo);
+    const dateFromKey = start.toISOString().slice(0, 10);
+    const dateToKey = new Date(end.getTime() - 1).toISOString().slice(0, 10);
 
-    // Cohorte por mes de TERMINADO (06/oct/2026, correccion pedida por el
-    // cliente): un boceto terminado en un mes pero aprobado recien en un
-    // mes posterior debe contar como aprobado del mes en que se termino,
-    // no del mes en que se aprobo -- antes `approvedCount`/los breakdowns
-    // se filtraban por `approvedAt` (mes de la aprobacion), lo que podia
-    // dar aprobados > terminados o un 0% enganoso cuando la aprobacion
-    // caia en otro mes. Ahora todo se filtra por `completedAt` dentro del
-    // mes pedido, y "aprobado" simplemente exige `approvedAt` no nulo
-    // (sin importar en que mes caiga esa fecha).
-    const completedInMonth = { completedAt: { gte: start, lt: end } };
-    const approvedFromMonthCohort = {
-      ...completedInMonth,
+    // Cohorte por TERMINADO dentro del rango (06/oct/2026, correccion
+    // pedida por el cliente): un boceto terminado en el rango pero
+    // aprobado recien despues debe contar como aprobado del rango en que
+    // se termino, no de cuando se aprobo -- antes `approvedCount`/los
+    // breakdowns se filtraban por `approvedAt`, lo que podia dar
+    // aprobados > terminados o un 0% enganoso cuando la aprobacion caia
+    // fuera del rango. Ahora todo se filtra por `completedAt` dentro del
+    // rango pedido, y "aprobado" simplemente exige `approvedAt` no nulo
+    // (sin importar cuando caiga esa fecha).
+    const completedInRange = { completedAt: { gte: start, lt: end } };
+    const approvedFromRangeCohort = {
+      ...completedInRange,
       approvedAt: { not: null },
     };
 
     const [completedCount, approvedCount, approvedByCountry, approvedByCreator] =
       await Promise.all([
         this.prisma.designRequest.count({
-          where: completedInMonth,
+          where: completedInRange,
         }),
         this.prisma.designRequest.count({
-          where: approvedFromMonthCohort,
+          where: approvedFromRangeCohort,
         }),
         this.prisma.designRequest.groupBy({
           by: ['country'],
-          where: approvedFromMonthCohort,
+          where: approvedFromRangeCohort,
           _count: { _all: true },
         }),
         this.prisma.designRequest.groupBy({
           by: ['createdByUserId'],
-          where: approvedFromMonthCohort,
+          where: approvedFromRangeCohort,
           _count: { _all: true },
         }),
       ]);
 
-    // ADR-004 §10: aprobados (cohorte de terminados del mes) / terminados del período.
+    // ADR-004 §10: aprobados (cohorte de terminados del rango) / terminados del período.
     const approvalRate =
       completedCount > 0 ? (approvedCount / completedCount) * 100 : 0;
 
     return {
-      month: monthKey,
+      dateFrom: dateFromKey,
+      dateTo: dateToKey,
       completedCount,
       approvedCount,
       approvalRate,
