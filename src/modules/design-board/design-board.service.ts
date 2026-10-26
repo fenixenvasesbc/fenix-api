@@ -1892,6 +1892,7 @@ export class DesignBoardService {
       approvedByCountry,
       completedByCreator,
       approvedByCreator,
+      completedByDesignerRequests,
     ] = await Promise.all([
       this.prisma.designRequest.count({ where: completedInMonth }),
       this.prisma.designRequest.count({ where: approvedFromMonthCohort }),
@@ -1909,6 +1910,17 @@ export class DesignBoardService {
         by: ['createdByUserId'],
         where: approvedFromMonthCohort,
         _count: { _all: true },
+      }),
+      // Pedido explicito del usuario, 26/oct/2026: historico de bocetos
+      // TERMINADOS por diseñador (assignedUserId), con el nombre de cada
+      // solicitud para poder listarlas al hacer click en un diseñador.
+      // Misma cohorte "completedInMonth" que ya cumple las dos reglas que
+      // pidio: si vuelve a Modificacion se le limpia completedAt (deja de
+      // contar, ver sendToModification()), y si pasa a Aprobados
+      // completedAt NO se toca (sigue contando para este diseñador).
+      this.prisma.designRequest.findMany({
+        where: completedInMonth,
+        select: { id: true, title: true, assignedUserId: true },
       }),
     ]);
 
@@ -1933,6 +1945,31 @@ export class DesignBoardService {
       };
     });
 
+    // Agrupa en memoria (no groupBy) porque tambien necesitamos el titulo
+    // de cada solicitud, no solo el conteo -- "Sin asignar" agrupa las
+    // (raras) terminadas sin assignedUserId, para no perderlas del total.
+    const byDesignerMap = new Map<
+      string,
+      { assignedUserId: string | null; completedCount: number; requests: { id: string; title: string }[] }
+    >();
+    for (const request of completedByDesignerRequests as Array<{
+      id: string;
+      title: string;
+      assignedUserId: string | null;
+    }>) {
+      const key = request.assignedUserId ?? '__UNASSIGNED__';
+      if (!byDesignerMap.has(key)) {
+        byDesignerMap.set(key, {
+          assignedUserId: request.assignedUserId,
+          completedCount: 0,
+          requests: [],
+        });
+      }
+      const entry = byDesignerMap.get(key)!;
+      entry.completedCount += 1;
+      entry.requests.push({ id: request.id, title: request.title });
+    }
+
     return {
       month: monthKey,
       completedCount,
@@ -1943,6 +1980,7 @@ export class DesignBoardService {
         count: row._count._all,
       })),
       byCreator,
+      byDesigner: Array.from(byDesignerMap.values()),
     };
   }
 

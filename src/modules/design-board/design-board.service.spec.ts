@@ -89,7 +89,7 @@ describe('DesignBoardService', () => {
       },
       designBoardColumn: { createMany: jest.fn() },
       designRequest: {
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn(),
         findUnique: jest.fn(),
         update: jest.fn(),
@@ -1929,14 +1929,30 @@ describe('DesignBoardService', () => {
           country: [{ country: 'ES', _count: { _all: 1 } }],
           completedByCreator: [{ createdByUserId: 'sales-1', _count: { _all: 2 } }],
           approvedByCreator: [{ createdByUserId: 'sales-1', _count: { _all: 1 } }],
+          completedRequests: [
+            { id: 'req-1', title: 'Boceto cliente A', assignedUserId: 'designer-1' },
+            { id: 'req-2', title: 'Boceto cliente B', assignedUserId: 'designer-1' },
+          ],
         },
-        '2025-12': { completed: 0, approved: 0, country: [], completedByCreator: [], approvedByCreator: [] },
+        '2025-12': {
+          completed: 0,
+          approved: 0,
+          country: [],
+          completedByCreator: [],
+          approvedByCreator: [],
+          completedRequests: [],
+        },
         '2026-01': {
           completed: 5,
           approved: 5,
           country: [{ country: 'FR', _count: { _all: 5 } }],
           completedByCreator: [{ createdByUserId: 'sales-2', _count: { _all: 5 } }],
           approvedByCreator: [{ createdByUserId: 'sales-2', _count: { _all: 5 } }],
+          completedRequests: [
+            { id: 'req-3', title: 'Boceto cliente C', assignedUserId: 'designer-2' },
+            { id: 'req-4', title: 'Boceto cliente D', assignedUserId: 'designer-2' },
+            { id: 'req-5', title: 'Boceto cliente E', assignedUserId: null },
+          ],
         },
       };
 
@@ -1948,6 +1964,10 @@ describe('DesignBoardService', () => {
         const key = monthKeyFromGte(where.completedAt.gte);
         if (by[0] === 'country') return dataByMonth[key].country;
         return where.approvedAt ? dataByMonth[key].approvedByCreator : dataByMonth[key].completedByCreator;
+      });
+      prisma.designRequest.findMany.mockImplementation(async ({ where }: any) => {
+        const key = monthKeyFromGte(where.completedAt.gte);
+        return dataByMonth[key].completedRequests;
       });
 
       const result = await service.getReportsSummary(MANAGER, { dateTo: '2026-01-15' });
@@ -1963,16 +1983,46 @@ describe('DesignBoardService', () => {
       expect(nov.byCreator).toEqual([
         { createdByUserId: 'sales-1', completedCount: 2, approvedCount: 1, approvalRate: 50 },
       ]);
+      // Historico de terminados por diseñador, con el nombre de cada
+      // solicitud -- pedido explicito del usuario, 26/oct/2026.
+      expect(nov.byDesigner).toEqual([
+        {
+          assignedUserId: 'designer-1',
+          completedCount: 2,
+          requests: [
+            { id: 'req-1', title: 'Boceto cliente A' },
+            { id: 'req-2', title: 'Boceto cliente B' },
+          ],
+        },
+      ]);
 
       expect(dec.completedCount).toBe(0);
       expect(dec.approvalRate).toBe(0);
       expect(dec.byCreator).toEqual([]);
+      expect(dec.byDesigner).toEqual([]);
 
       expect(jan.completedCount).toBe(5);
       expect(jan.approvedCount).toBe(5);
       expect(jan.approvalRate).toBe(100);
       expect(jan.byCreator).toEqual([
         { createdByUserId: 'sales-2', completedCount: 5, approvedCount: 5, approvalRate: 100 },
+      ]);
+      // Dos diseñadores distintos + una solicitud sin asignar, cada uno en
+      // su propio grupo (la sin asignar no se pierde del total).
+      expect(jan.byDesigner).toEqual([
+        {
+          assignedUserId: 'designer-2',
+          completedCount: 2,
+          requests: [
+            { id: 'req-3', title: 'Boceto cliente C' },
+            { id: 'req-4', title: 'Boceto cliente D' },
+          ],
+        },
+        {
+          assignedUserId: null,
+          completedCount: 1,
+          requests: [{ id: 'req-5', title: 'Boceto cliente E' }],
+        },
       ]);
     });
 
