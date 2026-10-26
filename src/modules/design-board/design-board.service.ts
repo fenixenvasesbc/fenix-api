@@ -1813,9 +1813,16 @@ export class DesignBoardService {
     user: AuthUser,
     query: { dateFrom?: string; dateTo?: string },
   ) {
-    if (user.role !== Role.DESIGNER_MANAGER && user.role !== Role.ADMIN) {
+    // Pedido explicito del usuario, 26/oct/2026: la jefa de ventas
+    // (SALES_MANAGER) tambien puede ver este reporte -- mismo criterio
+    // que el guard del controller (@Roles en design-board.controller.ts).
+    if (
+      user.role !== Role.DESIGNER_MANAGER &&
+      user.role !== Role.ADMIN &&
+      user.role !== Role.SALES_MANAGER
+    ) {
       throw new ForbiddenException(
-        'Solo el Jefe de Diseño puede ver los reportes',
+        'No tenés permiso para ver los reportes',
       );
     }
 

@@ -239,7 +239,11 @@ export class DesignBoardController {
     return merge(designBoardEvents$, heartbeat$);
   }
 
-  @Roles(Role.ADMIN, Role.DESIGNER_MANAGER)
+  // Pedido explicito del usuario, 26/oct/2026: la jefa de ventas
+  // (SALES_MANAGER) tambien puede ver este reporte, igual que el Jefe de
+  // Diseño/Admin -- sigue sin poder gestionar el tablero (mover tarjetas,
+  // asignar diseñador, etc.), eso sigue limitado a ADMIN/DESIGNER_MANAGER.
+  @Roles(Role.ADMIN, Role.DESIGNER_MANAGER, Role.SALES_MANAGER)
   @Get('reports/summary')
   getReportsSummary(
     @Req() req: { user: AuthUser },

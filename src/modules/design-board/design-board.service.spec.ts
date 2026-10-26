@@ -1887,11 +1887,28 @@ describe('DesignBoardService', () => {
   // ---------------------------------------------------------------
 
   describe('getReportsSummary', () => {
-    it('rejects roles other than DESIGNER_MANAGER/ADMIN', async () => {
+    it('rejects roles other than DESIGNER_MANAGER/ADMIN/SALES_MANAGER', async () => {
       await expect(service.getReportsSummary(SALES, {})).rejects.toBeInstanceOf(
         ForbiddenException,
       );
       expect(prisma.designRequest.count).not.toHaveBeenCalled();
+    });
+
+    it('rejects a plain DESIGNER too', async () => {
+      await expect(service.getReportsSummary(DESIGNER, {})).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    // Pedido explicito del usuario, 26/oct/2026: la jefa de ventas tambien
+    // puede ver este reporte, igual que el Jefe de Diseño/Admin.
+    it('allows SALES_MANAGER (la jefa de ventas) to see the report', async () => {
+      prisma.designRequest.count.mockResolvedValue(0);
+      prisma.designRequest.groupBy.mockResolvedValue([]);
+
+      const result = await service.getReportsSummary(SALES_MANAGER, {});
+
+      expect(result.months).toHaveLength(3);
     });
 
     function monthKeyFromGte(gte: Date): string {
