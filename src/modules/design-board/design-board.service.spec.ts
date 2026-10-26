@@ -54,10 +54,11 @@ describe('DesignBoardService', () => {
       groupBy: jest.Mock;
     };
     designRequestStatusEvent: { create: jest.Mock };
-    designRequestComment: { create: jest.Mock };
+    designRequestComment: { create: jest.Mock; groupBy: jest.Mock };
+    designRequestCommentView: { findMany: jest.Mock; upsert: jest.Mock };
     designRequestAttachment: { findFirst: jest.Mock; update: jest.Mock };
     appNotification: { upsert: jest.Mock; create: jest.Mock };
-    user: { findUnique: jest.Mock };
+    user: { findUnique: jest.Mock; findMany: jest.Mock };
     lead: { findUnique: jest.Mock };
     $transaction: jest.Mock;
   };
@@ -96,10 +97,14 @@ describe('DesignBoardService', () => {
         groupBy: jest.fn(),
       },
       designRequestStatusEvent: { create: jest.fn() },
-      designRequestComment: { create: jest.fn() },
+      designRequestComment: { create: jest.fn(), groupBy: jest.fn().mockResolvedValue([]) },
+      designRequestCommentView: {
+        findMany: jest.fn().mockResolvedValue([]),
+        upsert: jest.fn().mockResolvedValue({}),
+      },
       designRequestAttachment: { findFirst: jest.fn(), update: jest.fn() },
       appNotification: { upsert: jest.fn(), create: jest.fn() },
-      user: { findUnique: jest.fn() },
+      user: { findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
       lead: { findUnique: jest.fn() },
       $transaction: jest.fn((callback: any) => callback(tx)),
     };
@@ -869,6 +874,74 @@ describe('DesignBoardService', () => {
         });
       });
     });
+
+    describe('hasNewComments (indicador de comentario nuevo por usuario)', () => {
+      function requestFixture() {
+        return {
+          id: 'req-1',
+          createdByUserId: 'sales-1',
+          assignedUserId: null,
+          dueAt: new Date(Date.now() + 60 * 60 * 1000),
+          completedAt: null,
+          lead: null,
+        };
+      }
+
+      it('is true when someone else commented and this user never viewed the request', async () => {
+        prisma.designRequest.findMany.mockResolvedValue([requestFixture()]);
+        prisma.designRequestComment.groupBy.mockResolvedValue([
+          { designRequestId: 'req-1', _max: { createdAt: new Date('2026-01-10T00:00:00.000Z') } },
+        ]);
+        prisma.designRequestCommentView.findMany.mockResolvedValue([]);
+
+        const [result] = await service.listRequests(SALES, { month: 'all' });
+
+        expect(result.hasNewComments).toBe(true);
+        expect(prisma.designRequestComment.groupBy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({ authorUserId: { not: 'sales-1' } }),
+          }),
+        );
+      });
+
+      it('is true when someone else commented AFTER the last time this user viewed it', async () => {
+        prisma.designRequest.findMany.mockResolvedValue([requestFixture()]);
+        prisma.designRequestComment.groupBy.mockResolvedValue([
+          { designRequestId: 'req-1', _max: { createdAt: new Date('2026-01-10T00:00:00.000Z') } },
+        ]);
+        prisma.designRequestCommentView.findMany.mockResolvedValue([
+          { designRequestId: 'req-1', lastViewedAt: new Date('2026-01-01T00:00:00.000Z') },
+        ]);
+
+        const [result] = await service.listRequests(SALES, { month: 'all' });
+
+        expect(result.hasNewComments).toBe(true);
+      });
+
+      it('is false when this user viewed it AFTER the last other-authored comment', async () => {
+        prisma.designRequest.findMany.mockResolvedValue([requestFixture()]);
+        prisma.designRequestComment.groupBy.mockResolvedValue([
+          { designRequestId: 'req-1', _max: { createdAt: new Date('2026-01-10T00:00:00.000Z') } },
+        ]);
+        prisma.designRequestCommentView.findMany.mockResolvedValue([
+          { designRequestId: 'req-1', lastViewedAt: new Date('2026-01-15T00:00:00.000Z') },
+        ]);
+
+        const [result] = await service.listRequests(SALES, { month: 'all' });
+
+        expect(result.hasNewComments).toBe(false);
+      });
+
+      it('is false when there are no comments from anyone else (e.g. only the owner commented)', async () => {
+        prisma.designRequest.findMany.mockResolvedValue([requestFixture()]);
+        prisma.designRequestComment.groupBy.mockResolvedValue([]);
+        prisma.designRequestCommentView.findMany.mockResolvedValue([]);
+
+        const [result] = await service.listRequests(SALES, { month: 'all' });
+
+        expect(result.hasNewComments).toBe(false);
+      });
+    });
   });
 
   describe('getRequestDetail', () => {
@@ -877,6 +950,7 @@ describe('DesignBoardService', () => {
         id: 'req-1',
         dueAt: new Date(Date.now() + 60 * 60 * 1000),
         completedAt: null,
+        comments: [],
       };
       prisma.designRequest.findFirst.mockResolvedValue(request);
 
@@ -891,6 +965,44 @@ describe('DesignBoardService', () => {
       await expect(service.getRequestDetail(OTHER_SALES, 'req-1')).rejects.toBeInstanceOf(
         NotFoundException,
       );
+    });
+
+    // Pedido explicito del usuario, 26/oct/2026: abrir el detalle marca el
+    // boceto como "visto" por ESTE usuario (limpia su propio indicador de
+    // comentario nuevo en la card -- ver listRequests()/hasNewComments).
+    it('marks the request as viewed by this user (upserts DesignRequestCommentView)', async () => {
+      const request = {
+        id: 'req-1',
+        dueAt: new Date(Date.now() + 60 * 60 * 1000),
+        completedAt: null,
+        comments: [],
+      };
+      prisma.designRequest.findFirst.mockResolvedValue(request);
+
+      await service.getRequestDetail(SALES, 'req-1');
+
+      expect(prisma.designRequestCommentView.upsert).toHaveBeenCalledWith({
+        where: {
+          designRequestId_userId: { designRequestId: 'req-1', userId: 'sales-1' },
+        },
+        update: { lastViewedAt: expect.any(Date) },
+        create: { designRequestId: 'req-1', userId: 'sales-1' },
+      });
+    });
+
+    it('does not fail the detail fetch when marking as viewed throws', async () => {
+      const request = {
+        id: 'req-1',
+        dueAt: new Date(Date.now() + 60 * 60 * 1000),
+        completedAt: null,
+        comments: [],
+      };
+      prisma.designRequest.findFirst.mockResolvedValue(request);
+      prisma.designRequestCommentView.upsert.mockRejectedValueOnce(new Error('db down'));
+
+      const result = await service.getRequestDetail(SALES, 'req-1');
+
+      expect(result).toEqual({ ...request, slaStatus: 'ON_TIME' });
     });
   });
 
@@ -1782,130 +1894,111 @@ describe('DesignBoardService', () => {
       expect(prisma.designRequest.count).not.toHaveBeenCalled();
     });
 
-    it('aggregates completed/approved counts, breakdowns, and the approval rate for the given date range', async () => {
-      prisma.designRequest.count
-        .mockResolvedValueOnce(10) // completedCount
-        .mockResolvedValueOnce(4); // approvedCount
-      prisma.designRequest.groupBy
-        .mockResolvedValueOnce([
-          { country: 'ES', _count: { _all: 3 } },
-          { country: 'FR', _count: { _all: 1 } },
-        ])
-        .mockResolvedValueOnce([
-          { createdByUserId: 'sales-1', _count: { _all: 2 } },
-          { createdByUserId: 'sales-2', _count: { _all: 2 } },
-        ]);
+    function monthKeyFromGte(gte: Date): string {
+      return `${gte.getUTCFullYear()}-${String(gte.getUTCMonth() + 1).padStart(2, '0')}`;
+    }
 
-      const result = await service.getReportsSummary(MANAGER, {
-        dateFrom: '2026-01-05',
-        dateTo: '2026-01-11',
+    // Pedido explicito del usuario, 26/oct/2026: ya no se devuelve un
+    // numero global para un rango -- se devuelven los ultimos 3 meses
+    // SEPARADOS (el mas reciente = el mes que contiene dateTo, o el mes
+    // actual si no se manda), cada uno con sus propios totales, desglose
+    // por pais, y por comercial (terminados/aprobados/tasa de ESE
+    // comercial en ESE mes, no solo un conteo de aprobados).
+    it('returns the last 3 months (oldest to newest) ending at the month of dateTo, each with its own breakdown', async () => {
+      const dataByMonth: Record<string, any> = {
+        '2025-11': {
+          completed: 2,
+          approved: 1,
+          country: [{ country: 'ES', _count: { _all: 1 } }],
+          completedByCreator: [{ createdByUserId: 'sales-1', _count: { _all: 2 } }],
+          approvedByCreator: [{ createdByUserId: 'sales-1', _count: { _all: 1 } }],
+        },
+        '2025-12': { completed: 0, approved: 0, country: [], completedByCreator: [], approvedByCreator: [] },
+        '2026-01': {
+          completed: 5,
+          approved: 5,
+          country: [{ country: 'FR', _count: { _all: 5 } }],
+          completedByCreator: [{ createdByUserId: 'sales-2', _count: { _all: 5 } }],
+          approvedByCreator: [{ createdByUserId: 'sales-2', _count: { _all: 5 } }],
+        },
+      };
+
+      prisma.designRequest.count.mockImplementation(async ({ where }: any) => {
+        const key = monthKeyFromGte(where.completedAt.gte);
+        return where.approvedAt ? dataByMonth[key].approved : dataByMonth[key].completed;
+      });
+      prisma.designRequest.groupBy.mockImplementation(async ({ by, where }: any) => {
+        const key = monthKeyFromGte(where.completedAt.gte);
+        if (by[0] === 'country') return dataByMonth[key].country;
+        return where.approvedAt ? dataByMonth[key].approvedByCreator : dataByMonth[key].completedByCreator;
       });
 
-      expect(result).toEqual({
-        dateFrom: '2026-01-05',
-        dateTo: '2026-01-11',
-        completedCount: 10,
-        approvedCount: 4,
-        approvalRate: 40,
-        approvedByCountry: [
-          { country: 'ES', count: 3 },
-          { country: 'FR', count: 1 },
-        ],
-        approvedByCreator: [
-          { createdByUserId: 'sales-1', count: 2 },
-          { createdByUserId: 'sales-2', count: 2 },
-        ],
-      });
-      expect(prisma.designRequest.count).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { completedAt: { gte: expect.any(Date), lt: expect.any(Date) } },
-        }),
-      );
+      const result = await service.getReportsSummary(MANAGER, { dateTo: '2026-01-15' });
+
+      expect(result.months.map((m: any) => m.month)).toEqual(['2025-11', '2025-12', '2026-01']);
+
+      const [nov, dec, jan] = result.months;
+
+      expect(nov.completedCount).toBe(2);
+      expect(nov.approvedCount).toBe(1);
+      expect(nov.approvalRate).toBe(50);
+      expect(nov.approvedByCountry).toEqual([{ country: 'ES', count: 1 }]);
+      expect(nov.byCreator).toEqual([
+        { createdByUserId: 'sales-1', completedCount: 2, approvedCount: 1, approvalRate: 50 },
+      ]);
+
+      expect(dec.completedCount).toBe(0);
+      expect(dec.approvalRate).toBe(0);
+      expect(dec.byCreator).toEqual([]);
+
+      expect(jan.completedCount).toBe(5);
+      expect(jan.approvedCount).toBe(5);
+      expect(jan.approvalRate).toBe(100);
+      expect(jan.byCreator).toEqual([
+        { createdByUserId: 'sales-2', completedCount: 5, approvedCount: 5, approvalRate: 100 },
+      ]);
     });
 
-    // Cohorte por mes de TERMINADO (06/oct/2026): un boceto terminado en el
-    // mes consultado pero aprobado recien en un mes posterior debe seguir
-    // contando como aprobado de ESTE mes -- todas las queries de
-    // "aprobado" filtran por completedAt del mes pedido + approvedAt no
-    // nulo (sin importar en que mes caiga approvedAt).
-    it('counts a request completed in the queried range but approved LATER as approved of the queried range', async () => {
-      prisma.designRequest.count.mockResolvedValueOnce(1).mockResolvedValueOnce(1);
-      prisma.designRequest.groupBy
-        .mockResolvedValueOnce([{ country: 'ES', _count: { _all: 1 } }])
-        .mockResolvedValueOnce([{ createdByUserId: 'sales-1', _count: { _all: 1 } }]);
+    it('defaults to the current month as the end of the window when dateTo is not given', async () => {
+      prisma.designRequest.count.mockResolvedValue(0);
+      prisma.designRequest.groupBy.mockResolvedValue([]);
 
-      const result = await service.getReportsSummary(MANAGER, {
-        dateFrom: '2026-01-01',
-        dateTo: '2026-01-31',
-      });
-
-      expect(result.completedCount).toBe(1);
-      expect(result.approvedCount).toBe(1);
-      expect(result.approvalRate).toBe(100);
-
-      // Las 4 queries (count x2, groupBy x2) deben filtrar por completedAt
-      // del mes pedido; las de "aprobado" ademas exigen approvedAt no nulo,
-      // NUNCA por approvedAt dentro de un rango de fechas.
-      const calls = [
-        ...prisma.designRequest.count.mock.calls,
-        ...prisma.designRequest.groupBy.mock.calls,
-      ];
-      for (const [arg] of calls) {
-        expect(arg.where.completedAt).toEqual({
-          gte: expect.any(Date),
-          lt: expect.any(Date),
-        });
-        expect(arg.where.approvedAt).not.toEqual(
-          expect.objectContaining({ gte: expect.any(Date) }),
-        );
-      }
-      // Las de "aprobado" (la 2da de count, y las 2 de groupBy) piden approvedAt: { not: null }.
-      expect(prisma.designRequest.count.mock.calls[1][0].where.approvedAt).toEqual({
-        not: null,
-      });
-      expect(prisma.designRequest.groupBy.mock.calls[0][0].where.approvedAt).toEqual({
-        not: null,
-      });
-      expect(prisma.designRequest.groupBy.mock.calls[1][0].where.approvedAt).toEqual({
-        not: null,
-      });
-    });
-
-    it('returns a 0% approval rate when nothing was completed in the period (avoids dividing by zero)', async () => {
-      prisma.designRequest.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
-      prisma.designRequest.groupBy.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
-
-      const result = await service.getReportsSummary(ADMIN, {
-        dateFrom: '2026-02-01',
-        dateTo: '2026-02-28',
-      });
-
-      expect(result.approvalRate).toBe(0);
-    });
-
-    it('defaults to the current week (Monday-Sunday) when no range is given', async () => {
-      prisma.designRequest.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
-      prisma.designRequest.groupBy.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+      const now = new Date();
+      const currentMonthKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 
       const result = await service.getReportsSummary(MANAGER, {});
 
-      expect(result.dateFrom).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(result.dateTo).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      const from = new Date(`${result.dateFrom}T00:00:00.000Z`);
-      const to = new Date(`${result.dateTo}T00:00:00.000Z`);
-      expect(from.getUTCDay()).toBe(1); // lunes
-      expect(to.getUTCDay()).toBe(0); // domingo
-      expect((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000)).toBe(6);
+      expect(result.months).toHaveLength(3);
+      expect(result.months[2].month).toBe(currentMonthKey);
     });
 
-    it('only defaults to the current week when BOTH dateFrom and dateTo are missing', async () => {
-      prisma.designRequest.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
-      prisma.designRequest.groupBy.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    it('ignores dateFrom entirely -- only the month of dateTo decides the 3-month window (pedido explicito del usuario, se conserva el filtro pero ya no acota)', async () => {
+      prisma.designRequest.count.mockResolvedValue(0);
+      prisma.designRequest.groupBy.mockResolvedValue([]);
 
-      const result = await service.getReportsSummary(MANAGER, { dateFrom: '2026-01-05' });
+      const result = await service.getReportsSummary(MANAGER, {
+        dateFrom: '2020-01-01',
+        dateTo: '2026-06-15',
+      });
 
-      // Falta dateTo -> se ignora el rango parcial y se usa la semana en curso.
-      expect(result.dateFrom).not.toBe('2026-01-05');
+      expect(result.months.map((m: any) => m.month)).toEqual(['2026-04', '2026-05', '2026-06']);
+    });
+
+    it("gives a creator a 0% rate (not NaN/undefined) when they completed requests but none were approved yet", async () => {
+      prisma.designRequest.count.mockImplementation(async ({ where }: any) =>
+        where.approvedAt ? 0 : 3,
+      );
+      prisma.designRequest.groupBy.mockImplementation(async ({ by, where }: any) => {
+        if (by[0] === 'country') return [];
+        if (where.approvedAt) return [];
+        return [{ createdByUserId: 'sales-3', _count: { _all: 3 } }];
+      });
+
+      const result = await service.getReportsSummary(ADMIN, { dateTo: '2026-03-10' });
+
+      expect(result.months[2].byCreator).toEqual([
+        { createdByUserId: 'sales-3', completedCount: 3, approvedCount: 0, approvalRate: 0 },
+      ]);
     });
   });
 

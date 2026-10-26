@@ -1483,11 +1483,30 @@ model DesignRequest {
   attachments  DesignRequestAttachment[]
   comments     DesignRequestComment[]
   statusEvents DesignRequestStatusEvent[]
+  commentViews DesignRequestCommentView[]
 
   @@index([boardId, columnId])
   @@index([accountId, createdByUserId])
   @@index([assignedUserId])
   @@index([dueAt])
+}
+
+// Pedido explicito del usuario, 26/oct/2026: indicador de "comentario
+// nuevo" en la card de un boceto -- por usuario, independiente para cada
+// uno (no es una marca global de "leido"). Se upsertea en
+// DesignBoardService.getRequestDetail() cada vez que alguien abre el
+// detalle (ver tambien listRequests(), que compara esta fecha contra el
+// ultimo comentario de OTRA persona para decidir si mostrar el punto).
+model DesignRequestCommentView {
+  id              String        @id @default(uuid())
+  designRequestId String
+  designRequest   DesignRequest @relation(fields: [designRequestId], references: [id], onDelete: Cascade)
+  userId          String
+
+  lastViewedAt DateTime @default(now())
+
+  @@unique([designRequestId, userId])
+  @@index([userId])
 }
 
 model DesignRequestAttachment {

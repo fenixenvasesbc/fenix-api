@@ -48,6 +48,7 @@ export class DesignRequestNotificationsListener {
         dedupeKey: `design_request_ready:${event.designRequestId}:${event.occurredAt.getTime()}`,
         title: 'Boceto terminado',
         message: 'Un boceto que pediste ya está listo para tu revisión.',
+        metadata: { designRequestId: event.designRequestId },
       }),
     );
   }
@@ -74,6 +75,7 @@ export class DesignRequestNotificationsListener {
         dedupeKey: `design_request_commented:${event.commentId}`,
         title: 'Nuevo comentario en un boceto',
         message: 'Hay un comentario nuevo en una solicitud de boceto.',
+        metadata: { designRequestId: event.designRequestId },
       }),
     );
   }
@@ -91,6 +93,7 @@ export class DesignRequestNotificationsListener {
         dedupeKey: `design_request_sent_to_modification:${event.designRequestId}:${event.occurredAt.getTime()}`,
         title: 'Boceto enviado a modificación',
         message: 'Un boceto que tenías asignado volvió a "Modificación".',
+        metadata: { designRequestId: event.designRequestId },
       }),
     );
   }
@@ -131,6 +134,7 @@ export class DesignRequestNotificationsListener {
             dedupeKey: `design_request_approved:${event.designRequestId}:${recipientUserId}`,
             title: 'Boceto aprobado',
             message: 'Un boceto fue aprobado.',
+            metadata: { designRequestId: event.designRequestId },
           }),
         ),
       ),
@@ -165,6 +169,7 @@ export class DesignRequestNotificationsListener {
             dedupeKey: `design_request_in_review:${event.designRequestId}:${event.occurredAt.getTime()}:${manager.id}`,
             title: 'Boceto en revisión',
             message: 'Un boceto está listo para revisar.',
+            metadata: { designRequestId: event.designRequestId },
           }),
         ),
       ),

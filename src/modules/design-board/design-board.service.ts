@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -79,6 +80,8 @@ const DEFAULT_COLUMNS = [
 
 @Injectable()
 export class DesignBoardService {
+  private readonly logger = new Logger(DesignBoardService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly leadsService: LeadsService,
@@ -738,9 +741,15 @@ export class DesignBoardService {
       },
     });
 
+    if (requests.length === 0) return [];
+
     const holidaySet = await this.businessDaysService.loadHolidaySet();
     const userDisplayMap = await this.loadUserDisplayMap(
       requests.flatMap((r) => [r.createdByUserId, r.assignedUserId]),
+    );
+    const hasNewCommentsByRequestId = await this.loadHasNewCommentsMap(
+      user.userId,
+      requests.map((r) => r.id),
     );
     return requests.map((request) =>
       this.withSlaStatus(
@@ -751,10 +760,58 @@ export class DesignBoardService {
           assignedUser: request.assignedUserId
             ? userDisplayMap.get(request.assignedUserId) ?? null
             : null,
+          hasNewComments: hasNewCommentsByRequestId.get(request.id) ?? false,
         },
         holidaySet,
       ),
     );
+  }
+
+  // Pedido explicito del usuario, 26/oct/2026: indicador de "comentario
+  // nuevo" por card, independiente para cada persona que mira el tablero.
+  // "Nuevo" = existe un comentario de OTRO autor (no cuenta los propios --
+  // si solo comente yo, no me marca nada a mi mismo) posterior al ultimo
+  // momento en que ESTE usuario abrio el detalle de esa solicitud (ver
+  // getRequestDetail(), que upsertea DesignRequestCommentView al abrir).
+  // Si el usuario nunca abrio el detalle, cualquier comentario de otro
+  // autor cuenta como nuevo.
+  private async loadHasNewCommentsMap(
+    userId: string,
+    designRequestIds: string[],
+  ): Promise<Map<string, boolean>> {
+    const result = new Map<string, boolean>();
+    if (designRequestIds.length === 0) return result;
+
+    const [latestOtherComments, views] = await Promise.all([
+      this.prisma.designRequestComment.groupBy({
+        by: ['designRequestId'],
+        where: {
+          designRequestId: { in: designRequestIds },
+          authorUserId: { not: userId },
+        },
+        _max: { createdAt: true },
+      }),
+      this.prisma.designRequestCommentView.findMany({
+        where: { userId, designRequestId: { in: designRequestIds } },
+        select: { designRequestId: true, lastViewedAt: true },
+      }),
+    ]);
+
+    const lastViewedByRequestId = new Map(
+      views.map((view) => [view.designRequestId, view.lastViewedAt]),
+    );
+
+    for (const row of latestOtherComments) {
+      const latestCommentAt = row._max.createdAt;
+      if (!latestCommentAt) continue;
+      const lastViewedAt = lastViewedByRequestId.get(row.designRequestId);
+      result.set(
+        row.designRequestId,
+        !lastViewedAt || latestCommentAt > lastViewedAt,
+      );
+    }
+
+    return result;
   }
 
   // "YYYY-MM" (o vacío/undefined = mes actual, en UTC) -> límites
@@ -767,42 +824,6 @@ export class DesignBoardService {
 
     const start = new Date(Date.UTC(year, month - 1, 1));
     const end = new Date(Date.UTC(year, month, 1));
-    return { start, end };
-  }
-
-  // Semana en curso (lunes a domingo, en UTC) -- pedido explicito del
-  // usuario, 25/oct/2026, para el default del filtro de estadisticas del
-  // tablero de bocetos cuando no se pasa un rango explicito.
-  private currentWeekRange(): { start: Date; end: Date } {
-    const now = new Date();
-    const startOfToday = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-    );
-    const day = startOfToday.getUTCDay(); // 0 domingo, 1 lunes, ... 6 sabado
-    const diffToMonday = day === 0 ? -6 : 1 - day;
-    const start = new Date(startOfToday);
-    start.setUTCDate(start.getUTCDate() + diffToMonday);
-    const end = new Date(start);
-    end.setUTCDate(end.getUTCDate() + 7);
-    return { start, end };
-  }
-
-  // "YYYY-MM-DD"/"YYYY-MM-DD" (ambos opcionales; si falta alguno, se usa
-  // la semana en curso) -> limites [inicio, fin) del rango, con dateTo
-  // INCLUSIVO (fin = dia siguiente a dateTo).
-  private reportsDateRange(
-    dateFrom?: string,
-    dateTo?: string,
-  ): { start: Date; end: Date } {
-    if (!dateFrom || !dateTo) {
-      return this.currentWeekRange();
-    }
-
-    const [fy, fm, fd] = dateFrom.split('-').map(Number);
-    const [ty, tm, td] = dateTo.split('-').map(Number);
-    const start = new Date(Date.UTC(fy, fm - 1, fd));
-    const end = new Date(Date.UTC(ty, tm - 1, td));
-    end.setUTCDate(end.getUTCDate() + 1);
     return { start, end };
   }
 
@@ -840,6 +861,26 @@ export class DesignBoardService {
     });
 
     if (!request) throw new NotFoundException('Design request not found');
+
+    // Pedido explicito del usuario, 26/oct/2026: abrir el detalle marca
+    // este boceto como "visto" para ESTE usuario -- limpia el indicador de
+    // comentario nuevo solo en su propia card (ver listRequests() /
+    // loadHasNewCommentsMap()). No debe tumbar el fetch del detalle si
+    // falla por lo que sea.
+    try {
+      await this.prisma.designRequestCommentView.upsert({
+        where: {
+          designRequestId_userId: {
+            designRequestId: request.id,
+            userId: user.userId,
+          },
+        },
+        update: { lastViewedAt: new Date() },
+        create: { designRequestId: request.id, userId: user.userId },
+      });
+    } catch (error) {
+      this.logger.warn(`No se pudo marcar el boceto como visto: ${String(error)}`);
+    }
 
     const holidaySet = await this.businessDaysService.loadHolidaySet();
     const userDisplayMap = await this.loadUserDisplayMap([
@@ -1778,58 +1819,115 @@ export class DesignBoardService {
       );
     }
 
-    // Pedido explicito del usuario, 25/oct/2026: las estadisticas dejaron
-    // de filtrarse solo por mes completo -- ahora por un rango de fechas
-    // (Desde/Hasta, mismo patron que el dashboard de administrador), que
-    // por defecto es la semana en curso (lunes a domingo, en UTC, igual
-    // convencion que monthRange()). dateTo es INCLUSIVO (se cuenta el dia
-    // completo).
-    const { start, end } = this.reportsDateRange(query.dateFrom, query.dateTo);
-    const dateFromKey = start.toISOString().slice(0, 10);
-    const dateToKey = new Date(end.getTime() - 1).toISOString().slice(0, 10);
+    // Pedido explicito del usuario, 26/oct/2026: ya no se muestra un
+    // numero "global" para el rango elegido -- ahora se muestran los
+    // ultimos 3 meses SEPARADOS por mes (terminados/aprobados/tasa, por
+    // pais y por comercial, cada uno con su propio desglose mes a mes).
+    // El filtro Desde/Hasta se conserva en la UI, pero pasa a decidir
+    // HASTA que mes mirar: se toma el mes que contiene la fecha "Hasta"
+    // como el mas reciente de los 3 (si no se manda, el mes actual);
+    // "Desde" ya no acota el resultado.
+    const endMonthKey = this.resolveEndMonthKey(query.dateTo);
+    const monthKeys = this.lastThreeMonthKeys(endMonthKey);
 
-    // Cohorte por TERMINADO dentro del rango (06/oct/2026, correccion
-    // pedida por el cliente): un boceto terminado en el rango pero
-    // aprobado recien despues debe contar como aprobado del rango en que
-    // se termino, no de cuando se aprobo -- antes `approvedCount`/los
-    // breakdowns se filtraban por `approvedAt`, lo que podia dar
-    // aprobados > terminados o un 0% enganoso cuando la aprobacion caia
-    // fuera del rango. Ahora todo se filtra por `completedAt` dentro del
-    // rango pedido, y "aprobado" simplemente exige `approvedAt` no nulo
-    // (sin importar cuando caiga esa fecha).
-    const completedInRange = { completedAt: { gte: start, lt: end } };
-    const approvedFromRangeCohort = {
-      ...completedInRange,
+    const months = await Promise.all(
+      monthKeys.map((monthKey) => this.monthlyReportBreakdown(monthKey)),
+    );
+
+    return { months };
+  }
+
+  // "YYYY-MM-DD" -> "YYYY-MM" (el mes que contiene esa fecha); sin fecha,
+  // el mes actual en UTC.
+  private resolveEndMonthKey(dateTo?: string): string {
+    if (dateTo && /^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+      return dateTo.slice(0, 7);
+    }
+    const now = new Date();
+    return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+
+  // Los 3 meses (incluido endMonthKey) que terminan en endMonthKey,
+  // ordenados del mas antiguo al mas reciente -- mismo criterio que ya
+  // usaba getMyMonthlyApprovalRate, generalizado para anclar en cualquier
+  // mes (no solo "el actual").
+  private lastThreeMonthKeys(endMonthKey: string): string[] {
+    const [year, month] = endMonthKey.split('-').map(Number);
+    const keys: string[] = [];
+    for (let offset = 2; offset >= 0; offset -= 1) {
+      // UTC Date normaliza meses negativos/fuera de rango automaticamente.
+      const shifted = new Date(Date.UTC(year, month - 1 - offset, 1));
+      keys.push(
+        `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}`,
+      );
+    }
+    return keys;
+  }
+
+  // Desglose de un mes puntual para el reporte de managers: totales
+  // generales, por pais, y por comercial (terminados/aprobados/tasa de
+  // ESE comercial en ESE mes -- antes solo se mostraba un conteo de
+  // aprobados por comercial, sin terminados ni tasa individual, pedido
+  // explicito del usuario 26/oct/2026). Misma cohorte que siempre: un
+  // boceto cuenta como terminado/aprobado del mes en que se TERMINO
+  // (completedAt), aunque approvedAt caiga despues.
+  private async monthlyReportBreakdown(monthKey: string) {
+    const { start, end } = this.monthRange(monthKey);
+    const completedInMonth = { completedAt: { gte: start, lt: end } };
+    const approvedFromMonthCohort = {
+      ...completedInMonth,
       approvedAt: { not: null },
     };
 
-    const [completedCount, approvedCount, approvedByCountry, approvedByCreator] =
-      await Promise.all([
-        this.prisma.designRequest.count({
-          where: completedInRange,
-        }),
-        this.prisma.designRequest.count({
-          where: approvedFromRangeCohort,
-        }),
-        this.prisma.designRequest.groupBy({
-          by: ['country'],
-          where: approvedFromRangeCohort,
-          _count: { _all: true },
-        }),
-        this.prisma.designRequest.groupBy({
-          by: ['createdByUserId'],
-          where: approvedFromRangeCohort,
-          _count: { _all: true },
-        }),
-      ]);
+    const [
+      completedCount,
+      approvedCount,
+      approvedByCountry,
+      completedByCreator,
+      approvedByCreator,
+    ] = await Promise.all([
+      this.prisma.designRequest.count({ where: completedInMonth }),
+      this.prisma.designRequest.count({ where: approvedFromMonthCohort }),
+      this.prisma.designRequest.groupBy({
+        by: ['country'],
+        where: approvedFromMonthCohort,
+        _count: { _all: true },
+      }),
+      this.prisma.designRequest.groupBy({
+        by: ['createdByUserId'],
+        where: completedInMonth,
+        _count: { _all: true },
+      }),
+      this.prisma.designRequest.groupBy({
+        by: ['createdByUserId'],
+        where: approvedFromMonthCohort,
+        _count: { _all: true },
+      }),
+    ]);
 
-    // ADR-004 §10: aprobados (cohorte de terminados del rango) / terminados del período.
     const approvalRate =
       completedCount > 0 ? (approvedCount / completedCount) * 100 : 0;
 
+    const approvedCountByCreator = new Map<string, number>(
+      approvedByCreator.map((row: any) => [row.createdByUserId, row._count._all]),
+    );
+
+    const byCreator = completedByCreator.map((row: any) => {
+      const creatorCompletedCount = row._count._all;
+      const creatorApprovedCount = approvedCountByCreator.get(row.createdByUserId) ?? 0;
+      return {
+        createdByUserId: row.createdByUserId,
+        completedCount: creatorCompletedCount,
+        approvedCount: creatorApprovedCount,
+        approvalRate:
+          creatorCompletedCount > 0
+            ? (creatorApprovedCount / creatorCompletedCount) * 100
+            : 0,
+      };
+    });
+
     return {
-      dateFrom: dateFromKey,
-      dateTo: dateToKey,
+      month: monthKey,
       completedCount,
       approvedCount,
       approvalRate,
@@ -1837,10 +1935,7 @@ export class DesignBoardService {
         country: row.country,
         count: row._count._all,
       })),
-      approvedByCreator: approvedByCreator.map((row: any) => ({
-        createdByUserId: row.createdByUserId,
-        count: row._count._all,
-      })),
+      byCreator,
     };
   }
 
