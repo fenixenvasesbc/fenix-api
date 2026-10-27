@@ -2358,5 +2358,55 @@ describe('DesignBoardService', () => {
         expect.objectContaining({ type: 'video' }),
       );
     });
+
+    // Pedido explicito del usuario, 27/oct/2026: al reenviar el boceto
+    // terminado al lead, pasa a mostrar "Boceto enviado" en vez de
+    // "Boceto en proceso" -- antes esa etiqueta solo se quitaba al
+    // aprobar. Solo mientras la tarjeta sigue en "Terminado" (col-done,
+    // isFinal: true, que es la columna que ya usa reviewRequest()).
+    it('applies BOCETO_ENVIADO to the lead when forwarding while the card is still in "Terminado"', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(reviewRequest());
+      prisma.designRequestAttachment.findFirst.mockResolvedValue({
+        id: 'att-1',
+        mediaUrl: 'https://cdn.example.com/boceto.png',
+        mediaStorageKey: 'boceto.png',
+        mimeType: 'image/png',
+        fileName: 'boceto.png',
+        sizeBytes: 1234,
+      });
+      prisma.designRequestAttachment.update.mockResolvedValue({});
+
+      await service.forwardAttachment(SALES, 'req-1', 'att-1');
+
+      expect(leadsService.setLabel).toHaveBeenCalledWith({
+        accountId: 'account-1',
+        leadId: 'lead-1',
+        label: SYSTEM_LABEL_CODES.BOCETO_ENVIADO,
+        changedByUserId: SALES.userId,
+      });
+    });
+
+    // Reenviar DESPUES de aprobado (tarjeta ya en "Aprobados") no debe
+    // pisar BOCETO_APROBADO con BOCETO_ENVIADO -- currentLabel es un
+    // valor unico.
+    it('does not touch the label when forwarding after the card is already in "Aprobados"', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue({
+        ...reviewRequest(),
+        column: COLUMNS[3],
+      });
+      prisma.designRequestAttachment.findFirst.mockResolvedValue({
+        id: 'att-1',
+        mediaUrl: 'https://cdn.example.com/boceto.png',
+        mediaStorageKey: 'boceto.png',
+        mimeType: 'image/png',
+        fileName: 'boceto.png',
+        sizeBytes: 1234,
+      });
+      prisma.designRequestAttachment.update.mockResolvedValue({});
+
+      await service.forwardAttachment(SALES, 'req-1', 'att-1');
+
+      expect(leadsService.setLabel).not.toHaveBeenCalled();
+    });
   });
 });

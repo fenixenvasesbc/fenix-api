@@ -1598,6 +1598,24 @@ export class DesignBoardService {
       data: { forwardedToLeadAt: new Date() },
     });
 
+    // Pedido explicito del usuario, 27/oct/2026: al reenviar el boceto
+    // terminado al lead, pasa a mostrar "Boceto enviado" en vez de
+    // "Boceto en proceso" -- antes esa etiqueta solo se quitaba al
+    // aprobar (ver approve() mas abajo, mismo mecanismo con
+    // BOCETO_APROBADO). Solo mientras la tarjeta sigue en "Terminado":
+    // si ya esta en "Aprobados" (reenvio posterior a la aprobacion) no
+    // hay que pisar BOCETO_APROBADO con esto. currentLabel es un valor
+    // unico, asi que aplicar BOCETO_ENVIADO aca reemplaza/oculta
+    // BOCETO_EN_PROCESO sin necesidad de "quitarla" aparte.
+    if (request.column.isFinal) {
+      await this.leadsService.setLabel({
+        accountId: request.accountId,
+        leadId: request.leadId,
+        label: SYSTEM_LABEL_CODES.BOCETO_ENVIADO,
+        changedByUserId: user.userId,
+      });
+    }
+
     return sent;
   }
 
