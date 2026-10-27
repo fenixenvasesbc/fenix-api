@@ -88,20 +88,32 @@ Reglas:
 
 ## Labels operativos
 
-Valores:
+Catálogo configurable: `LeadLabelDefinition` (tabla global, sin `accountId`). Cada fila tiene `code` (identificador estable), `name`, `color`, `isSystem`, `alertThresholdDays`, `active`, `sortOrder`. El valor persistido en `Lead.currentLabel` / `LeadLabelAssignment.label` sigue siendo siempre el `code` como texto plano.
+
+Hay dos tipos de fila:
+
+- **Labels de sistema** (`isSystem = true`): no se pueden borrar ni desactivar, solo renombrar/cambiar su umbral desde Configuración > Etiquetas. Sus `code` viven hardcodeados en `SYSTEM_LABEL_CODES`/`SYSTEM_LABEL_SEED` (`src/common/constants/lead-labels.ts`) porque algún flujo de backend las referencia por constante y dispara lógica propia (aprobación automática, bloqueo, jobs de recordatorio). Agregar una nueva requiere migración de backfill (sembrar la fila en `LeadLabelDefinition` para cuentas/catálogo existentes).
+- **Labels personalizadas** (`isSystem = false`): las crea cualquier usuario autorizado desde Configuración > Etiquetas (`POST /lead-label-definitions`, solo `name`/`color`/`alertThresholdDays`; el `code` se autogenera como slug del nombre en `buildUniqueCustomCode()` — ej. "Boceto enviado" → `BOCETO_ENVIADO`). Se pueden editar, (des)activar y borrar (si no están asignadas a ningún lead activo) sin migración ni deploy. El backend puede referenciarlas por su `code` como string suelto (sin agregarlas a `SYSTEM_LABEL_CODES`) — mismo patrón que usa `LabelMessageRule.labelCode` (ver doc 06) y que usa `DesignBoardService.forwardAttachment()` para la label `BOCETO_ENVIADO` (ver doc 17).
+
+**Antes de agregar una label nueva**: si el comportamiento que la dispara es puramente un mensaje de WhatsApp por tiempo en la etiqueta, no requiere código (crearla como custom + una regla en `/label-message-rules`, ver doc 06). Si requiere lógica de backend propia (mover una tarjeta, bloquear algo, etc.) pero el *code* en sí no necesita ser fijo, también puede ser custom y referenciarse como string suelto. Solo se vuelve "de sistema" cuando el comportamiento la necesita sembrada de antemano en todas las cuentas/catálogo o expuesta como constante compartida entre varios módulos.
+
+Labels de sistema actuales:
 
 | Label | Uso funcional |
 |---|---|
 | `PRODUCCION` | Lead en producción. |
-| `BOCETO_EN_PROCESO` | Boceto en curso. |
+| `BOCETO_EN_PROCESO` | Boceto en curso (aplicada al crear una solicitud de boceto, ver doc 17). |
 | `PENDIENTE_DE_PAGO` | Pendiente de pago. |
 | `MUESTRAS` | Gestión de muestras. |
 | `REPETICIONES` | Cliente listo para recordatorio de repetición. |
-| `BOCETOS_ATRASADOS` | Bocetos atrasados. |
+| `BOCETOS_ATRASADOS` | Bocetos atrasados (aplicada por el cron de SLA del módulo de bocetos, ver doc 17). |
+| `BOCETO_APROBADO` | Dispara la aprobación automática de la solicitud de boceto correspondiente (ver doc 17); bloquea si no hay ninguna esperando aprobación. |
+
+Ejemplo de label personalizada en uso: `BOCETO_ENVIADO` ("Boceto enviado") — reemplaza a `BOCETO_EN_PROCESO` cuando la comercial reenvía al lead el boceto ya terminado (ver doc 17). No está sembrada por defecto: hay que crearla desde Configuración > Etiquetas para que el reenvío tenga efecto visible.
 
 ### Modelo de multiples labels
 
-Un lead puede tener varias labels activas a la vez. La fuente real es `LeadLabelAssignment`.
+Un lead puede tener varias labels activas a la vez. La fuente real es `LeadLabelAssignment`. `Lead.currentLabel` guarda la última aplicada (valor único) — aplicar una label nueva reemplaza/oculta la anterior en ese campo, sin necesidad de "quitarla" aparte.
 
 Cada asignacion guarda:
 
@@ -246,6 +258,7 @@ Reglas por defecto:
 | `PRODUCCION` | 14 dias | Si el lead lleva 14 dias o mas en produccion. |
 | `BOCETOS_ATRASADOS` | 2 dias | Si el lead lleva 2 dias o mas en boceto atrasado. |
 | `REPETICIONES` | desactivado | No genera alertas. |
+| `BOCETO_APROBADO` | null | No genera alertas (umbral null). |
 
 Reglas:
 

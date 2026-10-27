@@ -16,6 +16,7 @@ Esta carpeta documenta la API backend de Fenix CRM desde el punto de vista funci
 10. [Resumen de endpoints](./09-resumen-endpoints.md)
 11. [Contratos SPA relevantes](./10-contratos-spa.md)
 12. [Asistente interno con Dify](./16-asistente-interno-dify.md)
+13. [Bocetos: tablero de solicitudes de diseño](./17-bocetos-design-board.md)
 
 ## Alcance
 
