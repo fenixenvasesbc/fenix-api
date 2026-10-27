@@ -2364,7 +2364,11 @@ describe('DesignBoardService', () => {
     // "Boceto en proceso" -- antes esa etiqueta solo se quitaba al
     // aprobar. Solo mientras la tarjeta sigue en "Terminado" (col-done,
     // isFinal: true, que es la columna que ya usa reviewRequest()).
-    it('applies BOCETO_ENVIADO to the lead when forwarding while the card is still in "Terminado"', async () => {
+    // "BOCETO_ENVIADO" es el code que generaria LeadLabelDefinitions al
+    // crear la etiqueta personalizada "Boceto enviado" desde la UI (ver
+    // buildUniqueCustomCode) -- se referencia como string suelto, igual
+    // que labelCode en LabelMessageRule, no como SYSTEM_LABEL_CODES.
+    it('applies the "BOCETO_ENVIADO" label to the lead when forwarding while the card is still in "Terminado"', async () => {
       prisma.designRequest.findUnique.mockResolvedValue(reviewRequest());
       prisma.designRequestAttachment.findFirst.mockResolvedValue({
         id: 'att-1',
@@ -2381,7 +2385,7 @@ describe('DesignBoardService', () => {
       expect(leadsService.setLabel).toHaveBeenCalledWith({
         accountId: 'account-1',
         leadId: 'lead-1',
-        label: SYSTEM_LABEL_CODES.BOCETO_ENVIADO,
+        label: 'BOCETO_ENVIADO',
         changedByUserId: SALES.userId,
       });
     });
@@ -2407,6 +2411,29 @@ describe('DesignBoardService', () => {
       await service.forwardAttachment(SALES, 'req-1', 'att-1');
 
       expect(leadsService.setLabel).not.toHaveBeenCalled();
+    });
+
+    // Si todavia no se creo la etiqueta personalizada "Boceto enviado"
+    // (o esta desactivada), setLabel rechaza -- no debe tumbar el
+    // reenvio: el mensaje de WhatsApp ya se mando con exito.
+    it('does not fail the forward when the "Boceto enviado" custom label does not exist yet', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(reviewRequest());
+      prisma.designRequestAttachment.findFirst.mockResolvedValue({
+        id: 'att-1',
+        mediaUrl: 'https://cdn.example.com/boceto.png',
+        mediaStorageKey: 'boceto.png',
+        mimeType: 'image/png',
+        fileName: 'boceto.png',
+        sizeBytes: 1234,
+      });
+      prisma.designRequestAttachment.update.mockResolvedValue({});
+      leadsService.setLabel.mockRejectedValueOnce(
+        new BadRequestException('Label "BOCETO_ENVIADO" no existe o esta inactiva'),
+      );
+
+      const result = await service.forwardAttachment(SALES, 'req-1', 'att-1');
+
+      expect(result).toEqual({ id: 'msg-1' });
     });
   });
 });

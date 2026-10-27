@@ -1605,15 +1605,31 @@ export class DesignBoardService {
     // BOCETO_APROBADO). Solo mientras la tarjeta sigue en "Terminado":
     // si ya esta en "Aprobados" (reenvio posterior a la aprobacion) no
     // hay que pisar BOCETO_APROBADO con esto. currentLabel es un valor
-    // unico, asi que aplicar BOCETO_ENVIADO aca reemplaza/oculta
+    // unico, asi que aplicar esta etiqueta aca reemplaza/oculta
     // BOCETO_EN_PROCESO sin necesidad de "quitarla" aparte.
+    //
+    // "Boceto enviado" es una etiqueta PERSONALIZADA (no de sistema): la
+    // crea el usuario desde Configuracion > Etiquetas (igual que
+    // cualquier custom label), no vive en SYSTEM_LABEL_CODES ni requiere
+    // migracion -- se referencia por su "code" como string suelto, mismo
+    // patron que labelCode en LabelMessageRule. Si todavia no la creo
+    // (o la desactivo), LeadsService.setLabel rechaza con
+    // BadRequestException -- se atrapa aca para no tumbar el reenvio
+    // (el mensaje de WhatsApp ya se mando con exito, lo unico que
+    // fallaria es el detalle de la etiqueta).
     if (request.column.isFinal) {
-      await this.leadsService.setLabel({
-        accountId: request.accountId,
-        leadId: request.leadId,
-        label: SYSTEM_LABEL_CODES.BOCETO_ENVIADO,
-        changedByUserId: user.userId,
-      });
+      try {
+        await this.leadsService.setLabel({
+          accountId: request.accountId,
+          leadId: request.leadId,
+          label: 'BOCETO_ENVIADO',
+          changedByUserId: user.userId,
+        });
+      } catch (error) {
+        this.logger.warn(
+          `No se pudo aplicar la etiqueta "Boceto enviado" (¿falta crearla en Configuración > Etiquetas?): ${String(error)}`,
+        );
+      }
     }
 
     return sent;

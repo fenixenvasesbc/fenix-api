@@ -21,12 +21,6 @@ export const SYSTEM_LABEL_CODES = {
   // ADR-004 Submodulo 2: dispara el movimiento automatico de la solicitud
   // de boceto correspondiente a "Aprobados" (ver LeadsController.setLabel).
   BOCETO_APROBADO: 'BOCETO_APROBADO',
-  // Pedido explicito del usuario, 27/oct/2026: al reenviar el boceto
-  // terminado al lead (DesignBoardService.forwardAttachment, solo mientras
-  // la tarjeta sigue en "Terminado") se le pone esta etiqueta, que
-  // reemplaza a BOCETO_EN_PROCESO (currentLabel es un valor unico) --
-  // antes esa etiqueta solo se quitaba al aprobar el boceto.
-  BOCETO_ENVIADO: 'BOCETO_ENVIADO',
 } as const;
 
 export type SystemLabelCode =
@@ -79,11 +73,5 @@ export const SYSTEM_LABEL_SEED: Array<{
     name: 'Boceto aprobado',
     alertThresholdDays: null,
     sortOrder: 7,
-  },
-  {
-    code: SYSTEM_LABEL_CODES.BOCETO_ENVIADO,
-    name: 'Boceto enviado',
-    alertThresholdDays: null,
-    sortOrder: 8,
   },
 ];
