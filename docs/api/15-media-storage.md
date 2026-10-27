@@ -115,6 +115,19 @@ La SPA podra seguir mostrando el mensaje, pero sin preview/descarga del archivo 
 
 Tambien elimina uploads temporales vencidos en `MediaUpload` con estado `UPLOADED` o `FAILED` que no quedaron adjuntos correctamente.
 
+## Nombre de archivo al descargar (`Content-Disposition`)
+
+Pedido explicito del usuario, 27/oct/2026: los archivos se descargaban con un nombre distinto al real (el nombre que el usuario subio/vio en la UI). Causa: `/media-files/...` (`MEDIA_PUBLIC_BASE_URL`) es un dominio **distinto** al de la SPA (`app.fenixcrm.site` vs `api.fenixcrm.site`), y el atributo HTML `download="..."` de un `<a>` **solo funciona para recursos del mismo origen** — para un recurso cross-origin el navegador lo ignora y nombra el archivo segun la URL (el `storageKey`, un path interno tipo timestamp/random, no el nombre real).
+
+La unica forma confiable de fijar el nombre de un recurso cross-origin es que el servidor lo diga via el header `Content-Disposition`. `MessageMediaController.getMedia()` (`GET /media-files/*key`) ahora acepta dos query params opcionales:
+
+- `filename`: el nombre real del archivo (quien llama ya lo conoce — `Message.fileName`/`DesignRequestAttachment.fileName`/`MediaUpload.originalName` — así que viaja como parámetro en vez de que el controller busque en esas 3 tablas por `storageKey`).
+- `download=1`: fuerza `Content-Disposition: attachment` (dispara "Guardar como" con el nombre correcto). Sin este parámetro, la URL sigue funcionando igual que antes para preview inline (`<img>`/`<video>`/`<iframe>` en `AttachmentPreviewDialog` de Fenix-SPA) — forzar `attachment` ahí haría que, por ejemplo, el iframe de un PDF dispare una descarga en vez de mostrarlo.
+
+Sin ninguno de los dos parámetros, el comportamiento es exactamente el de antes (sin `Content-Disposition`) — no rompe ningún otro consumidor existente de esta misma URL (chat, etc.) que todavía no pase estos parámetros.
+
+En Fenix-SPA, `buildAttachmentDownloadUrl(mediaUrl, fileName)` (`components/design-board/design-board-utils.ts`) arma la URL con ambos parámetros; lo usan los botones "Descargar" de `attachment-preview-dialog.tsx` y `design-request-detail-dialog.tsx` (módulo de bocetos).
+
 ## Limitaciones actuales
 
 - La ruta `/media-files/...` es publica, protegida por claves UUID no adivinables.
