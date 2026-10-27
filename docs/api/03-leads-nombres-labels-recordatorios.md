@@ -113,7 +113,7 @@ Ejemplo de label personalizada en uso: `BOCETO_ENVIADO` ("Boceto enviado") — r
 
 ### Modelo de multiples labels
 
-Un lead puede tener varias labels activas a la vez. La fuente real es `LeadLabelAssignment`. `Lead.currentLabel` guarda la última aplicada (valor único) — aplicar una label nueva reemplaza/oculta la anterior en ese campo, sin necesidad de "quitarla" aparte.
+Un lead puede tener varias labels activas a la vez. La fuente real es `LeadLabelAssignment`. `Lead.currentLabel` guarda la última aplicada (valor único), pero **`setLabel()` no desactiva ninguna etiqueta previa** — solo marca la nueva como activa (crea/reusa su `LeadLabelAssignment`) y actualiza `currentLabel`. Si el código que llama a `setLabel()` necesita que dos labels sean mutuamente excluyentes (ej. los 3 "estados del boceto" del módulo de bocetos, ver doc 17), tiene que desactivar la anterior explícitamente con `LeadsService.removeLabel({accountId, leadId, label, changedByUserId})` — `removeLabel()` es un no-op seguro si esa label no estaba activa, no hace falta chequear antes.
 
 Cada asignacion guarda:
 

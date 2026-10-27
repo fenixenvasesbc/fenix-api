@@ -46,8 +46,13 @@ Pausa (`POST /requests/:id/pause` / `.../resume`, solo `DESIGNER_MANAGER`/`ADMIN
 | Si se vence el plazo | `BOCETOS_ATRASADOS` | Sistema |
 | Al reenviar el boceto terminado al lead, mientras sigue en "Terminado" | `BOCETO_ENVIADO` | **Personalizada** — hay que crearla desde Configuración > Etiquetas antes de que tenga efecto; si no existe, el reenvío de WhatsApp igual se manda, solo que no se etiqueta (se loguea un warning). |
 | Al aprobar (botón o etiqueta `BOCETO_APROBADO` puesta manualmente) | `BOCETO_APROBADO` | Sistema |
+| Al enviar de "Terminado" a "Modificación" (el lead pide cambios) | `BOCETO_EN_PROCESO` (de nuevo) | Sistema |
 
-`Lead.currentLabel` es un valor único: aplicar una label nueva reemplaza/oculta la anterior, sin tener que "quitarla" aparte. Por eso reenviar no pisa `BOCETO_APROBADO` si la tarjeta ya está en "Aprobados" (`forwardAttachment()` solo aplica `BOCETO_ENVIADO` mientras `column.isFinal`).
+Las 3 son **mutuamente excluyentes**: representan el estado actual del boceto para ese lead, nunca debe haber más de una activa a la vez. Esto NO lo garantiza `LeadsService.setLabel()` por sí solo — solo marca la nueva como activa, nunca desactiva (`removedAt`) la anterior; `Lead.currentLabel` es un valor único, pero el frontend (`activeLeadLabels()`) lee primero `LeadLabelAssignment` (todas las activas), así que una etiqueta vieja sin desactivar sigue apareciendo igual.
+
+Por eso `DesignBoardService` tiene un helper dedicado, `applyBocetoStageLabel(accountId, leadId, label, changedByUserId)`: aplica la etiqueta nueva y desactiva (`removeLabel()`) las otras dos de la lista `BOCETO_STAGE_LABELS`. Si aplicar la nueva falla (ej. `BOCETO_ENVIADO` todavía no se creó como etiqueta personalizada), no desactiva las demás — el lead se queda en el estado anterior en vez de sin ninguna. Lo usan `createRequest()`, `approve()`, `forwardAttachment()` y `sendToModification()`; `approveByLabel()` (la etiqueta `BOCETO_APROBADO` puesta a mano en el chat) desactiva las otras dos de forma defensiva porque en ese camino es `LeadsController.setLabel()` quien aplica la etiqueta nueva, después de que este método retorna.
+
+Caso de referencia que motivó esto: boceto terminado → se reenvía (`BOCETO_ENVIADO`) → el lead pide cambios → `sendToModification()` → vuelve a "Terminado" → se reenvía otra vez. Sin este mecanismo, `BOCETO_ENVIADO` se quedaba pegada para siempre tras el primer reenvío, con el riesgo de disparar por error una automatización (`LabelMessageRule`) atada a esa etiqueta aunque el boceto ya no estuviera enviado de verdad.
 
 `BOCETO_APROBADO` además dispara lógica propia: `LeadsController.setLabel()` llama a `DesignBoardService.approveByLabel(accountId, leadId)` **antes** de aplicar la etiqueta — busca una solicitud en `isFinal` con `approvedAt: null`; si no hay ninguna, bloquea la etiqueta (`BadRequestException`); si hay, mueve la tarjeta a "Aprobados" (`approvedViaLabel: true`).
 
