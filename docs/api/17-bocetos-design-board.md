@@ -77,9 +77,30 @@ Cuentan el histórico completo, incluidas las tarjetas ya archivadas desde "Apro
 
 `GET /design-board/events` (SSE), reusa `ChatEventsService` (RabbitMQ + SSE), eventos `design_request.created`/`.moved`/`.commented`/`.updated` con payload liviano (solo IDs) — el cliente debe reconsultar por REST. Solo filtra por `accountId` para `SALES`; el resto de roles recibe todo y confía en la visibilidad de cada endpoint REST.
 
+Distinto (y complementario) a esto: las notificaciones in-app persistentes (campanita), ver abajo.
+
+## Notificaciones in-app (campanita)
+
+Patrón Observer (`EventEmitter2`): `DesignBoardService` solo emite eventos de dominio (`DESIGN_REQUEST_EVENTS`, en `events/design-board.events.ts`) y no sabe quién los consume. `DesignRequestNotificationsListener` (`src/modules/notifications/listeners/design-request-notifications.listener.ts`) es el único lugar que decide destinatario y mensaje, vía `NotificationsService.createNotification()` (con `dedupeKey` para no duplicar la misma alerta).
+
+| Evento | Se dispara cuando... | Destinatario(s) |
+|---|---|---|
+| `DESIGN_REQUEST_READY` | La tarjeta llega a "Terminado" (`isFinal`) | La comercial que creó la solicitud |
+| `DESIGN_REQUEST_COMMENTED` | Nuevo comentario | "La otra parte": si comenta Diseño, avisa a la comercial creadora; si comenta cualquier otro rol, avisa al diseñador asignado |
+| `DESIGN_REQUEST_SENT_TO_MODIFICATION` | `sendToModification()` | El diseñador asignado |
+| `DESIGN_REQUEST_APPROVED` | `approve()`/`approveByLabel()` | El diseñador asignado + TODO `DESIGNER_MANAGER` activo |
+| `DESIGN_REQUEST_IN_REVIEW` | La tarjeta entra a "En revisión" (`isInReview`) | TODO `DESIGNER_MANAGER` activo |
+| `DESIGN_REQUEST_UPDATED` | **Pedido explicito del usuario, 27/oct/2026**: `updateRequest()` edita título/instrucciones/país/tipo | El diseñador asignado (si hay uno, y si quien edita no es la misma persona asignada) |
+
+`DESIGN_REQUEST_UPDATED` lleva `changedFields` (los campos que de verdad cambiaron, ver los `if (dto.X !== undefined)` de `updateRequest()`) para armar un mensaje legible ("Se editó: título, instrucciones.") sin que el listener tenga que releer la solicitud. Si no hay diseñador asignado todavía, se omite — no hay a quien avisar.
+
+Requiere el valor `DESIGN_REQUEST_UPDATED` en el enum `AppNotificationType` (migración `20261027120000_design_request_updated_notification`) — como con cualquier cambio de enum de Prisma, hace falta `prisma generate`/`migrate deploy` antes de que el código compile y la base lo acepte.
+
 ## UI (Fenix-SPA)
 
 `app/dashboard/bocetos/page.tsx`: tablero + pestañas "Tablero" / "Reportes y estadísticas" (`canViewReports` = `DESIGNER_MANAGER`/`ADMIN`/`SALES_MANAGER`) / "Por diseñador" (`canViewDesignerReport` = solo `DESIGNER_MANAGER`/`ADMIN`). Componentes en `components/design-board/`: `design-request-card.tsx`, `design-request-detail-dialog.tsx`, `create-design-request-dialog.tsx` (botón en el chat del lead), `design-board-reports.tsx`, `designer-completion-report.tsx`.
+
+Filtros del tablero disponibles para `DESIGNER_MANAGER`/`ADMIN` (`canManage`): por diseñador asignado, por comercial creadora, y (pedido explicito del usuario, 27/oct/2026) **"Sin asignar"** — un checkbox que pide `unassignedOnly: true` (`GET /design-board/requests?unassignedOnly=true`, mapeado a `assignedUserId: null` en `visibilityWhere()`); mutuamente excluyente con el filtro por diseñador (se deshabilita/limpia al activar "Sin asignar", y el backend prioriza `unassignedOnly` si llegaran los dos filtros a la vez).
 
 ## Pendientes conocidos
 

@@ -119,6 +119,16 @@ export class ListDesignRequestsQueryDto {
   @IsUUID()
   assignedUserId?: string;
 
+  // Pedido explicito del usuario, 27/oct/2026: filtro del tablero para
+  // ver solo las solicitudes SIN diseñador asignado (assignedUserId es
+  // null) -- uso tipico del Jefe de Diseño/ADMIN para repartir trabajo
+  // pendiente. Si se manda junto con assignedUserId, visibilityWhere()
+  // prioriza este filtro (no tendria sentido pedir los dos a la vez).
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  unassignedOnly?: boolean;
+
   @IsOptional()
   @IsUUID()
   createdByUserId?: string;

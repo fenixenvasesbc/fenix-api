@@ -115,6 +115,13 @@ enum AppNotificationType {
   // TODO el Jefe de Diseño (no hay un "manager asignado" a la solicitud),
   // ya que es quien revisa los bocetos antes de aprobarlos.
   DESIGN_REQUEST_IN_REVIEW
+  // Pedido explicito del usuario, 27/oct/2026: se dispara cuando la
+  // comercial propietaria (o ADMIN) edita un dato de la solicitud
+  // (titulo/instrucciones/pais/tipo, ver updateRequest()) -- avisa al
+  // diseñador asignado, para que no siga trabajando sobre instrucciones
+  // ya desactualizadas. Si todavia no hay nadie asignado, no hay a quien
+  // avisar (se omite, igual criterio que COMMENTED/SENT_TO_MODIFICATION).
+  DESIGN_REQUEST_UPDATED
 }
 
 enum AppNotificationStatus {

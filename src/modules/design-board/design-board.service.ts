@@ -48,6 +48,7 @@ import {
   DesignRequestInReviewEvent,
   DesignRequestReadyEvent,
   DesignRequestSentToModificationEvent,
+  DesignRequestUpdatedEvent,
 } from './events/design-board.events';
 
 export type AuthUser = {
@@ -643,6 +644,36 @@ export class DesignBoardService {
 
     await this.emitDesignBoardEvent('design_request.updated', request);
 
+    // Pedido explicito del usuario, 27/oct/2026: avisar al diseñador
+    // asignado de que un dato de la solicitud cambio -- para que no siga
+    // trabajando sobre instrucciones ya desactualizadas. Si todavia no
+    // hay nadie asignado, o quien edita es la misma persona asignada (caso
+    // raro: ADMIN autoasignado editando su propia solicitud), no hay a
+    // quien avisar -- se omite en vez de notificarse a si mismo.
+    // `data` ya tiene exactamente los campos que de verdad cambiaron (ver
+    // los `if (dto.X !== undefined)` arriba) -- slaBusinessDays/dueAt son
+    // derivados de requestType, no campos editables por si solos, asi que
+    // no se listan aparte.
+    if (request.assignedUserId && request.assignedUserId !== user.userId) {
+      const changedFields = Object.keys(data).filter((key) =>
+        ['title', 'instructions', 'country', 'requestType'].includes(key),
+      );
+
+      if (changedFields.length > 0) {
+        this.eventEmitter.emit(
+          DESIGN_REQUEST_EVENTS.UPDATED,
+          new DesignRequestUpdatedEvent(
+            request.id,
+            request.accountId,
+            request.leadId,
+            request.assignedUserId,
+            changedFields,
+            new Date(),
+          ),
+        );
+      }
+    }
+
     return updated;
   }
 
@@ -726,8 +757,16 @@ export class DesignBoardService {
     }
 
     // DESIGNER_MANAGER / ADMIN: sin restriccion, con filtros opcionales.
+    // Pedido explicito del usuario, 27/oct/2026: "sin asignar"
+    // (unassignedOnly) prioriza sobre assignedUserId -- no tendria
+    // sentido pedir los dos filtros a la vez, y la SPA deshabilita el
+    // selector de diseñador mientras este activo.
     return {
-      ...(query?.assignedUserId ? { assignedUserId: query.assignedUserId } : {}),
+      ...(query?.unassignedOnly
+        ? { assignedUserId: null }
+        : query?.assignedUserId
+          ? { assignedUserId: query.assignedUserId }
+          : {}),
       ...(query?.createdByUserId
         ? { createdByUserId: query.createdByUserId }
         : {}),

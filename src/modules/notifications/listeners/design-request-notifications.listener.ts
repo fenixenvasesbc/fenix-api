@@ -9,6 +9,7 @@ import {
   DesignRequestInReviewEvent,
   DesignRequestReadyEvent,
   DesignRequestSentToModificationEvent,
+  DesignRequestUpdatedEvent,
 } from '../../design-board/events/design-board.events';
 import { NotificationsService } from '../notifications.service';
 
@@ -173,6 +174,43 @@ export class DesignRequestNotificationsListener {
           }),
         ),
       ),
+    );
+  }
+
+  // Pedido explicito del usuario, 27/oct/2026: avisa al diseñador
+  // asignado cuando la comercial propietaria (o ADMIN) edita un dato de
+  // la solicitud (ver updateRequest() en DesignBoardService, que ya
+  // filtra el caso "sin asignado" y "editor == asignado" antes de emitir
+  // este evento -- aca solo falta armar el mensaje). occurredAt entra en
+  // el dedupeKey por el mismo motivo que READY/SENT_TO_MODIFICATION/
+  // APPROVED/IN_REVIEW: la misma solicitud puede editarse mas de una vez.
+  @OnEvent(DESIGN_REQUEST_EVENTS.UPDATED)
+  async onUpdated(event: DesignRequestUpdatedEvent) {
+    if (!event.assignedUserId) return;
+
+    const fieldLabels: Record<string, string> = {
+      title: 'título',
+      instructions: 'instrucciones',
+      country: 'país',
+      requestType: 'tipo de solicitud',
+    };
+    const changedLabels = event.changedFields
+      .map((field) => fieldLabels[field] ?? field)
+      .join(', ');
+
+    await this.safely(() =>
+      this.notifications.createNotification({
+        accountId: event.accountId,
+        leadId: event.leadId,
+        recipientUserId: event.assignedUserId as string,
+        type: AppNotificationType.DESIGN_REQUEST_UPDATED,
+        dedupeKey: `design_request_updated:${event.designRequestId}:${event.occurredAt.getTime()}`,
+        title: 'Solicitud de boceto editada',
+        message: changedLabels
+          ? `Se editó: ${changedLabels}.`
+          : 'Se editó un dato de un boceto que tenías asignado.',
+        metadata: { designRequestId: event.designRequestId },
+      }),
     );
   }
 

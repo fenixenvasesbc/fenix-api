@@ -111,7 +111,7 @@ Ver doc 17 para el detalle funcional completo (columnas, SLA, roles, reportes).
 | Método | Endpoint | Roles | Uso |
 |---|---|---|---|
 | `POST` | `/design-board/requests` | `ADMIN`, `SALES` | Crear solicitud de boceto desde el chat de un lead. |
-| `GET` | `/design-board/requests` | Todos los roles del módulo | Listar solicitudes (visibilidad por rol). |
+| `GET` | `/design-board/requests` | Todos los roles del módulo | Listar solicitudes (visibilidad por rol). Filtros opcionales para `DESIGNER_MANAGER`/`ADMIN`: `assignedUserId`, `createdByUserId`, `unassignedOnly=true` (solo sin diseñador asignado, pedido explicito del usuario 27/oct/2026 — prioriza sobre `assignedUserId` si llegan los dos). |
 | `GET` | `/design-board/requests/:id` | Todos los roles del módulo | Detalle de una solicitud. |
 | `PATCH` | `/design-board/requests/:id/assign` | `ADMIN`, `DESIGNER_MANAGER` | Asignar/desasignar diseñador. |
 | `PATCH` | `/design-board/requests/:id/move` | `ADMIN`, `DESIGNER`, `DESIGNER_MANAGER` | Mover tarjeta ±1 columna. |

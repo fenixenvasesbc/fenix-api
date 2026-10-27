@@ -22,6 +22,10 @@ export const DESIGN_REQUEST_EVENTS = {
   // "Boceto en revision" (columna isInReview) -- ver move() en
   // DesignBoardService.
   IN_REVIEW: 'design-request.in-review',
+  // Pedido explicito del usuario, 27/oct/2026: la comercial propietaria
+  // (o ADMIN) edita un dato de la solicitud (titulo/instrucciones/pais/
+  // tipo) -- ver updateRequest() en DesignBoardService.
+  UPDATED: 'design-request.updated',
 } as const;
 
 export class DesignRequestReadyEvent {
@@ -82,6 +86,22 @@ export class DesignRequestInReviewEvent {
     public readonly designRequestId: string,
     public readonly accountId: string,
     public readonly leadId: string,
+    public readonly occurredAt: Date,
+  ) {}
+}
+
+// Pedido explicito del usuario, 27/oct/2026: avisa al diseñador asignado
+// (si hay uno) de que un dato de la solicitud cambio -- changedFields
+// lleva los nombres de campo tal cual los usa updateRequest() ('title',
+// 'instructions', 'country', 'requestType') para que el listener pueda
+// armar un mensaje legible sin tener que volver a leer la solicitud.
+export class DesignRequestUpdatedEvent {
+  constructor(
+    public readonly designRequestId: string,
+    public readonly accountId: string,
+    public readonly leadId: string,
+    public readonly assignedUserId: string | null,
+    public readonly changedFields: string[],
     public readonly occurredAt: Date,
   ) {}
 }
