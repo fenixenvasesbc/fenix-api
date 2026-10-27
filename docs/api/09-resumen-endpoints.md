@@ -104,15 +104,27 @@
 | `DELETE` | `/cliches/:id` | `ADMIN`, `FACTORY` | Eliminar. |
 | `POST` | `/cliches/production-plan` | `ADMIN`, `FACTORY` | Importar PDF producción. |
 
+## Categorías de boceto (Configuración > Categorías)
+
+| Método | Ruta | Roles | Notas |
+|---|---|---|---|
+| `GET` | `/design-request-categories` | `ADMIN`, `SALES`, `SALES_MANAGER`, `DESIGNER`, `DESIGNER_MANAGER` | Catálogo global, aparte de `lead-label-definitions`. |
+| `POST` | `/design-request-categories` | `ADMIN` | |
+| `PATCH` | `/design-request-categories/:id` | `ADMIN` | |
+| `DELETE` | `/design-request-categories/:id` | `ADMIN` | Bloqueado si está asignada a alguna solicitud. |
+
+Ver doc 17, sección "Categorías", para el detalle completo (por qué están separadas de las labels de lead, y la decisión explícita de no darle acceso a `DESIGNER_MANAGER`).
+
 ## Bocetos (tablero de diseño)
 
 Ver doc 17 para el detalle funcional completo (columnas, SLA, roles, reportes).
 
 | Método | Endpoint | Roles | Uso |
 |---|---|---|---|
-| `POST` | `/design-board/requests` | `ADMIN`, `SALES` | Crear solicitud de boceto desde el chat de un lead. |
+| `POST` | `/design-board/requests` | `ADMIN`, `SALES` | Crear solicitud de boceto desde el chat de un lead. Acepta `categoryIds?: string[]` (una o varias categorías, ver doc 17). |
 | `GET` | `/design-board/requests` | Todos los roles del módulo | Listar solicitudes (visibilidad por rol). Filtros opcionales para `DESIGNER_MANAGER`/`ADMIN`: `assignedUserId`, `createdByUserId`, `unassignedOnly=true` (solo sin diseñador asignado, pedido explicito del usuario 27/oct/2026 — prioriza sobre `assignedUserId` si llegan los dos). |
 | `GET` | `/design-board/requests/:id` | Todos los roles del módulo | Detalle de una solicitud. |
+| `PATCH` | `/design-board/requests/:id` | `ADMIN`, `SALES`/`SALES_MANAGER` (dueña) | Editar título/instrucciones/país/tipo/`categoryIds` (reemplaza el set completo de categorías). |
 | `PATCH` | `/design-board/requests/:id/assign` | `ADMIN`, `DESIGNER_MANAGER` | Asignar/desasignar diseñador. |
 | `PATCH` | `/design-board/requests/:id/move` | `ADMIN`, `DESIGNER`, `DESIGNER_MANAGER` | Mover tarjeta ±1 columna. |
 | `POST` | `/design-board/requests/:id/send-to-modification` | `ADMIN`, `SALES` (dueña), `DESIGNER_MANAGER` | Enviar de "Terminado" a "Modificación". |

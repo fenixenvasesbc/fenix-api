@@ -193,6 +193,7 @@ export class DesignRequestNotificationsListener {
       instructions: 'instrucciones',
       country: 'país',
       requestType: 'tipo de solicitud',
+      categories: 'categorías',
     };
     const changedLabels = event.changedFields
       .map((field) => fieldLabels[field] ?? field)

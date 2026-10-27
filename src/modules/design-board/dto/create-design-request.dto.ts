@@ -108,6 +108,15 @@ export class CreateDesignRequestDto {
   @ValidateNested({ each: true })
   @Type(() => CreateDesignRequestAttachmentDto)
   attachments?: CreateDesignRequestAttachmentDto[];
+
+  // Pedido explicito del usuario, 27/oct/2026: una o varias categorias
+  // (DesignRequestCategory, catalogo aparte de las labels de lead) --
+  // ver DesignRequestCategoriesService.assertActiveCategoryIds().
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsUUID('4', { each: true })
+  categoryIds?: string[];
 }
 
 export class ListDesignRequestsQueryDto {
@@ -214,6 +223,17 @@ export class UpdateDesignRequestDto {
   @IsOptional()
   @IsIn(DESIGN_REQUEST_TYPES)
   requestType?: DesignRequestType;
+
+  // Pedido explicito del usuario, 27/oct/2026: reemplaza el set completo
+  // de categorias de la solicitud (no es un "agregar" incremental) --
+  // mandar [] las quita todas. Omitir el campo deja las categorias como
+  // estaban (igual criterio que title/instructions/etc: solo se toca lo
+  // que llega en el body).
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsUUID('4', { each: true })
+  categoryIds?: string[];
 }
 
 export class AssignDesignRequestDto {

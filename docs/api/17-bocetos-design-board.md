@@ -56,6 +56,20 @@ Caso de referencia que motivó esto: boceto terminado → se reenvía (`BOCETO_E
 
 `BOCETO_APROBADO` además dispara lógica propia: `LeadsController.setLabel()` llama a `DesignBoardService.approveByLabel(accountId, leadId)` **antes** de aplicar la etiqueta — busca una solicitud en `isFinal` con `approvedAt: null`; si no hay ninguna, bloquea la etiqueta (`BadRequestException`); si hay, mueve la tarjeta a "Aprobados" (`approvedViaLabel: true`).
 
+## Categorías (Configuración > Categorías)
+
+Pedido explicito del usuario, 27/oct/2026: una solicitud puede tener una o varias **categorías** (`DesignRequestCategory`) -- catálogo **GLOBAL**, deliberadamente **APARTE** de las labels de lead (`LeadLabelDefinition`, doc 03). No tienen `code`, no son "de sistema", y no disparan ninguna automatización (`LabelMessageRule`, alertas in-app); son solo clasificación/filtro manual de solicitudes de boceto (ej. "Urgente", "Cliente VIP", "Rediseño").
+
+- `GET /design-request-categories`: cualquier rol del módulo (`ADMIN`, `SALES`, `SALES_MANAGER`, `DESIGNER`, `DESIGNER_MANAGER`) -- lo necesitan para los selectores de "Crear boceto" y el detalle de la solicitud.
+- `POST` / `PATCH /:id` / `DELETE /:id`: **solo `ADMIN`** (y, por `ROLE_INHERITANCE`, `SUPPORT`). A diferencia de las labels de lead (donde `SALES_MANAGER` también puede), aquí **no** se le da acceso a `DESIGNER_MANAGER` -- decisión explícita del usuario al pedir esta funcionalidad, para no romper el aislamiento del ADR-004 que lo restringe únicamente al tablero de bocetos (`DESIGNER_MANAGER` sigue sin poder entrar a Configuración en absoluto).
+- Borrar se bloquea si la categoría está asignada a alguna solicitud (sugiere desactivar, mismo criterio que `LeadLabelDefinitionsService.remove()`).
+
+`categoryIds: string[]` en `POST /design-board/requests` (al crear) y `PATCH /design-board/requests/:id` (al editar, **reemplaza el set completo** -- mandar `[]` las quita todas, omitir el campo las deja como estaban). Se valida que cada id exista y esté activo (`DesignRequestCategoriesService.assertActiveCategoryIds()`) antes de tocar nada. Editar las categorías de una solicitud cuenta como campo cambiado para `DESIGN_REQUEST_UPDATED` (ver sección de Notificaciones más arriba) -- avisa al diseñador asignado igual que editar título/instrucciones/país/tipo.
+
+`listRequests()`/`getRequestDetail()` devuelven `categories: DesignRequestCategory[]` (aplanado, sin el wrapper de la tabla de asignación `DesignRequestCategoryAssignment`).
+
+UI: `components/design-board/category-multi-select.tsx` (selector reusado en `create-design-request-dialog.tsx` y `design-request-detail-dialog.tsx`); `components/dashboard/design-request-categories-panel.tsx` (CRUD, pestaña "Categorías" en Configuración, visible solo con `canSeeAdminScreens`).
+
 ## Reenviar al lead
 
 `POST /requests/:id/attachments/:attachmentId/forward` (`ADMIN` o `SALES` dueña). Busca el adjunto por `designRequestId` o dentro de un comentario de la misma solicitud (el boceto terminado suele quedar en un comentario del diseñador, no en los adjuntos de entrada de la comercial).

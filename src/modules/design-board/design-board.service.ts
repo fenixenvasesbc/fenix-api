@@ -19,6 +19,7 @@ import { OutboundService } from '../outbound/outbound.service';
 import { ChatPolicyService } from '../outbound/chat-policy.service';
 import { BusinessDaysService } from 'src/common/business-days/business-days.service';
 import { ChatEventsService } from '../chat-events/chat-events.service';
+import { DesignRequestCategoriesService } from '../design-request-categories/design-request-categories.service';
 import { withLeadDisplayName } from 'src/common/utils/lead-name';
 // Resuelve el mismo 'nombre a mostrar' que usa el resto de la app (para
 // SALES: Account.name; para el resto: User.name) -- pedido explicito del
@@ -90,6 +91,11 @@ export class DesignBoardService {
     private readonly chatPolicyService: ChatPolicyService,
     private readonly businessDaysService: BusinessDaysService,
     private readonly chatEvents: ChatEventsService,
+    // Pedido explicito del usuario, 27/oct/2026: valida los categoryIds
+    // que llegan en create/update (existen y estan activos) -- el CRUD
+    // del catalogo en si vive aparte (Configuracion > Categorias, solo
+    // ADMIN), este servicio solo se usa aqui para esa validacion.
+    private readonly designRequestCategories: DesignRequestCategoriesService,
     // Bus de eventos de dominio EN PROCESO (Observer/EventEmitter2, ver
     // events/design-board.events.ts): este servicio publica "esto paso en
     // el tablero" y no conoce ni depende del sistema de notificaciones --
@@ -480,6 +486,12 @@ export class DesignBoardService {
       user.userId,
     );
 
+    // Pedido explicito del usuario, 27/oct/2026: valida ANTES de abrir la
+    // transaccion (si alguna categoria no existe/esta inactiva, falla
+    // rapido sin haber tocado nada).
+    const categoryIds = Array.from(new Set(dto.categoryIds ?? []));
+    await this.designRequestCategories.assertActiveCategoryIds(categoryIds);
+
     const designRequest = await this.prisma.$transaction(async (tx) => {
       const created = await tx.designRequest.create({
         data: {
@@ -501,8 +513,11 @@ export class DesignBoardService {
           attachments: attachmentsCreateInput
             ? { create: attachmentsCreateInput }
             : undefined,
+          categories: categoryIds.length
+            ? { create: categoryIds.map((categoryId) => ({ categoryId })) }
+            : undefined,
         },
-        include: { attachments: true },
+        include: { attachments: true, categories: { include: { category: true } } },
       });
 
       await tx.designRequestStatusEvent.create({
@@ -534,7 +549,10 @@ export class DesignBoardService {
 
     await this.emitDesignBoardEvent('design_request.created', designRequest);
 
-    return designRequest;
+    return {
+      ...designRequest,
+      categories: designRequest.categories.map((assignment) => assignment.category),
+    };
   }
 
   // -------------------------------------------------------------
@@ -556,7 +574,8 @@ export class DesignBoardService {
       dto.title === undefined &&
       dto.instructions === undefined &&
       dto.country === undefined &&
-      dto.requestType === undefined
+      dto.requestType === undefined &&
+      dto.categoryIds === undefined
     ) {
       throw new BadRequestException(
         'Debes indicar al menos un campo para editar',
@@ -637,10 +656,41 @@ export class DesignBoardService {
       }
     }
 
-    const updated = await this.prisma.designRequest.update({
-      where: { id: request.id },
-      data,
-    });
+    // Pedido explicito del usuario, 27/oct/2026: categoryIds reemplaza el
+    // set COMPLETO de categorias (no es un "agregar" incremental) --
+    // mandar [] las quita todas. Se valida ANTES de tocar nada (igual
+    // criterio que createRequest()).
+    const categoryIdsChanged = dto.categoryIds !== undefined;
+    const nextCategoryIds = categoryIdsChanged
+      ? Array.from(new Set(dto.categoryIds))
+      : [];
+    if (categoryIdsChanged) {
+      await this.designRequestCategories.assertActiveCategoryIds(nextCategoryIds);
+    }
+
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.designRequest.update({
+        where: { id: request.id },
+        data,
+      }),
+      ...(categoryIdsChanged
+        ? [
+            this.prisma.designRequestCategoryAssignment.deleteMany({
+              where: { designRequestId: request.id },
+            }),
+            ...(nextCategoryIds.length
+              ? [
+                  this.prisma.designRequestCategoryAssignment.createMany({
+                    data: nextCategoryIds.map((categoryId) => ({
+                      designRequestId: request.id,
+                      categoryId,
+                    })),
+                  }),
+                ]
+              : []),
+          ]
+        : []),
+    ]);
 
     await this.emitDesignBoardEvent('design_request.updated', request);
 
@@ -653,11 +703,13 @@ export class DesignBoardService {
     // `data` ya tiene exactamente los campos que de verdad cambiaron (ver
     // los `if (dto.X !== undefined)` arriba) -- slaBusinessDays/dueAt son
     // derivados de requestType, no campos editables por si solos, asi que
-    // no se listan aparte.
+    // no se listan aparte. categoryIds es un caso aparte (no vive en
+    // `data`, se maneja en su propia tabla), por eso se agrega a mano.
     if (request.assignedUserId && request.assignedUserId !== user.userId) {
       const changedFields = Object.keys(data).filter((key) =>
         ['title', 'instructions', 'country', 'requestType'].includes(key),
       );
+      if (categoryIdsChanged) changedFields.push('categories');
 
       if (changedFields.length > 0) {
         this.eventEmitter.emit(
@@ -829,6 +881,11 @@ export class DesignBoardService {
       include: {
         column: true,
         attachments: true,
+        // Pedido explicito del usuario, 27/oct/2026: categorias de la
+        // solicitud (catalogo aparte de las labels de lead) -- se
+        // aplanan a `categories: DesignRequestCategory[]` mas abajo
+        // (sin el wrapper de la tabla de asignacion).
+        categories: { include: { category: true } },
         lead: {
           select: {
             id: true,
@@ -864,6 +921,7 @@ export class DesignBoardService {
             ? userDisplayMap.get(request.assignedUserId) ?? null
             : null,
           hasNewComments: hasNewCommentsByRequestId.get(request.id) ?? false,
+          categories: request.categories.map((assignment) => assignment.category),
         },
         holidaySet,
       ),
@@ -943,6 +1001,7 @@ export class DesignBoardService {
         column: true,
         board: true,
         attachments: true,
+        categories: { include: { category: true } },
         lead: {
           select: {
             id: true,
@@ -1004,6 +1063,7 @@ export class DesignBoardService {
           ...comment,
           author: userDisplayMap.get(comment.authorUserId) ?? null,
         })),
+        categories: request.categories.map((assignment) => assignment.category),
       },
       holidaySet,
     );

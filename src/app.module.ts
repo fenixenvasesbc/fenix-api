@@ -56,6 +56,7 @@ import { TimeTrackingModule } from './modules/time-tracking/time-tracking.module
 import { GlobalTemplatesModule } from './modules/global-templates/global-templates.module';
 import { CampaignTemplatesModule } from './modules/campaign-templates/campaign-templates.module';
 import { LeadLabelDefinitionsModule } from './modules/lead-label-definitions/lead-label-definitions.module';
+import { DesignRequestCategoriesModule } from './modules/design-request-categories/design-request-categories.module';
 
 @Module({
   imports: [
@@ -101,6 +102,7 @@ import { LeadLabelDefinitionsModule } from './modules/lead-label-definitions/lea
     GlobalTemplatesModule,
     CampaignTemplatesModule,
     LeadLabelDefinitionsModule,
+    DesignRequestCategoriesModule,
     DesignBoardModule,
     DesignRequestSlaSchedulerModule,
   ],

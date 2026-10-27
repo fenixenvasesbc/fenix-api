@@ -1491,11 +1491,53 @@ model DesignRequest {
   comments     DesignRequestComment[]
   statusEvents DesignRequestStatusEvent[]
   commentViews DesignRequestCommentView[]
+  // Pedido explicito del usuario, 27/oct/2026: una solicitud puede tener
+  // una o varias "categorias" -- catalogo APARTE de las labels de lead
+  // (LeadLabelDefinition), configurable desde Configuracion > Categorias
+  // (solo ADMIN crea/edita/borra, ver DesignRequestCategoriesService).
+  // Join explicito (no many-to-many implicito de Prisma) para seguir el
+  // mismo criterio que el resto del schema (LeadLabelAssignment, etc.).
+  categories   DesignRequestCategoryAssignment[]
 
   @@index([boardId, columnId])
   @@index([accountId, createdByUserId])
   @@index([assignedUserId])
   @@index([dueAt])
+}
+
+// Catalogo GLOBAL de categorias de boceto (titulo/descripcion libres, p.ej.
+// "Urgente", "Cliente VIP", "Rediseño") -- a diferencia de las labels de
+// lead (LeadLabelDefinition), estas NO disparan ninguna automatizacion
+// (LabelMessageRule, alertas in-app, etc.), son solo clasificacion/filtro
+// manual de solicitudes de boceto. Pedido explicito del usuario,
+// 27/oct/2026: "aparte de las labels que son para los leads".
+model DesignRequestCategory {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  color     String?
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments DesignRequestCategoryAssignment[]
+}
+
+// Join explicito solicitud<->categoria (una solicitud puede tener varias
+// categorias, una categoria puede estar en varias solicitudes).
+model DesignRequestCategoryAssignment {
+  id String @id @default(uuid())
+
+  designRequestId String
+  designRequest   DesignRequest @relation(fields: [designRequestId], references: [id], onDelete: Cascade)
+
+  categoryId String
+  category   DesignRequestCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([designRequestId, categoryId])
+  @@index([categoryId])
 }
 
 // Pedido explicito del usuario, 26/oct/2026: indicador de "comentario
