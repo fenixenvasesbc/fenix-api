@@ -97,6 +97,66 @@ export class DesignBoardService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
+  // Pedido explicito del usuario, 27/oct/2026: las 3 etiquetas que
+  // representan el "estado del boceto" sobre un lead -- BOCETO_EN_PROCESO,
+  // "Boceto enviado" (custom) y BOCETO_APROBADO -- son MUTUAMENTE
+  // EXCLUYENTES: en todo momento el lead debe tener activa como maximo
+  // una de ellas. `LeadsService.setLabel()` por si solo NO lo garantiza
+  // -- marca la nueva como activa pero nunca desactiva (removedAt) las
+  // anteriores. Sin este helper, un boceto reenviado (BOCETO_ENVIADO)
+  // que luego vuelve a "Modificacion" se quedaba enganchado en
+  // BOCETO_ENVIADO para siempre, lo que podia disparar por error una
+  // automatizacion atada a esa etiqueta (ver LabelMessageRule) aunque el
+  // boceto ya no estuviera "enviado" de verdad.
+  private static readonly BOCETO_STAGE_LABELS = [
+    SYSTEM_LABEL_CODES.BOCETO_EN_PROCESO,
+    'BOCETO_ENVIADO',
+    SYSTEM_LABEL_CODES.BOCETO_APROBADO,
+  ] as const;
+
+  // Aplica una de las 3 etiquetas de estado y desactiva las otras dos
+  // (removeLabel ya es un no-op seguro si esa otra etiqueta no estaba
+  // activa en el lead -- no hace falta saber de antemano cual estaba
+  // puesta). Si aplicar la nueva falla (ej. "Boceto enviado" todavia no
+  // se creo como etiqueta personalizada desde Configuracion > Etiquetas),
+  // NO se desactivan las demas -- el lead se queda en el estado anterior
+  // en vez de quedar sin ninguna etiqueta de estado.
+  private async applyBocetoStageLabel(
+    accountId: string,
+    leadId: string,
+    label: string,
+    changedByUserId?: string | null,
+  ) {
+    try {
+      await this.leadsService.setLabel({
+        accountId,
+        leadId,
+        label,
+        changedByUserId,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `No se pudo aplicar la etiqueta de estado de boceto "${label}": ${String(error)}`,
+      );
+      return;
+    }
+
+    const others = DesignBoardService.BOCETO_STAGE_LABELS.filter(
+      (code) => code !== label,
+    );
+    await Promise.all(
+      others.map((code) =>
+        this.leadsService
+          .removeLabel({ accountId, leadId, label: code, changedByUserId })
+          .catch((error) =>
+            this.logger.warn(
+              `No se pudo quitar la etiqueta de estado de boceto "${code}": ${String(error)}`,
+            ),
+          ),
+      ),
+    );
+  }
+
   // Pedido explicito del usuario: en el modulo de bocetos, SALES_MANAGER
   // debe comportarse EXACTAMENTE igual que SALES (misma visibilidad, mismas
   // restricciones de cuenta, no puede mover tarjetas, etc.) -- a diferencia
@@ -459,13 +519,17 @@ export class DesignBoardService {
 
     // Reusa el catalogo de labels ya existente (BOCETO_EN_PROCESO ya viene
     // sembrado como label de sistema, ver src/common/constants/lead-labels.ts)
-    // en vez de crear infraestructura de etiquetas nueva.
-    await this.leadsService.setLabel({
-      accountId: lead.accountId,
-      leadId: lead.id,
-      label: SYSTEM_LABEL_CODES.BOCETO_EN_PROCESO,
-      changedByUserId: user.userId,
-    });
+    // en vez de crear infraestructura de etiquetas nueva. Pasa por
+    // applyBocetoStageLabel() (no setLabel directo) para que, si este lead
+    // ya tenia un boceto anterior aprobado/enviado, esas etiquetas se
+    // desactiven al arrancar uno nuevo -- ver nota junto a
+    // BOCETO_STAGE_LABELS en el constructor.
+    await this.applyBocetoStageLabel(
+      lead.accountId,
+      lead.id,
+      SYSTEM_LABEL_CODES.BOCETO_EN_PROCESO,
+      user.userId,
+    );
 
     await this.emitDesignBoardEvent('design_request.created', designRequest);
 
@@ -1245,6 +1309,21 @@ export class DesignBoardService {
       return result;
     });
 
+    // Pedido explicito del usuario, 27/oct/2026: si el boceto ya habia
+    // sido reenviado al lead (BOCETO_ENVIADO) y el lead pide cambios, el
+    // boceto vuelve a estar "en proceso" -- sin esto, la etiqueta se
+    // quedaba en BOCETO_ENVIADO para siempre aunque el boceto ya no
+    // estuviera enviado de verdad (riesgo real: una automatizacion de
+    // mensajes atada a esa etiqueta, ver LabelMessageRule, podia
+    // disparar por error). applyBocetoStageLabel() desactiva
+    // BOCETO_ENVIADO al reactivar BOCETO_EN_PROCESO.
+    await this.applyBocetoStageLabel(
+      request.accountId,
+      request.leadId,
+      SYSTEM_LABEL_CODES.BOCETO_EN_PROCESO,
+      user.userId,
+    );
+
     // ADR-004 Submódulo 6: alerta al diseñador asignado cuando su tarjeta
     // vuelve a "Modificación". Reescrito para publicar el evento de
     // dominio (ver events/design-board.events.ts) en vez de crear la
@@ -1487,19 +1566,17 @@ export class DesignBoardService {
 
     // Pedido explicito del usuario, 23/oct/2026: al aprobar desde el
     // tablero (este boton), el lead debia dejar de mostrar "Boceto en
-    // proceso" -- antes solo pasaba al aprobar automaticamente por
-    // etiqueta (approveByLabel(), donde el controller aplica
-    // BOCETO_APROBADO como currentLabel justo despues). currentLabel es
-    // un valor unico (no una lista), asi que aplicar BOCETO_APROBADO aca
-    // reemplaza/oculta BOCETO_EN_PROCESO sin necesidad de "quitarla"
-    // aparte -- mismo mecanismo, mismo resultado visible, por los dos
-    // caminos de aprobacion.
-    await this.leadsService.setLabel({
-      accountId: request.accountId,
-      leadId: request.leadId,
-      label: SYSTEM_LABEL_CODES.BOCETO_APROBADO,
-      changedByUserId: user.userId,
-    });
+    // proceso"/"Boceto enviado" -- antes solo pasaba al aprobar
+    // automaticamente por etiqueta (approveByLabel()). Usa
+    // applyBocetoStageLabel() (27/oct/2026) para que BOCETO_APROBADO
+    // realmente DESACTIVE las otras etiquetas de estado (setLabel por si
+    // solo no lo hacia, ver nota junto a BOCETO_STAGE_LABELS).
+    await this.applyBocetoStageLabel(
+      request.accountId,
+      request.leadId,
+      SYSTEM_LABEL_CODES.BOCETO_APROBADO,
+      user.userId,
+    );
 
     this.eventEmitter.emit(
       DESIGN_REQUEST_EVENTS.APPROVED,
@@ -1600,36 +1677,21 @@ export class DesignBoardService {
 
     // Pedido explicito del usuario, 27/oct/2026: al reenviar el boceto
     // terminado al lead, pasa a mostrar "Boceto enviado" en vez de
-    // "Boceto en proceso" -- antes esa etiqueta solo se quitaba al
-    // aprobar (ver approve() mas abajo, mismo mecanismo con
-    // BOCETO_APROBADO). Solo mientras la tarjeta sigue en "Terminado":
-    // si ya esta en "Aprobados" (reenvio posterior a la aprobacion) no
-    // hay que pisar BOCETO_APROBADO con esto. currentLabel es un valor
-    // unico, asi que aplicar esta etiqueta aca reemplaza/oculta
-    // BOCETO_EN_PROCESO sin necesidad de "quitarla" aparte.
-    //
-    // "Boceto enviado" es una etiqueta PERSONALIZADA (no de sistema): la
-    // crea el usuario desde Configuracion > Etiquetas (igual que
-    // cualquier custom label), no vive en SYSTEM_LABEL_CODES ni requiere
-    // migracion -- se referencia por su "code" como string suelto, mismo
-    // patron que labelCode en LabelMessageRule. Si todavia no la creo
-    // (o la desactivo), LeadsService.setLabel rechaza con
-    // BadRequestException -- se atrapa aca para no tumbar el reenvio
-    // (el mensaje de WhatsApp ya se mando con exito, lo unico que
-    // fallaria es el detalle de la etiqueta).
+    // "Boceto en proceso" -- solo mientras la tarjeta sigue en
+    // "Terminado" (si ya esta en "Aprobados", un reenvio posterior no
+    // debe pisar BOCETO_APROBADO). applyBocetoStageLabel() se encarga de
+    // desactivar BOCETO_EN_PROCESO (y, defensivamente, BOCETO_APROBADO
+    // si estuviera activo) y de no tumbar el reenvio si la etiqueta
+    // personalizada "Boceto enviado" todavia no se creo (ver nota junto
+    // a BOCETO_STAGE_LABELS en el constructor) -- el mensaje de WhatsApp
+    // ya se mando con exito de todas formas.
     if (request.column.isFinal) {
-      try {
-        await this.leadsService.setLabel({
-          accountId: request.accountId,
-          leadId: request.leadId,
-          label: 'BOCETO_ENVIADO',
-          changedByUserId: user.userId,
-        });
-      } catch (error) {
-        this.logger.warn(
-          `No se pudo aplicar la etiqueta "Boceto enviado" (¿falta crearla en Configuración > Etiquetas?): ${String(error)}`,
-        );
-      }
+      await this.applyBocetoStageLabel(
+        request.accountId,
+        request.leadId,
+        'BOCETO_ENVIADO',
+        user.userId,
+      );
     }
 
     return sent;
@@ -2147,6 +2209,34 @@ export class DesignBoardService {
 
       return result;
     });
+
+    // Pedido explicito del usuario, 27/oct/2026: este camino de
+    // aprobacion (etiqueta BOCETO_APROBADO puesta a mano en el chat, ver
+    // LeadsController.setLabel) aplica la etiqueta el mismo setLabel()
+    // generico del controller, DESPUES de que esto retorne -- no pasa
+    // por applyBocetoStageLabel(). Para que BOCETO_EN_PROCESO/
+    // BOCETO_ENVIADO queden desactivados igual que por el boton
+    // "Aprobar" (approve(), que si usa el helper), se limpian aca de
+    // forma defensiva; el setLabel(BOCETO_APROBADO) que sigue despues en
+    // el controller es idempotente si ya quedo activa por otro camino.
+    await Promise.all(
+      DesignBoardService.BOCETO_STAGE_LABELS.filter(
+        (code) => code !== SYSTEM_LABEL_CODES.BOCETO_APROBADO,
+      ).map((code) =>
+        this.leadsService
+          .removeLabel({
+            accountId: request.accountId,
+            leadId: request.leadId,
+            label: code,
+            changedByUserId: userId ?? null,
+          })
+          .catch((error) =>
+            this.logger.warn(
+              `No se pudo quitar la etiqueta de estado de boceto "${code}": ${String(error)}`,
+            ),
+          ),
+      ),
+    );
 
     this.eventEmitter.emit(
       DESIGN_REQUEST_EVENTS.APPROVED,

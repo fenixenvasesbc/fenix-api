@@ -62,7 +62,7 @@ describe('DesignBoardService', () => {
     lead: { findUnique: jest.Mock };
     $transaction: jest.Mock;
   };
-  let leadsService: { setLabel: jest.Mock };
+  let leadsService: { setLabel: jest.Mock; removeLabel: jest.Mock };
   let outboundService: { sendMediaMessage: jest.Mock };
   let businessDaysService: {
     loadHolidaySet: jest.Mock;
@@ -109,7 +109,10 @@ describe('DesignBoardService', () => {
       $transaction: jest.fn((callback: any) => callback(tx)),
     };
 
-    leadsService = { setLabel: jest.fn().mockResolvedValue({}) };
+    leadsService = {
+      setLabel: jest.fn().mockResolvedValue({}),
+      removeLabel: jest.fn().mockResolvedValue({}),
+    };
     outboundService = { sendMediaMessage: jest.fn().mockResolvedValue({ id: 'msg-1' }) };
     businessDaysService = {
       loadHolidaySet: jest.fn().mockResolvedValue(new Set<string>()),
@@ -1352,6 +1355,39 @@ describe('DesignBoardService', () => {
       await expect(service.sendToModification(MANAGER, 'req-1')).resolves.toBeDefined();
     });
 
+    // Pedido explicito del usuario, 27/oct/2026: si el boceto ya habia
+    // sido reenviado (BOCETO_ENVIADO) y el lead pide cambios, debe volver
+    // a "Boceto en proceso" -- y BOCETO_ENVIADO debe desactivarse, no
+    // quedar enganchada (riesgo: dispararia por error una automatizacion
+    // atada a esa etiqueta aunque el boceto ya no este "enviado").
+    it('reactivates BOCETO_EN_PROCESO and deactivates the other stage labels when sent to "Modificación"', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(doneRequest());
+      businessDaysService.loadHolidaySet.mockResolvedValue(new Set());
+      businessDaysService.computeBusinessDueAt.mockReturnValue(new Date('2026-01-13T13:00:00.000Z'));
+      tx.designRequest.update.mockResolvedValue({ id: 'req-1', columnId: 'col-modification' });
+
+      await service.sendToModification(SALES, 'req-1');
+
+      expect(leadsService.setLabel).toHaveBeenCalledWith({
+        accountId: 'account-1',
+        leadId: 'lead-1',
+        label: SYSTEM_LABEL_CODES.BOCETO_EN_PROCESO,
+        changedByUserId: 'sales-1',
+      });
+      expect(leadsService.removeLabel).toHaveBeenCalledWith({
+        accountId: 'account-1',
+        leadId: 'lead-1',
+        label: 'BOCETO_ENVIADO',
+        changedByUserId: 'sales-1',
+      });
+      expect(leadsService.removeLabel).toHaveBeenCalledWith({
+        accountId: 'account-1',
+        leadId: 'lead-1',
+        label: SYSTEM_LABEL_CODES.BOCETO_APROBADO,
+        changedByUserId: 'sales-1',
+      });
+    });
+
     // Regresión: antes de este fix, completedAt no se limpiaba al salir de
     // "Terminado" hacia "Modificación" -- quedaba con la fecha de la
     // primera vez que la tarjeta llego a "Terminado", y el filtro por mes
@@ -2235,6 +2271,41 @@ describe('DesignBoardService', () => {
         }),
       );
     });
+
+    // Pedido explicito del usuario, 27/oct/2026: este camino de
+    // aprobacion (etiqueta puesta a mano en el chat) deja que el
+    // controller aplique BOCETO_APROBADO el mismo despues -- pero
+    // BOCETO_EN_PROCESO/BOCETO_ENVIADO deben quedar desactivados igual
+    // que por el boton "Aprobar" (approve()).
+    it('deactivates BOCETO_EN_PROCESO and BOCETO_ENVIADO (mutually exclusive stage labels)', async () => {
+      prisma.designRequest.findFirst.mockResolvedValue({
+        id: 'req-1',
+        accountId: 'account-1',
+        leadId: 'lead-1',
+        column: COLUMNS[2],
+        board: board(),
+      });
+      tx.designRequest.update.mockResolvedValue({
+        id: 'req-1',
+        columnId: 'col-approved',
+        approvedViaLabel: true,
+      });
+
+      await service.approveByLabel('account-1', 'lead-1', 'sales-1');
+
+      expect(leadsService.removeLabel).toHaveBeenCalledWith({
+        accountId: 'account-1',
+        leadId: 'lead-1',
+        label: SYSTEM_LABEL_CODES.BOCETO_EN_PROCESO,
+        changedByUserId: 'sales-1',
+      });
+      expect(leadsService.removeLabel).toHaveBeenCalledWith({
+        accountId: 'account-1',
+        leadId: 'lead-1',
+        label: 'BOCETO_ENVIADO',
+        changedByUserId: 'sales-1',
+      });
+    });
   });
 
   // ---------------------------------------------------------------
@@ -2388,6 +2459,43 @@ describe('DesignBoardService', () => {
         label: 'BOCETO_ENVIADO',
         changedByUserId: SALES.userId,
       });
+      // Debe desactivar BOCETO_EN_PROCESO (y, defensivamente,
+      // BOCETO_APROBADO) -- son mutuamente excluyentes.
+      expect(leadsService.removeLabel).toHaveBeenCalledWith({
+        accountId: 'account-1',
+        leadId: 'lead-1',
+        label: SYSTEM_LABEL_CODES.BOCETO_EN_PROCESO,
+        changedByUserId: SALES.userId,
+      });
+      expect(leadsService.removeLabel).toHaveBeenCalledWith({
+        accountId: 'account-1',
+        leadId: 'lead-1',
+        label: SYSTEM_LABEL_CODES.BOCETO_APROBADO,
+        changedByUserId: SALES.userId,
+      });
+    });
+
+    // Si todavia no se creo "Boceto enviado", setLabel rechaza -- no debe
+    // desactivarse BOCETO_EN_PROCESO (el lead se queda en el estado
+    // anterior en vez de quedar sin ninguna etiqueta de estado).
+    it('does not deactivate BOCETO_EN_PROCESO when the "Boceto enviado" custom label does not exist yet', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(reviewRequest());
+      prisma.designRequestAttachment.findFirst.mockResolvedValue({
+        id: 'att-1',
+        mediaUrl: 'https://cdn.example.com/boceto.png',
+        mediaStorageKey: 'boceto.png',
+        mimeType: 'image/png',
+        fileName: 'boceto.png',
+        sizeBytes: 1234,
+      });
+      prisma.designRequestAttachment.update.mockResolvedValue({});
+      leadsService.setLabel.mockRejectedValueOnce(
+        new BadRequestException('Label "BOCETO_ENVIADO" no existe o esta inactiva'),
+      );
+
+      await service.forwardAttachment(SALES, 'req-1', 'att-1');
+
+      expect(leadsService.removeLabel).not.toHaveBeenCalled();
     });
 
     // Reenviar DESPUES de aprobado (tarjeta ya en "Aprobados") no debe
