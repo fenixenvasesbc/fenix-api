@@ -1837,8 +1837,17 @@ export class DesignBoardService {
     const endMonthKey = this.resolveEndMonthKey(query.dateTo);
     const monthKeys = this.lastThreeMonthKeys(endMonthKey);
 
+    // Pedido explicito del usuario, 27/oct/2026: la pestaña "Por
+    // diseñador" NO debe ser vista por la jefa de ventas (SALES_MANAGER)
+    // -- a diferencia de "Reportes y estadisticas", que si puede ver.
+    // Se corta aca (no solo en el frontend) para que el desglose por
+    // diseñador ni siquiera viaje en la respuesta de este endpoint.
+    const includeByDesigner = user.role !== Role.SALES_MANAGER;
+
     const months = await Promise.all(
-      monthKeys.map((monthKey) => this.monthlyReportBreakdown(monthKey)),
+      monthKeys.map((monthKey) =>
+        this.monthlyReportBreakdown(monthKey, includeByDesigner),
+      ),
     );
 
     return { months };
@@ -1878,7 +1887,10 @@ export class DesignBoardService {
   // explicito del usuario 26/oct/2026). Misma cohorte que siempre: un
   // boceto cuenta como terminado/aprobado del mes en que se TERMINO
   // (completedAt), aunque approvedAt caiga despues.
-  private async monthlyReportBreakdown(monthKey: string) {
+  private async monthlyReportBreakdown(
+    monthKey: string,
+    includeByDesigner = true,
+  ) {
     const { start, end } = this.monthRange(monthKey);
     const completedInMonth = { completedAt: { gte: start, lt: end } };
     const approvedFromMonthCohort = {
@@ -1918,10 +1930,12 @@ export class DesignBoardService {
       // pidio: si vuelve a Modificacion se le limpia completedAt (deja de
       // contar, ver sendToModification()), y si pasa a Aprobados
       // completedAt NO se toca (sigue contando para este diseñador).
-      this.prisma.designRequest.findMany({
-        where: completedInMonth,
-        select: { id: true, title: true, assignedUserId: true },
-      }),
+      includeByDesigner
+        ? this.prisma.designRequest.findMany({
+            where: completedInMonth,
+            select: { id: true, title: true, assignedUserId: true },
+          })
+        : Promise.resolve([]),
     ]);
 
     const approvalRate =
