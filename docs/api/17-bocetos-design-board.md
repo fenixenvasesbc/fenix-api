@@ -38,6 +38,10 @@ Cron `DesignRequestSlaSchedulerService` (cada hora): aplica `BOCETOS_ATRASADOS` 
 
 Pausa (`POST /requests/:id/pause` / `.../resume`, solo `DESIGNER_MANAGER`/`ADMIN`): al reanudar, `dueAt` se desplaza hacia adelante por el tiempo real (ms) que estuvo pausada — no se recalculan días hábiles parciales.
 
+**Plazo según tipo de solicitud** (`resolveCreationSlaBusinessDays()`, usado al crear y al editar `requestType`): `BOCETO` (default) = 3 días hábiles del tablero; `MOD`/`REPET_MOD`/`REPET_ANADE` = 1 día hábil; `REPET_BOCETO` = 2 días hábiles. Además, si el tipo es `BOCETO` y la **descripción** menciona uno de estos productos (plazo extendido): vaso(s), pala(s), panini(s), "hamburguesa folding", ensaladera(s) → 4 días hábiles en vez de 3.
+
+**Fix 28/oct/2026 (reportado por el usuario)**: la detección de esos productos en la descripción usaba `String.includes()` (substring plano) sobre palabras cortas como "pala" — substring de palabras comunes del castellano ("palabra", "paladar", "palacio", "paliar"...), así que una descripción que solo mencionara, por ejemplo, "revisar la palabra del eslogan" disparaba el plazo extendido de 4 días por error. Caso real: tres bocetos creados el mismo día/hora con `dueAt` distinto (dos en 3 días hábiles, uno en 4). Fix: `buildExtendedSlaKeywordPattern()` usa un regex con límite de palabra (`\b...\bs?\b`, admite plural: "vasos", "palas") en vez de substring suelto.
+
 ## Etiquetas de lead relacionadas (ver doc 03 para el catálogo completo)
 
 | Momento | Label aplicada | Tipo |
