@@ -83,6 +83,8 @@ UI: `components/design-board/category-multi-select.tsx` (selector reusado en `cr
 
 `GET /design-board/reports/summary?dateFrom&dateTo` (`ADMIN`, `DESIGNER_MANAGER`, `SALES_MANAGER`): devuelve los **últimos 3 meses separados** (el mes de `dateTo` es el más reciente de los 3), cada uno con `completedCount`, `approvedCount`, `approvalRate`, `approvedByCountry`, `byCreator` (por comercial) y `byDesigner` (por diseñador asignado, con el detalle de títulos). `byDesigner` se omite (`[]`) cuando el rol es `SALES_MANAGER` — esa pestaña de la SPA no es para ese rol.
 
+Pedido explicito del usuario, 28/oct/2026: cada mes incluye además `byCategory: { categoryId, completedCount }[]` -- cantidad de solicitudes **terminadas** (misma cohorte `completedAt` del mes) por categoría, vía `designRequestCategoryAssignment.groupBy({ by: ['categoryId'] })`. Una solicitud puede tener varias categorías a la vez (N:M), así que la suma de `byCategory` no tiene por qué coincidir con `completedCount` del mes. Misma visibilidad que `byDesigner`: se omite (`[]`) para `SALES_MANAGER`.
+
 `GET /design-board/reports/my-approval-rate` (`SALES`): tasa de aprobación personal del comercial, últimos 3 meses.
 
 Cuentan el histórico completo, incluidas las tarjetas ya archivadas desde "Aprobados" — el archivado solo las saca del tablero visual.
@@ -112,7 +114,7 @@ Requiere el valor `DESIGN_REQUEST_UPDATED` en el enum `AppNotificationType` (mig
 
 ## UI (Fenix-SPA)
 
-`app/dashboard/bocetos/page.tsx`: tablero + pestañas "Tablero" / "Reportes y estadísticas" (`canViewReports` = `DESIGNER_MANAGER`/`ADMIN`/`SALES_MANAGER`) / "Por diseñador" (`canViewDesignerReport` = solo `DESIGNER_MANAGER`/`ADMIN`). Componentes en `components/design-board/`: `design-request-card.tsx`, `design-request-detail-dialog.tsx`, `create-design-request-dialog.tsx` (botón en el chat del lead), `design-board-reports.tsx`, `designer-completion-report.tsx`.
+`app/dashboard/bocetos/page.tsx`: tablero + pestañas "Tablero" / "Reportes y estadísticas" (`canViewReports` = `DESIGNER_MANAGER`/`ADMIN`/`SALES_MANAGER`) / "Por diseñador" (`canViewDesignerReport` = solo `DESIGNER_MANAGER`/`ADMIN`) / "Por categoría" (pedido explicito del usuario, 28/oct/2026; `canViewCategoryReport` = solo `DESIGNER_MANAGER`/`ADMIN`, igual que "Por diseñador"). Componentes en `components/design-board/`: `design-request-card.tsx`, `design-request-detail-dialog.tsx`, `create-design-request-dialog.tsx` (botón en el chat del lead), `design-board-reports.tsx`, `designer-completion-report.tsx`, `category-completion-report.tsx` (mismo patrón que `designer-completion-report.tsx` pero resolviendo nombre/color de categoría vía `designRequestCategoriesApi.list()` en vez de `useUserCache`).
 
 Filtros del tablero disponibles para `DESIGNER_MANAGER`/`ADMIN` (`canManage`): por diseñador asignado, por comercial creadora, y (pedido explicito del usuario, 27/oct/2026) **"Sin asignar"** — un checkbox que pide `unassignedOnly: true` (`GET /design-board/requests?unassignedOnly=true`, mapeado a `assignedUserId: null` en `visibilityWhere()`); mutuamente excluyente con el filtro por diseñador (se deshabilita/limpia al activar "Sin asignar", y el backend prioriza `unassignedOnly` si llegaran los dos filtros a la vez).
 
