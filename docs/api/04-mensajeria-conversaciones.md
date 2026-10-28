@@ -4,6 +4,14 @@
 
 Centralizar el historial WhatsApp por lead, aplicar políticas de ventana de conversación, enviar mensajes por YCloud y mantener la SPA actualizada en tiempo real.
 
+## Acceso a la bandeja por rol
+
+`ADMIN`/`SUPPORT` ven la bandeja de cualquier cuenta mandando `accountId` explícito (requerido). `SALES` solo ve/opera su propia cuenta (`user.accountId`), sin poder mandar otro `accountId`.
+
+**Pedido explícito del usuario, 28/oct/2026**: `SALES_MANAGER` gana el mismo alcance que `ADMIN` -- puede ver/operar (listar conversaciones, historial, marcar leído, cerrar/reabrir, enviar mensajes outbound, subir adjuntos, suscribirse al SSE de eventos en vivo) la bandeja de **cualquier comercial de la organización**, mandando su `accountId` explícito. A diferencia de `ADMIN`/`SUPPORT` (que no tienen cuenta propia y deben mandar `accountId` siempre), si `SALES_MANAGER` no manda `accountId`, cae a `user.accountId` -- así la bandeja sigue cargando su propia cuenta por defecto, sin romper el comportamiento que ya tenía.
+
+`resolveAccountId()` en `conversation.controller.ts`, `message.controller.ts`, `chat-events.controller.ts`, `outbound.controller.ts` y `media-upload.controller.ts` implementan esta rama para `SALES_MANAGER` (mismo patrón ya usado en `leads.controller.ts`). En `Fenix-SPA`, `app/dashboard/messages/page.tsx` muestra el selector de cuenta (antes solo `ADMIN`/`SUPPORT`) también para `SALES_MANAGER`, pero con un fallback de selección distinto: por defecto selecciona `user.accountId` (su propia cuenta), nunca la primera cuenta de la lista completa de la organización (que es el fallback que sí usa `ADMIN`).
+
 ## Conversaciones
 
 Una conversación es única por:
@@ -28,7 +36,7 @@ GET /conversations
 
 Filtros:
 
-- `accountId` para `ADMIN`;
+- `accountId` para `ADMIN`/`SUPPORT`/`SALES_MANAGER`;
 - `limit`;
 - `before`;
 - `search`;
@@ -237,7 +245,7 @@ Payload:
 Reglas de negocio:
 
 - `SALES` usa siempre su propia cuenta.
-- `ADMIN` debe enviar `accountId`.
+- `ADMIN`/`SUPPORT` deben enviar `accountId`. `SALES_MANAGER` puede enviarlo (cualquier cuenta) u omitirlo (cae a su propia cuenta).
 - El telefono se normaliza a `phoneE164`.
 - El lead se asegura por `accountId + phoneE164`.
 - Si el lead ya existe, no se sobrescribe su nombre.
@@ -256,7 +264,7 @@ GET /outbound/templates
 
 Query params:
 
-- `accountId`: requerido para `ADMIN`, implicito para `SALES`;
+- `accountId`: requerido para `ADMIN`/`SUPPORT`; implicito para `SALES`; opcional para `SALES_MANAGER` (si lo manda, ve las plantillas de esa cuenta; si no, las de la suya).
 - `search`: busca por nombre o cuerpo de plantilla;
 - `category`: filtra por categoria YCloud;
 - `language`: filtra por idioma;
