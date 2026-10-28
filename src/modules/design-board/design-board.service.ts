@@ -395,6 +395,30 @@ export class DesignBoardService {
       .trim();
   }
 
+  // Bug reportado por el usuario, 28/oct/2026: tres "Boceto" creados el
+  // mismo dia a la misma hora (todos de manana, antes del corte de las
+  // 14:00) terminaron con dueAt distinto -- dos con 3 dias habiles
+  // (correcto) y uno con 4 (el plazo "extendido" de
+  // EXTENDED_SLA_BUSINESS_DAYS). Causa real: el chequeo de abajo usaba
+  // `String.includes()` (substring plano) contra palabras sueltas como
+  // "pala" -- que son substring de palabras comunes del castellano
+  // ("palabra", "paladar", "palacio", "paliar"...), asi que cualquier
+  // instruccion que mencionara, por ejemplo, "revisar la palabra del
+  // eslogan" disparaba el plazo de 4 dias por error, sin que la solicitud
+  // tuviera nada que ver con el producto "pala". Fix: exigir limite de
+  // palabra (\b) en vez de un substring suelto, para que "pala" solo
+  // matchee la palabra "pala" en si (y no como prefijo/infijo de otra).
+  private static buildExtendedSlaKeywordPattern(): RegExp {
+    const escaped = DesignBoardService.EXTENDED_SLA_PRODUCT_KEYWORDS.map(
+      (keyword) => keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+    );
+    // `s?` antes del limite de palabra final: admite el plural
+    // ("vasos", "palas", "paninis", "ensaladeras") sin volver a abrir
+    // la puerta a infijos ("palabra" sigue sin matchear: despues de
+    // "pala" viene "b", no fin de palabra ni "s").
+    return new RegExp(`\\b(?:${escaped.join('|')})s?\\b`);
+  }
+
   // Devuelve los dias habiles de plazo para una solicitud NUEVA segun el
   // tipo elegido explicitamente (requestType) y la descripcion, o null si
   // no aplica ninguna regla especial (en ese caso el caller usa el
@@ -417,8 +441,8 @@ export class DesignBoardService {
       const normalizedInstructions =
         DesignBoardService.normalizeForMatch(instructions);
       const hasExtendedProduct =
-        DesignBoardService.EXTENDED_SLA_PRODUCT_KEYWORDS.some((keyword) =>
-          normalizedInstructions.includes(keyword),
+        DesignBoardService.buildExtendedSlaKeywordPattern().test(
+          normalizedInstructions,
         );
       if (hasExtendedProduct) {
         return DesignBoardService.EXTENDED_SLA_BUSINESS_DAYS;
