@@ -2038,10 +2038,14 @@ export class DesignBoardService {
     // Se corta aca (no solo en el frontend) para que el desglose por
     // diseñador ni siquiera viaje en la respuesta de este endpoint.
     const includeByDesigner = user.role !== Role.SALES_MANAGER;
+    // Pedido explicito del usuario, 28/oct/2026: mismo criterio de
+    // visibilidad que "Por diseñador" -- la jefa de ventas tampoco ve el
+    // desglose por categoria.
+    const includeByCategory = user.role !== Role.SALES_MANAGER;
 
     const months = await Promise.all(
       monthKeys.map((monthKey) =>
-        this.monthlyReportBreakdown(monthKey, includeByDesigner),
+        this.monthlyReportBreakdown(monthKey, includeByDesigner, includeByCategory),
       ),
     );
 
@@ -2085,6 +2089,11 @@ export class DesignBoardService {
   private async monthlyReportBreakdown(
     monthKey: string,
     includeByDesigner = true,
+    // Pedido explicito del usuario, 28/oct/2026: cantidad de solicitudes
+    // por categoria, mes a mes -- mismo criterio de visibilidad que
+    // includeByDesigner (SALES_MANAGER no lo ve, igual que "Por
+    // diseñador").
+    includeByCategory = true,
   ) {
     const { start, end } = this.monthRange(monthKey);
     const completedInMonth = { completedAt: { gte: start, lt: end } };
@@ -2100,6 +2109,7 @@ export class DesignBoardService {
       completedByCreator,
       approvedByCreator,
       completedByDesignerRequests,
+      completedByCategory,
     ] = await Promise.all([
       this.prisma.designRequest.count({ where: completedInMonth }),
       this.prisma.designRequest.count({ where: approvedFromMonthCohort }),
@@ -2129,6 +2139,21 @@ export class DesignBoardService {
         ? this.prisma.designRequest.findMany({
             where: completedInMonth,
             select: { id: true, title: true, assignedUserId: true },
+          })
+        : Promise.resolve([]),
+      // Pedido explicito del usuario, 28/oct/2026: cantidad de
+      // solicitudes TERMINADAS por categoria, mes a mes -- misma cohorte
+      // "completedInMonth" que el resto de este desglose. Una solicitud
+      // puede tener varias categorias (N:M), asi que una misma solicitud
+      // puede sumar en mas de un bucket -- la suma de `byCategory` NO
+      // tiene por que coincidir con `completedCount` (igual criterio que
+      // cualquier desglose por etiqueta/tag, no es un exclusivo como
+      // pais/comercial/diseñador).
+      includeByCategory
+        ? this.prisma.designRequestCategoryAssignment.groupBy({
+            by: ['categoryId'],
+            where: { designRequest: completedInMonth },
+            _count: { _all: true },
           })
         : Promise.resolve([]),
     ]);
@@ -2190,6 +2215,10 @@ export class DesignBoardService {
       })),
       byCreator,
       byDesigner: Array.from(byDesignerMap.values()),
+      byCategory: (completedByCategory as any[]).map((row) => ({
+        categoryId: row.categoryId,
+        completedCount: row._count._all,
+      })),
     };
   }
 
