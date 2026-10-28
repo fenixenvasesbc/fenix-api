@@ -75,7 +75,24 @@ export class MessageController {
       return accountIdFromQuery;
     }
 
-    if (user.role === Role.SALES || user.role === Role.SALES_MANAGER) {
+    // Pedido explicito del usuario, 28/oct/2026: SALES_MANAGER puede ver
+    // la bandeja de mensajes de CUALQUIER comercial de la organizacion
+    // (mismo alcance que ADMIN), cuando la UI le pasa un accountId
+    // explicito. Si no manda accountId, cae a su propia cuenta -- mismo
+    // patron que conversation.controller.ts / leads.controller.ts.
+    if (user.role === Role.SALES_MANAGER) {
+      if (accountIdFromQuery) {
+        return accountIdFromQuery;
+      }
+
+      if (user.accountId) {
+        return user.accountId;
+      }
+
+      throw new ForbiddenException('User has no accountId');
+    }
+
+    if (user.role === Role.SALES) {
       if (!user.accountId) {
         throw new ForbiddenException('User has no accountId');
       }

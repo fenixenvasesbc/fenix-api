@@ -246,7 +246,29 @@ export class ConversationController {
       return accountIdFromQuery;
     }
 
-    if (user.role === Role.SALES || user.role === Role.SALES_MANAGER) {
+    // Pedido explicito del usuario, 28/oct/2026: SALES_MANAGER puede ver
+    // la bandeja de mensajes de CUALQUIER comercial de la organizacion
+    // (mismo alcance que ADMIN, sin restringirlo a un equipo), cuando la
+    // UI le pasa un accountId explicito (selector de cuenta, igual que ya
+    // existe para la pestana Leads -- ver leads.controller.ts
+    // resolveAccountId()). Si no manda accountId, cae a su propia cuenta
+    // -- asi la bandeja carga por defecto SUS conversaciones y no rompe
+    // el comportamiento que ya tenia (identico al patron de
+    // leads.controller.ts, mismo motivo: estos mismos endpoints tambien
+    // se usan desde flujos donde nunca se manda accountId).
+    if (user.role === Role.SALES_MANAGER) {
+      if (accountIdFromQuery) {
+        return accountIdFromQuery;
+      }
+
+      if (user.accountId) {
+        return user.accountId;
+      }
+
+      throw new ForbiddenException('accountId is required for admin queries');
+    }
+
+    if (user.role === Role.SALES) {
       if (!user.accountId) {
         throw new ForbiddenException('User has no accountId');
       }

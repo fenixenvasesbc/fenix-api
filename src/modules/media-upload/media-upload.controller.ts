@@ -77,7 +77,27 @@ export class MediaUploadController {
   }
 
   private resolveAccountId(user: AuthUser, accountIdFromQuery?: string): string {
-    if (user.role === Role.SALES || user.role === Role.SALES_MANAGER) {
+    // Pedido explicito del usuario, 28/oct/2026: SALES_MANAGER puede subir
+    // adjuntos (ej. al chatear) para CUALQUIER comercial de la
+    // organizacion, cuando la UI le pasa un accountId explicito -- antes
+    // esta rama ignoraba por completo accountIdFromQuery para SALES/
+    // SALES_MANAGER y siempre usaba user.accountId, lo que habria subido
+    // el adjunto a la cuenta equivocada al chatear como otra comercial.
+    // Si no manda accountId, cae a su propia cuenta (SALES se queda
+    // exactamente igual que antes).
+    if (user.role === Role.SALES_MANAGER) {
+      if (accountIdFromQuery) {
+        return accountIdFromQuery;
+      }
+
+      if (user.accountId) {
+        return user.accountId;
+      }
+
+      throw new ForbiddenException('User has no accountId');
+    }
+
+    if (user.role === Role.SALES) {
       if (!user.accountId) {
         throw new ForbiddenException('User has no accountId');
       }
