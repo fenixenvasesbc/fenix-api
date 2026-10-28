@@ -25,7 +25,11 @@ Nuevos(0) → Modificación(1, oculta del flujo normal) → En revisión(2) → 
 
 ## Plazos (SLA) en días hábiles
 
-`BusinessDaysService.computeBusinessDueAt()`: corte a las 14:00 hora España (si el ancla es antes, ese día cuenta como día 1; si es después, arranca al día hábil siguiente), luego N días hábiles (3 al crear, el valor de la columna al entrar a "Modificación"), saltando fines de semana y `PublicHoliday`.
+`BusinessDaysService.computeBusinessDueAt()` (pedido explicito del usuario, 28/oct/2026: periodos reales de 24h hábiles, no conteo inclusivo): el día en que entra la solicitud **nunca** cuenta como parte del plazo. Corte a las 14:00 hora España: si el ancla es antes del corte, el día real de entrada es el "día efectivo"; si es en o después, se trata como si hubiera entrado el día calendario siguiente. Desde el día calendario siguiente al "día efectivo" se cuentan N días hábiles (el primero = 24h, el segundo = 48h, etc; 3 al crear por defecto, el valor de la columna al entrar a "Modificación"), saltando fines de semana y `PublicHoliday`; `dueAt` es el último de esos días a las 14:00.
+
+Ejemplo: entra miércoles antes de las 14:00, plazo de 3 días hábiles → jueves = 24h, viernes = 48h, el siguiente día hábil (lunes, saltando sábado/domingo) = 72h → `dueAt` es ese lunes a las 14:00.
+
+**Nota sobre plazos de 1 día** (MOD/REPET_MOD/REPET_ANADE/"Modificación"): con el criterio anterior (06/oct/2026) hacía falta forzar el salto al día hábil siguiente sin importar la hora del ancla, porque si no el plazo real podía ser de apenas minutos. Con el criterio de 24h reales esa garantía ya es automática para cualquier plazo, así que esa excepción se eliminó — el corte de las 14:00 ahora se respeta igual para plazos de 1 día que para cualquier otro.
 
 Semáforo (`DesignBoardService.withSlaStatus()`, calculado al leer, no persistido):
 
