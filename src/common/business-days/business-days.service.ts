@@ -207,24 +207,41 @@ export class BusinessDaysService {
   }
 
   /**
-   * Calcula `dueAt` aplicando la regla de ADR-004 SS7: si `anchor` cae
-   * antes de `cutoffHour` en `timeZone`, el dia de `anchor` cuenta como el
-   * dia 1 del plazo; si cae en o despues del corte, el plazo arranca al
-   * dia habil siguiente. Desde ahi cuenta `businessDays` dias habiles
-   * (saltando fines de semana y `holidaySet`) y devuelve el instante
-   * `cutoffHour`:00 (hora local) de ese dia habil final.
+   * Calcula `dueAt` en periodos reales de 24h habiles (pedido explicito
+   * del usuario, 28/oct/2026 -- reemplaza el criterio anterior de "el dia
+   * de `anchor` cuenta como dia 1"):
    *
-   * Excepcion (06/oct/2026, reportado por el cliente con la columna
-   * "Modificacion"): para un plazo de 1 dia habil, contar el dia de
-   * `anchor` como dia 1 cuando todavia faltan horas para el corte deja un
-   * plazo real de apenas minutos/horas en vez de "un dia completo" (ej.
-   * creada a las 7am -> vence ese mismo dia a las 14:00). Con 2+ dias
-   * habiles ese mismo margen se absorbe en los dias siguientes, pero con 1
-   * dia no hay margen -- asi que para `businessDays === 1` el plazo
-   * siempre arranca al dia habil SIGUIENTE, sin importar la hora de
-   * `anchor` (mismo criterio que "pastCutoff", forzado). Esto garantiza un
-   * dia habil completo de verdad, coherente con "se reinicia el tiempo y
-   * solo tiene un dia para entregarse".
+   * 1. Dia "efectivo" de entrada: el dia calendario de `anchor` en
+   *    `timeZone`, salvo que `anchor` caiga en o despues de `cutoffHour`
+   *    -- en ese caso se trata EXACTAMENTE como si hubiese entrado el dia
+   *    calendario siguiente (mismo criterio para cualquier `businessDays`,
+   *    ya no hay excepcion especial para plazos de 1 dia -- ver nota
+   *    abajo).
+   * 2. El dia efectivo de entrada NUNCA cuenta como parte del plazo: el
+   *    primer dia que puede contar como "24h cumplidas" es el dia
+   *    calendario SIGUIENTE al efectivo.
+   * 3. Desde ahi, se cuentan `businessDays` dias habiles (saltando fines
+   *    de semana y `holidaySet`) -- el primero de esos dias habiles son
+   *    las primeras 24h, el segundo las 48h, etc.
+   * 4. `dueAt` es el instante `cutoffHour`:00 (hora local) del ultimo de
+   *    esos dias.
+   *
+   * Ejemplo (el que motivo el cambio): entra el miercoles antes de las
+   * 14:00, plazo de 3 dias habiles -> jueves = 24h, viernes = 48h, el
+   * siguiente dia habil (lunes, saltando sabado/domingo) = 72h -> `dueAt`
+   * es ese lunes a las 14:00. Antes de este cambio, el propio miercoles
+   * de la creacion contaba como la primera de las 3 "dias", dando un
+   * `dueAt` un dia habil antes (viernes) -- menos de 72h reales desde la
+   * creacion.
+   *
+   * Nota sobre la excepcion que existia para `businessDays === 1`
+   * (Modificacion, MOD, REPET_MOD, REPET_ANADE): con el criterio anterior
+   * (inclusivo) hacia falta forzar el salto al dia siguiente sin importar
+   * la hora, porque si no el plazo real podia ser de apenas minutos. Con
+   * este nuevo criterio (el dia de entrada nunca cuenta) esa garantia ya
+   * es automatica para cualquier `businessDays`, asi que la excepcion
+   * especial se elimina -- el corte de las `cutoffHour` ahora se respeta
+   * de la misma forma para todos los plazos, incluido el de 1 dia.
    */
   computeBusinessDueAt(
     anchor: Date,
@@ -241,13 +258,19 @@ export class BusinessDaysService {
     );
 
     const pastCutoff =
-      businessDays <= 1 ||
       anchorParts.hour > cutoffHour ||
       (anchorParts.hour === cutoffHour && anchorParts.minute > 0);
 
-    const startDayBucket = pastCutoff
+    // Dia efectivo de entrada: el real, o el siguiente si llego en o
+    // despues del corte.
+    const effectiveAnchorDayBucket = pastCutoff
       ? this.addCalendarDays(anchorDayBucket, 1)
       : anchorDayBucket;
+
+    // El dia efectivo de entrada nunca cuenta como parte del plazo -- el
+    // primer dia que puede sumar a las 24/48/72h es el dia calendario
+    // siguiente a ese.
+    const startDayBucket = this.addCalendarDays(effectiveAnchorDayBucket, 1);
 
     const dueDayBucket = this.nthBusinessDayOnOrAfter(
       startDayBucket,
