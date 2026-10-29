@@ -1582,10 +1582,21 @@ model DesignRequestAttachment {
   uploadedByUserId  String
   forwardedToLeadAt DateTime?
 
+  // Pedido explicito del usuario, 28/oct/2026: el Jefe de Diseño necesita
+  // ver rapido, entre todos los adjuntos de una solicitud (los de la
+  // tarjeta y los que se fueron subiendo en los comentarios), cual es el
+  // archivo que el cliente aprobo realmente -- eso solo lo sabe la
+  // comercial (o ADMIN), asi que es un marcado explicito, nunca inferido
+  // automaticamente. Puede haber mas de un adjunto marcado (p.ej. frontal
+  // y trasero de un mismo diseño). Ver DesignBoardService.
+  // markApprovedVersionAttachment() / approve().
+  isApprovedVersion Boolean @default(false)
+
   createdAt DateTime @default(now())
 
   @@index([designRequestId])
   @@index([commentId])
+  @@index([designRequestId, isApprovedVersion])
 }
 
 model DesignRequestComment {

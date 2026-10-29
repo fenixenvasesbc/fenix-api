@@ -23,12 +23,15 @@ import { ChatEventsService } from '../chat-events/chat-events.service';
 import { DesignBoardService, AuthUser } from './design-board.service';
 import {
   AddDesignRequestCommentDto,
+  ApproveDesignRequestDto,
   AssignDesignRequestDto,
   CreateDesignRequestDto,
   DesignBoardReportsQueryDto,
   EditDesignRequestCommentDto,
   ListDesignRequestsQueryDto,
+  MarkApprovedVersionAttachmentDto,
   MoveDesignRequestDto,
+  SearchArchivedDesignRequestsQueryDto,
   UpdateDesignRequestDto,
 } from './dto/create-design-request.dto';
 
@@ -159,8 +162,32 @@ export class DesignBoardController {
   approve(
     @Req() req: { user: AuthUser },
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ApproveDesignRequestDto,
   ) {
-    return this.designBoardService.approve(req.user, id);
+    return this.designBoardService.approve(req.user, id, dto.approvedAttachmentIds);
+  }
+
+  // Pedido explicito del usuario, 28/oct/2026: marcar/desmarcar despues
+  // de aprobar cual adjunto es "la version aprobada" por el cliente --
+  // solo la comercial propietaria (o ADMIN), ver
+  // DesignBoardService.markApprovedVersionAttachment(). El Jefe de
+  // Diseño (DESIGNER_MANAGER) NO esta en @Roles a proposito: el permiso
+  // real (ownership) lo valida el service, pero de entrada esta decision
+  // nunca es suya.
+  @Roles(Role.ADMIN, Role.SALES)
+  @Patch('requests/:id/attachments/:attachmentId/approved-version')
+  markApprovedVersionAttachment(
+    @Req() req: { user: AuthUser },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
+    @Body() dto: MarkApprovedVersionAttachmentDto,
+  ) {
+    return this.designBoardService.markApprovedVersionAttachment(
+      req.user,
+      id,
+      attachmentId,
+      dto.approved,
+    );
   }
 
   @Roles(Role.ADMIN, Role.SALES, Role.DESIGNER_MANAGER)
@@ -197,6 +224,22 @@ export class DesignBoardController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.designBoardService.archive(req.user, id);
+  }
+
+  // Pedido explicito del usuario, 28/oct/2026: buscador de archivo
+  // historico (bocetos marcados como hechos/archivados), oculto por
+  // defecto -- pantalla propia en el frontend, nunca una pestaña mas del
+  // tablero. No choca con el GET 'requests/:id' de arriba: ese patron
+  // espera exactamente un segmento despues de 'requests', y
+  // 'archive/search' son dos, asi que Nest nunca lo intenta resolver
+  // como si 'archive' fuera un :id.
+  @Roles(Role.ADMIN, Role.DESIGNER_MANAGER)
+  @Get('requests/archive/search')
+  searchArchive(
+    @Req() req: { user: AuthUser },
+    @Query() query: SearchArchivedDesignRequestsQueryDto,
+  ) {
+    return this.designBoardService.searchArchive(req.user, query);
   }
 
   // ADR-004 Submódulo 11: canal de tiempo real -- reusa el mismo bus SSE

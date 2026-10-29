@@ -175,6 +175,87 @@ export class ListDesignRequestsQueryDto {
   month?: string;
 }
 
+// Pedido explicito del usuario, 28/oct/2026: al aprobar desde el
+// tablero, la comercial puede indicar de una vez cuales de los adjuntos
+// (tarjeta o comentarios) son la version que el cliente aprobo -- ver
+// DesignBoardService.approve(). Opcional: una aprobacion automatica por
+// etiqueta (approveByLabel) nunca manda esto, y tambien se puede marcar
+// despues desde el detalle (markApprovedVersionAttachment()).
+export class ApproveDesignRequestDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsUUID('4', { each: true })
+  approvedAttachmentIds?: string[];
+}
+
+// Pedido explicito del usuario, 28/oct/2026: marcar/desmarcar un adjunto
+// concreto como "version aprobada" fuera del momento de aprobar (p.ej. la
+// comercial se da cuenta despues de que marco el archivo equivocado, o la
+// solicitud se aprobo automaticamente por etiqueta y nadie elegiste nada
+// todavia). Ver DesignBoardService.markApprovedVersionAttachment().
+export class MarkApprovedVersionAttachmentDto {
+  @IsBoolean()
+  approved!: boolean;
+}
+
+// Pedido explicito del usuario, 28/oct/2026: buscador de archivo
+// historico de bocetos archivados ("marcados como hechos"), para el Jefe
+// de Diseño -- separado a proposito de ListDesignRequestsQueryDto/
+// listRequests(): ese filtro vive atado al tablero del dia a dia (mes
+// actual por defecto, sin paginacion porque siempre esta acotado a un
+// mes) y este buscador es lo contrario -- sin limite de fecha salvo que
+// se pida, y con paginacion real porque puede acumular años de historico.
+// Ver DesignBoardService.searchArchive().
+export class SearchArchivedDesignRequestsQueryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  search?: string;
+
+  @IsOptional()
+  @IsIn(DESIGN_REQUEST_TYPES)
+  requestType?: DesignRequestType;
+
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  createdByUserId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  assignedUserId?: string;
+
+  @IsOptional()
+  @IsEnum(DesignRequestCountry)
+  country?: DesignRequestCountry;
+
+  // "YYYY-MM-DD", sobre archivedAt. Si se omiten los dos, no hay limite
+  // de fecha (ese es justo el punto de este buscador).
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  dateFrom?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  dateTo?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  limit?: number;
+}
+
 export class DesignBoardReportsQueryDto {
   // Pedido explicito del usuario, 25/oct/2026: las estadisticas ya no se
   // filtran por mes completo, sino por un rango de fechas (Desde/Hasta).

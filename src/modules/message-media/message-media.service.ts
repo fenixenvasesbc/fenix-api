@@ -235,9 +235,52 @@ export class MessageMediaService {
           })
         : [];
 
+    // Fix 28/oct/2026 (gap de retencion de adjuntos de bocetos, ver
+    // ADR-004 Submodulo 8): cuando un archivo subido via /media/upload-
+    // internal termina usado como DesignRequestAttachment, ese flujo
+    // nunca toca MediaUpload.status (sigue en UPLOADED para siempre), asi
+    // que sin esta comprobacion este cron lo borraria igual a los
+    // MEDIA_RETENTION_DAYS aunque el boceto -- que se conserva para
+    // siempre -- siga referenciando ese archivo. No hay FK entre las dos
+    // tablas, asi que se compara por mediaStorageKey; si esta en uso, se
+    // "adopta" el MediaUpload marcandolo ATTACHED en vez de borrarlo --
+    // asi esta comprobacion solo hace falta una vez por archivo: en la
+    // siguiente pasada el filtro de status de arriba ya lo descarta sin
+    // necesidad de volver a consultar DesignRequestAttachment.
+    const candidateKeys = expiredUploads
+      .map((upload) => upload.mediaStorageKey)
+      .filter((key): key is string => Boolean(key));
+
+    const attachedKeys = new Set<string>();
+    if (candidateKeys.length > 0) {
+      const inUse = await this.prisma.designRequestAttachment.findMany({
+        where: { mediaStorageKey: { in: candidateKeys } },
+        select: { mediaStorageKey: true },
+      });
+      for (const attachment of inUse) {
+        if (attachment.mediaStorageKey) attachedKeys.add(attachment.mediaStorageKey);
+      }
+    }
+
+    if (attachedKeys.size > 0) {
+      const stillInUseIds = expiredUploads
+        .filter((upload) => upload.mediaStorageKey && attachedKeys.has(upload.mediaStorageKey))
+        .map((upload) => upload.id);
+
+      if (stillInUseIds.length > 0) {
+        await this.prisma.mediaUpload.updateMany({
+          where: { id: { in: stillInUseIds } },
+          data: { status: MediaUploadStatus.ATTACHED },
+        });
+        this.logger.log(
+          `Expired media upload adopted by DesignRequestAttachment, skipped deletion count=${stillInUseIds.length}`,
+        );
+      }
+    }
+
     for (const upload of expiredUploads) {
       const key = upload.mediaStorageKey;
-      if (!key) continue;
+      if (!key || attachedKeys.has(key)) continue;
 
       try {
         await unlink(this.resolveLocalPath(key)).catch((error: any) => {

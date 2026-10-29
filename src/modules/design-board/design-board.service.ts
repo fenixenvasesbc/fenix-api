@@ -40,6 +40,7 @@ import {
   DesignRequestType,
   ListDesignRequestsQueryDto,
   MoveDesignRequestDto,
+  SearchArchivedDesignRequestsQueryDto,
   UpdateDesignRequestDto,
 } from './dto/create-design-request.dto';
 import {
@@ -1643,7 +1644,11 @@ export class DesignBoardService {
   // Aprobar (Terminado -> Aprobados)
   // -------------------------------------------------------------
 
-  async approve(user: AuthUser, id: string) {
+  async approve(
+    user: AuthUser,
+    id: string,
+    approvedAttachmentIds?: string[],
+  ) {
     const request = await this.findOrThrow(id);
 
     const isOwnerSales = this.isSalesLike(user.role) && request.createdByUserId === user.userId;
@@ -1666,6 +1671,30 @@ export class DesignBoardService {
       );
     }
 
+    // Pedido explicito del usuario, 28/oct/2026: el momento natural para
+    // que la comercial diga "estos son los archivos que aprobo el
+    // cliente" es justo al aprobar -- opcional (una aprobacion automatica
+    // por etiqueta, approveByLabel(), no pasa por aqui y nunca manda esta
+    // lista; tambien se puede marcar despues desde el detalle, ver
+    // markApprovedVersionAttachment()). Se valida que los ids mandados
+    // sean adjuntos reales de ESTA solicitud antes de tocar nada.
+    const ids = [...new Set(approvedAttachmentIds ?? [])];
+    if (ids.length > 0) {
+      const matching = await this.prisma.designRequestAttachment.findMany({
+        where: {
+          id: { in: ids },
+          OR: [{ designRequestId: request.id }, { comment: { designRequestId: request.id } }],
+        },
+        select: { id: true },
+      });
+
+      if (matching.length !== ids.length) {
+        throw new BadRequestException(
+          'Alguno de los adjuntos indicados como versión aprobada no pertenece a esta solicitud',
+        );
+      }
+    }
+
     const now = new Date();
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -1683,6 +1712,24 @@ export class DesignBoardService {
           changedByUserId: user.userId,
         },
       });
+
+      if (ids.length > 0) {
+        // Marca los indicados y, a proposito, desmarca cualquier otro
+        // adjunto de esta solicitud que hubiera quedado marcado antes
+        // (p.ej. de un intento previo) -- la seleccion de este approve()
+        // es la que manda.
+        await tx.designRequestAttachment.updateMany({
+          where: {
+            isApprovedVersion: true,
+            OR: [{ designRequestId: request.id }, { comment: { designRequestId: request.id } }],
+          },
+          data: { isApprovedVersion: false },
+        });
+        await tx.designRequestAttachment.updateMany({
+          where: { id: { in: ids } },
+          data: { isApprovedVersion: true },
+        });
+      }
 
       return result;
     });
@@ -1821,6 +1868,65 @@ export class DesignBoardService {
   }
 
   // -------------------------------------------------------------
+  // Marcar/desmarcar "version aprobada" (pedido explicito del usuario,
+  // 28/oct/2026): dentro de una misma solicitud se pueden subir varios
+  // archivos a lo largo de la conversacion (adjuntos de la tarjeta +
+  // adjuntos de comentarios de revision), y solo la comercial sabe cual
+  // de todos esos es el que el cliente dio por bueno -- por eso es un
+  // marcado EXPLICITO (nunca inferido: "el ultimo adjunto", "el que esta
+  // en el comentario mas reciente", etc. pueden no ser el correcto). El
+  // Jefe de Diseño lo usa solo para FILTRAR la vista (ver
+  // getRequestDetail(), que sigue devolviendo todos los adjuntos tal
+  // cual, con este flag incluido) -- no cambia nada del flujo de
+  // aprobacion/archivado en si.
+  //
+  // Mismo criterio de permisos que forwardAttachment(): solo la comercial
+  // propietaria de la solicitud (o ADMIN) puede decidir esto, nunca el
+  // Jefe de Diseño -- el no estuvo en la conversacion con el cliente.
+  // Se puede marcar mas de un adjunto (p.ej. frontal y trasero de un
+  // mismo diseño) llamando esto una vez por cada uno.
+  async markApprovedVersionAttachment(
+    user: AuthUser,
+    id: string,
+    attachmentId: string,
+    approved: boolean,
+  ) {
+    const request = await this.findOrThrow(id);
+
+    const isOwnerSales =
+      this.isSalesLike(user.role) && request.createdByUserId === user.userId;
+    const isAdmin = user.role === Role.ADMIN;
+
+    if (!isOwnerSales && !isAdmin) {
+      throw new ForbiddenException(
+        'Solo la comercial que creó la solicitud (o un administrador) puede marcar qué archivo aprobó el cliente',
+      );
+    }
+
+    // Mismo lookup que forwardAttachment(): el archivo aprobado puede
+    // colgar directo de la tarjeta o de un comentario de revision.
+    const attachment = await this.prisma.designRequestAttachment.findFirst({
+      where: {
+        id: attachmentId,
+        OR: [{ designRequestId: request.id }, { comment: { designRequestId: request.id } }],
+      },
+    });
+
+    if (!attachment) {
+      throw new NotFoundException('Adjunto no encontrado');
+    }
+
+    const updated = await this.prisma.designRequestAttachment.update({
+      where: { id: attachment.id },
+      data: { isApprovedVersion: approved },
+    });
+
+    await this.emitDesignBoardEvent('design_request.updated', request);
+
+    return updated;
+  }
+
+  // -------------------------------------------------------------
   // Fallback de "Reenviar al lead" cuando la ventana de 24h esta cerrada:
   // selecciona entre las dos plantillas genericas de boceto (una con header
   // IMAGE para el jpg, otra con header DOCUMENT para el pdf) segun el mime
@@ -1885,6 +1991,132 @@ export class DesignBoardService {
         fileName: attachment.fileName ?? null,
       },
     });
+  }
+
+  // -------------------------------------------------------------
+  // Buscador de archivo historico (pedido explicito del usuario,
+  // 28/oct/2026): a proposito NO reutiliza listRequests()/
+  // ListDesignRequestsQueryDto -- ese filtro esta pensado para el tablero
+  // del dia a dia (mes actual por defecto, sin paginacion porque siempre
+  // queda acotado a un mes) y mezclar ahi la semantica de "sin limite de
+  // fecha salvo que se pida" habria sido fragil para los dos casos. Este
+  // buscador es su propia vista, oculta por defecto en el frontend
+  // (pantalla aparte, no una pestaña del tablero) y con paginacion real
+  // porque puede acumular años de solicitudes archivadas.
+  async searchArchive(user: AuthUser, query: SearchArchivedDesignRequestsQueryDto) {
+    // Mismo criterio que "Aprobados" (visibilityWhere): este modulo es
+    // exclusivo de DESIGNER_MANAGER/ADMIN, SALES nunca ve bocetos
+    // archivados aunque sean suyos.
+    if (user.role !== Role.DESIGNER_MANAGER && user.role !== Role.ADMIN) {
+      throw new ForbiddenException(
+        'Solo el Jefe de Diseño puede consultar el archivo histórico de bocetos',
+      );
+    }
+
+    const page = query.page && query.page > 0 ? query.page : 1;
+    const limit = query.limit && query.limit > 0 ? Math.min(query.limit, 100) : 25;
+
+    const where: Prisma.DesignRequestWhereInput = {
+      deletedAt: null,
+      archivedAt: { not: null },
+      ...(query.requestType ? { requestType: query.requestType } : {}),
+      ...(query.createdByUserId ? { createdByUserId: query.createdByUserId } : {}),
+      ...(query.assignedUserId ? { assignedUserId: query.assignedUserId } : {}),
+      ...(query.country ? { country: query.country } : {}),
+      ...(query.categoryId
+        ? { categories: { some: { categoryId: query.categoryId } } }
+        : {}),
+      ...(query.search?.trim()
+        ? {
+            OR: [
+              { title: { contains: query.search.trim(), mode: 'insensitive' } },
+              { instructions: { contains: query.search.trim(), mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    // Rango de fechas opcional sobre archivedAt (cuando se marco "hecho")
+    // -- si no se manda ninguno de los dos, se queda el `{ not: null }`
+    // de arriba: sin limite de fecha, que es justo el punto de este
+    // buscador frente al tablero normal.
+    if (query.dateFrom || query.dateTo) {
+      where.archivedAt = {
+        ...(query.dateFrom ? { gte: new Date(`${query.dateFrom}T00:00:00.000Z`) } : {}),
+        ...(query.dateTo ? { lte: new Date(`${query.dateTo}T23:59:59.999Z`) } : {}),
+      };
+    }
+
+    const [total, requests] = await this.prisma.$transaction([
+      this.prisma.designRequest.count({ where }),
+      this.prisma.designRequest.findMany({
+        where,
+        orderBy: { archivedAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          column: true,
+          attachments: true,
+          // Pedido explicito del usuario, 28/oct/2026: la "version
+          // aprobada" puede estar marcada en un adjunto de la tarjeta O en
+          // uno de comentarios (ver markApprovedVersionAttachment) -- sin
+          // esto, el buscador historico dejaria fuera justo el caso mas
+          // comun (el diseñador deja el boceto final en un comentario al
+          // pasar a "Terminado"). Solo se trae `attachments`, no el resto
+          // del comentario (autor/body), para no inflar de mas esta
+          // respuesta paginada.
+          comments: { select: { attachments: true } },
+          categories: { include: { category: true } },
+          lead: {
+            select: {
+              id: true,
+              name: true,
+              manualName: true,
+              ycloudNickname: true,
+              whatsappContactName: true,
+              whatsappProfileName: true,
+              phoneE164: true,
+              accountId: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const userDisplayMap = await this.loadUserDisplayMap(
+      requests.flatMap((r) => [
+        r.createdByUserId,
+        r.assignedUserId,
+        r.archivedByUserId,
+      ]),
+    );
+
+    const items = requests.map((request) => ({
+      ...request,
+      lead: request.lead ? withLeadDisplayName(request.lead) : null,
+      createdByUser: userDisplayMap.get(request.createdByUserId) ?? null,
+      assignedUser: request.assignedUserId
+        ? userDisplayMap.get(request.assignedUserId) ?? null
+        : null,
+      archivedByUser: request.archivedByUserId
+        ? userDisplayMap.get(request.archivedByUserId) ?? null
+        : null,
+      categories: request.categories.map((assignment) => assignment.category),
+      // Atajo para el frontend: todos los adjuntos marcados como "version
+      // aprobada" (tarjeta + comentarios), ya aplanados -- evita que cada
+      // pantalla que consuma este buscador tenga que repetir la logica de
+      // recorrer tarjeta+comentarios (ver approvedVersionAttachments en
+      // design-request-detail-dialog.tsx, que hace lo mismo del lado del
+      // detalle completo).
+      approvedVersionAttachments: [
+        ...request.attachments.filter((att) => att.isApprovedVersion),
+        ...request.comments.flatMap((c) =>
+          c.attachments.filter((att) => att.isApprovedVersion),
+        ),
+      ],
+    }));
+
+    return { items, total, page, limit };
   }
 
   // -------------------------------------------------------------

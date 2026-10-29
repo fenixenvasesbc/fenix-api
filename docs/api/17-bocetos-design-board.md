@@ -78,6 +78,29 @@ Pedido explicito del usuario, 27/oct/2026: una solicitud puede tener una o varia
 
 UI: `components/design-board/category-multi-select.tsx` (selector reusado en `create-design-request-dialog.tsx` y `design-request-detail-dialog.tsx`); `components/dashboard/design-request-categories-panel.tsx` (CRUD, pestaña "Categorías" en Configuración, visible solo con `canSeeAdminScreens`).
 
+## Versión aprobada (marcado de adjuntos) y archivo histórico
+
+Pedido explicito del usuario, 28/oct/2026: el Jefe de Diseño (`DESIGNER_MANAGER`) necesitaba ver rápido, entre todos los adjuntos de una solicitud (los que se suben a la tarjeta y los que se van subiendo en comentarios de revisión), cuál es el archivo que el cliente aprobó realmente -- eso se pierde entre tantos comentarios. Solo lo sabe la comercial que habló con el cliente, así que es un **marcado explícito**, nunca inferido automáticamente (ni "el último adjunto", ni "el del comentario más reciente").
+
+- `DesignRequestAttachment.isApprovedVersion` (boolean, default `false`, migración `20261028140000_design_request_attachment_approved_version`). Puede haber más de un adjunto marcado por solicitud (ej. frontal y trasero de un mismo diseño).
+- `PATCH /design-board/requests/:id/attachments/:attachmentId/approved-version` body `{ approved: boolean }` -- marca/desmarca. Mismo criterio de permisos que "Reenviar al lead": solo la comercial propietaria de la solicitud (dueña, no cualquier `SALES`) o `ADMIN`. El Jefe de Diseño **nunca** puede marcarlo, solo consultar el resultado -- él no estuvo en la conversación con el cliente.
+- `POST /design-board/requests/:id/approve` acepta opcionalmente `{ approvedAttachmentIds?: string[] }` -- permite marcar de una vez al momento de aprobar desde el tablero. Es opcional a propósito: una aprobación automática por etiqueta (`approveByLabel()`) nunca pasa por aquí y no manda esta lista, así que el marcado también tiene que poder hacerse después, en cualquier momento, con el endpoint de arriba. Si se manda, valida que cada id sea un adjunto real de esa solicitud (tarjeta o comentario) antes de tocar nada, y la selección de esa llamada **reemplaza** cualquier marcado anterior de esa misma solicitud.
+- `listRequests()`/`getRequestDetail()` no cambian su forma -- `isApprovedVersion` viene incluido en cada adjunto como cualquier otro campo escalar; la SPA filtra client-side para la sección "Versión aprobada" del detalle (`design-request-detail-dialog.tsx`).
+
+### Buscador de archivo histórico
+
+`GET /design-board/requests/archive/search` (`ADMIN`/`DESIGNER_MANAGER` únicamente, mismo criterio que "Aprobados"): buscador de bocetos **archivados** ("marcados como hechos" desde Aprobados), deliberadamente **separado** de `GET /design-board/requests` (`listRequests()`/`ListDesignRequestsQueryDto`) -- ese endpoint está pensado para el tablero del día a día (mes actual por defecto, sin paginación porque siempre queda acotado a un mes) y mezclar ahí la semántica de "sin límite de fecha salvo que se pida" habría sido fragil para los dos casos.
+
+Filtros (`SearchArchivedDesignRequestsQueryDto`, todos opcionales): `search` (título/instrucciones, contains insensible a mayúsculas), `requestType`, `categoryId`, `createdByUserId`, `assignedUserId`, `country`, `dateFrom`/`dateTo` (`YYYY-MM-DD`, sobre `archivedAt`). Si no se manda ningún rango de fechas, **no hay límite de fecha** -- ese es justo el punto de este buscador frente al tablero normal. Paginado (`page`/`limit`, default `limit=25`, máximo `100`) porque puede acumular años de histórico.
+
+Cada resultado incluye `approvedVersionAttachments` (atajo ya aplanado: adjuntos de tarjeta + comentarios con `isApprovedVersion=true`), para no repetir esa lógica del lado del cliente.
+
+UI: pestaña "Archivo" en `app/dashboard/bocetos/page.tsx` (`components/design-board/design-request-archive-search.tsx`), **oculta por defecto** -- es su propia pestaña, nunca mezclada con "Tablero", y solo visible para `DESIGNER_MANAGER`/`ADMIN` (`canManage`). Cada resultado abre el mismo diálogo de detalle que el tablero.
+
+### Descarga: uno por uno, no en zip
+
+Pedido explicito del usuario: la descarga de los archivos de la versión aprobada es **individual** (un link `<a download>` por archivo, igual que el resto de adjuntos del módulo), no un zip -- el Jefe de Diseño guarda cada archivo donde le conviene (carpetas distintas según el archivo), algo que un zip único le quitaría.
+
 ## Reenviar al lead
 
 `POST /requests/:id/attachments/:attachmentId/forward` (`ADMIN` o `SALES` dueña). Busca el adjunto por `designRequestId` o dentro de un comentario de la misma solicitud (el boceto terminado suele quedar en un comentario del diseñador, no en los adjuntos de entrada de la comercial).
@@ -122,7 +145,7 @@ Requiere el valor `DESIGN_REQUEST_UPDATED` en el enum `AppNotificationType` (mig
 
 ## UI (Fenix-SPA)
 
-`app/dashboard/bocetos/page.tsx`: tablero + pestañas "Tablero" / "Reportes y estadísticas" (`canViewReports` = `DESIGNER_MANAGER`/`ADMIN`/`SALES_MANAGER`) / "Por diseñador" (`canViewDesignerReport` = solo `DESIGNER_MANAGER`/`ADMIN`) / "Por categoría" (pedido explicito del usuario, 28/oct/2026; `canViewCategoryReport` = solo `DESIGNER_MANAGER`/`ADMIN`, igual que "Por diseñador"). Componentes en `components/design-board/`: `design-request-card.tsx`, `design-request-detail-dialog.tsx`, `create-design-request-dialog.tsx` (botón en el chat del lead), `design-board-reports.tsx`, `designer-completion-report.tsx`, `category-completion-report.tsx` (mismo patrón que `designer-completion-report.tsx` pero resolviendo nombre/color de categoría vía `designRequestCategoriesApi.list()` en vez de `useUserCache`).
+`app/dashboard/bocetos/page.tsx`: tablero + pestañas "Tablero" / "Reportes y estadísticas" (`canViewReports` = `DESIGNER_MANAGER`/`ADMIN`/`SALES_MANAGER`) / "Por diseñador" (`canViewDesignerReport` = solo `DESIGNER_MANAGER`/`ADMIN`) / "Por categoría" (pedido explicito del usuario, 28/oct/2026; `canViewCategoryReport` = solo `DESIGNER_MANAGER`/`ADMIN`, igual que "Por diseñador") / "Archivo" (pedido explicito del usuario, 28/oct/2026; `canViewArchiveSearch` = solo `DESIGNER_MANAGER`/`ADMIN`, ver "Versión aprobada y archivo histórico" arriba). Componentes en `components/design-board/`: `design-request-card.tsx`, `design-request-detail-dialog.tsx`, `create-design-request-dialog.tsx` (botón en el chat del lead), `design-board-reports.tsx`, `designer-completion-report.tsx`, `category-completion-report.tsx` (mismo patrón que `designer-completion-report.tsx` pero resolviendo nombre/color de categoría vía `designRequestCategoriesApi.list()` en vez de `useUserCache`), `design-request-archive-search.tsx`.
 
 Filtros del tablero disponibles para `DESIGNER_MANAGER`/`ADMIN` (`canManage`): por diseñador asignado, por comercial creadora, y (pedido explicito del usuario, 27/oct/2026) **"Sin asignar"** — un checkbox que pide `unassignedOnly: true` (`GET /design-board/requests?unassignedOnly=true`, mapeado a `assignedUserId: null` en `visibilityWhere()`); mutuamente excluyente con el filtro por diseñador (se deshabilita/limpia al activar "Sin asignar", y el backend prioriza `unassignedOnly` si llegaran los dos filtros a la vez).
 
@@ -131,5 +154,6 @@ Filtros del tablero disponibles para `DESIGNER_MANAGER`/`ADMIN` (`canManage`): p
 - Crear la label personalizada "Boceto enviado" desde Configuración > Etiquetas (no viene sembrada).
 - El formulario "Crear boceto" no permite adjuntar mensajes/archivos ya existentes del chat (`kind: 'FROM_CHAT'`) todavía, aunque el backend lo soporta.
 - El filtro "por comercial" del tablero se llena solo con los comerciales presentes en la vista actual, no con el catálogo completo de `SALES` (limitación de `GET /users` para `DESIGNER_MANAGER`).
+- El buscador de archivo histórico (ver "Versión aprobada y archivo histórico") no tiene filtro por comercial creadora en la UI todavía (sí en el backend, `createdByUserId`) -- se dejó fuera del primer alcance por la misma limitación de catálogo de `SALES` que el punto anterior.
 
 Ver ADR completo (histórico de diseño, decisiones y alcance de cada submódulo) en el proyecto Claude "Fenix": `adr-004-modulo-bocetos-diseno.md`.

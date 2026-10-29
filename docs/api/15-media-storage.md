@@ -58,6 +58,27 @@ Controla archivos subidos por la SPA antes de que se adjunten a un `Message`.
 - `status=FAILED`: el envio asociado fallo; se conserva para diagnostico o reintento.
 - `status=EXPIRED`: el cleanup elimino el archivo temporal vencido.
 
+### Fix 28/oct/2026: adjuntos de bocetos nunca pasaban a `ATTACHED`
+
+Los archivos subidos via `POST /media/upload-internal` para el modulo de
+bocetos (ver `17-bocetos-design-board.md`) tambien crean un `MediaUpload`,
+pero ese flujo nunca actualiza su `status` -- a diferencia del envio
+saliente de WhatsApp, que si lo pasa a `ATTACHED` en el paso 5 de "Media
+saliente desde la SPA" arriba. El resultado: `cleanupExpiredLocalMedia()`
+los trataba igual que un upload abandonado y los borraba a los
+`MEDIA_RETENTION_DAYS` (180 dias por defecto), aunque el
+`DesignRequestAttachment` que los referencia esta pensado para persistir
+para siempre (ver ADR-004 Submodulo 8).
+
+Como no hay FK entre `MediaUpload` y `DesignRequestAttachment` (este
+ultimo solo copia `mediaUrl`/`mediaStorageKey`), el cron ahora compara por
+`mediaStorageKey` antes de borrar cada `MediaUpload` candidato: si existe
+un `DesignRequestAttachment` con esa misma clave, el cron "adopta" el
+`MediaUpload` (lo pasa a `ATTACHED` en vez de borrarlo) y no vuelve a
+tocarlo -- la comprobacion solo hace falta una vez por archivo, porque el
+filtro de `status` de la consulta ya descarta `ATTACHED` en adelante. Ver
+`MessageMediaService.cleanupExpiredLocalMedia()`.
+
 ## Variables de entorno
 
 ```env
