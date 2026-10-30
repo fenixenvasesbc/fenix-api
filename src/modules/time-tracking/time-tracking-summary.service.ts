@@ -16,6 +16,18 @@ type SummaryRow = {
   overtimeWeekdayAmount: number;
   overtimeSaturdayHours: number;
   overtimeSaturdayAmount: number;
+  // Fix 30/oct/2026: OVERTIME_SUNDAY y OVERTIME_HOLIDAY existian como
+  // rateType desde el principio (y ya se calculaban bien por fichaje en
+  // TimeEntriesService.computeFinancials()), pero summarize() nunca los
+  // sumaba a ningun bucket -- un fichaje en festivo/domingo quedaba fuera
+  // de las 4 columnas del resumen (ni siquiera el Total los incluia),
+  // aunque el fichaje individual (pestaña Mis horas/Empleados) siempre
+  // mostro el importe correcto. Reportado por el usuario: festivo
+  // autonomico cargado y fichado, resumen en 0,00 € en todas las columnas.
+  overtimeSundayHours: number;
+  overtimeSundayAmount: number;
+  overtimeHolidayHours: number;
+  overtimeHolidayAmount: number;
   hourlyHours: number;
   hourlyAmount: number;
 };
@@ -55,6 +67,10 @@ export class TimeTrackingSummaryService {
           overtimeWeekdayAmount: 0,
           overtimeSaturdayHours: 0,
           overtimeSaturdayAmount: 0,
+          overtimeSundayHours: 0,
+          overtimeSundayAmount: 0,
+          overtimeHolidayHours: 0,
+          overtimeHolidayAmount: 0,
           hourlyHours: 0,
           hourlyAmount: 0,
         } satisfies SummaryRow);
@@ -68,6 +84,12 @@ export class TimeTrackingSummaryService {
       } else if (entry.rateType === 'OVERTIME_SATURDAY') {
         bucket.overtimeSaturdayHours += hours;
         bucket.overtimeSaturdayAmount += amount;
+      } else if (entry.rateType === 'OVERTIME_SUNDAY') {
+        bucket.overtimeSundayHours += hours;
+        bucket.overtimeSundayAmount += amount;
+      } else if (entry.rateType === 'OVERTIME_HOLIDAY') {
+        bucket.overtimeHolidayHours += hours;
+        bucket.overtimeHolidayAmount += amount;
       } else if (entry.rateType === 'HOURLY') {
         bucket.hourlyHours += hours;
         bucket.hourlyAmount += amount;
@@ -81,11 +103,15 @@ export class TimeTrackingSummaryService {
         ...row,
         overtimeWeekdayAmount: Number(row.overtimeWeekdayAmount.toFixed(2)),
         overtimeSaturdayAmount: Number(row.overtimeSaturdayAmount.toFixed(2)),
+        overtimeSundayAmount: Number(row.overtimeSundayAmount.toFixed(2)),
+        overtimeHolidayAmount: Number(row.overtimeHolidayAmount.toFixed(2)),
         hourlyAmount: Number(row.hourlyAmount.toFixed(2)),
         totalAmount: Number(
           (
             row.overtimeWeekdayAmount +
             row.overtimeSaturdayAmount +
+            row.overtimeSundayAmount +
+            row.overtimeHolidayAmount +
             row.hourlyAmount
           ).toFixed(2),
         ),
