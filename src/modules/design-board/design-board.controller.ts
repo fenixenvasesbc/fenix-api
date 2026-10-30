@@ -226,6 +226,22 @@ export class DesignBoardController {
     return this.designBoardService.archive(req.user, id);
   }
 
+  // Pedido explicito del usuario, 30/oct/2026: desde el chat de un lead,
+  // ir directo al ULTIMO boceto que se le pidio -- no una lista con todo
+  // el historico. Mismos roles que listRequests(); la visibilidad (p.ej.
+  // que SALES solo encuentre sus propios bocetos) la resuelve
+  // getLatestRequestIdForLead() reusando visibilityWhere(). No choca con
+  // 'requests/:id' (3 segmentos vs 1, mismo criterio que archive/search
+  // arriba).
+  @Roles(Role.ADMIN, Role.SALES, Role.DESIGNER, Role.DESIGNER_MANAGER)
+  @Get('requests/by-lead/:leadId/latest')
+  getLatestRequestIdForLead(
+    @Req() req: { user: AuthUser },
+    @Param('leadId', ParseUUIDPipe) leadId: string,
+  ) {
+    return this.designBoardService.getLatestRequestIdForLead(req.user, leadId);
+  }
+
   // Pedido explicito del usuario, 28/oct/2026: buscador de archivo
   // historico (bocetos marcados como hechos/archivados), oculto por
   // defecto -- pantalla propia en el frontend, nunca una pestaña mas del

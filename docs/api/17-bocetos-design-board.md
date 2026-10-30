@@ -10,7 +10,7 @@ Módulo: `src/modules/design-board/`. Endpoints: ver doc 09.
 
 | Rol | Alcance |
 |---|---|
-| `SALES` / `SALES_MANAGER` (tratado igual que `SALES` en este módulo) | Crea solicitudes; ve solo columna inicial y final, solo sus propias tarjetas; aprueba/envía a modificación/reenvía sus propias tarjetas. `SALES_MANAGER` además ve la pestaña "Reportes y estadísticas" (no "Por diseñador"). |
+| `SALES` / `SALES_MANAGER` (tratado igual que `SALES` en este módulo) | Crea solicitudes; ve Nuevos, Modificación, Terminado y (desde 30/oct/2026) también Aprobados -- siempre solo sus propias tarjetas, nunca "En revisión". Aprueba/envía a modificación/reenvía sus propias tarjetas; en "Aprobados" es solo lectura (archivar sigue siendo exclusivo de `DESIGNER_MANAGER`/`ADMIN`). `SALES_MANAGER` además ve la pestaña "Reportes y estadísticas" (no "Por diseñador"). |
 | `DESIGNER` | Ve todas las columnas excepto "Aprobados"; solo sus tarjetas asignadas; mueve ±1. |
 | `DESIGNER_MANAGER` | Control total: asigna diseñador, ve "Aprobados", pausa/reanuda, archiva, ve reportes y "Por diseñador". Login restringido únicamente a este módulo. |
 | `ADMIN` | Todo lo anterior sin restricción. |
@@ -100,6 +100,10 @@ UI: pestaña "Archivo" en `app/dashboard/bocetos/page.tsx` (`components/design-b
 ### Descarga: uno por uno, no en zip
 
 Pedido explicito del usuario: la descarga de los archivos de la versión aprobada es **individual** (un link `<a download>` por archivo, igual que el resto de adjuntos del módulo), no un zip -- el Jefe de Diseño guarda cada archivo donde le conviene (carpetas distintas según el archivo), algo que un zip único le quitaría.
+
+## Navegación lead -> último boceto
+
+`GET /design-board/requests/by-lead/:leadId/latest` (`ADMIN`, `SALES`, `DESIGNER`, `DESIGNER_MANAGER`). Pedido explícito del usuario, 30/oct/2026: desde el chat de un lead, la comercial quiere ir directo al **último** boceto que pidió para ese lead -- no un desplegable con todo el histórico (puede acumular muchos bocetos viejos). Devuelve solo `{ id: string | null }` (el más reciente por `createdAt`, respetando la misma visibilidad que el resto del módulo -- `SALES` solo encuentra algo acá si el boceto es suyo); `null` si el lead no tiene ninguno visible para ese usuario. El frontend abre el detalle completo con ese id reusando el deep-link `?requestId=...` que ya existía en el tablero (`app/dashboard/bocetos/page.tsx`), en una pestaña nueva para no perder el chat -- botón "Último boceto" en el header de `app/dashboard/messages/page.tsx`, junto a "Crear boceto".
 
 ## Reenviar al lead
 

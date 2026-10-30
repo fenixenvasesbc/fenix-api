@@ -822,10 +822,25 @@ export class DesignBoardService {
       return {
         createdByUserId: user.userId,
         accountId: user.accountId ?? '__none__',
-        // Pedido explicito del usuario, 23/oct/2026: ahora tambien ve la
-        // columna "Modificacion" (antes solo Nuevos/Terminado) -- "En
-        // revision" sigue oculta, es un estado interno de Diseno.
-        column: { OR: [{ isInitial: true }, { isModification: true }, { isFinal: true }] },
+        // Pedido explicito del usuario, 23/oct/2026: tambien ve la columna
+        // "Modificacion" (antes solo Nuevos/Terminado) -- "En revision"
+        // sigue oculta, es un estado interno de Diseno.
+        // Pedido explicito del usuario, 30/oct/2026: ahora tambien ve
+        // "Aprobados" (isApproved) -- antes quedaba oculta para SIEMPRE,
+        // incluso para sus propios bocetos ya aprobados (ni en el tablero
+        // ni abriendo el detalle por id). Sigue acotado a sus propias
+        // solicitudes (createdByUserId arriba) y es solo lectura: las
+        // acciones de esa columna (archivar, etc.) siguen gateadas aparte
+        // por rol en cada metodo (ver archive()), esto solo cambia que
+        // ahora puede verlas.
+        column: {
+          OR: [
+            { isInitial: true },
+            { isModification: true },
+            { isFinal: true },
+            { isApproved: true },
+          ],
+        },
       };
     }
 
@@ -1991,6 +2006,33 @@ export class DesignBoardService {
         fileName: attachment.fileName ?? null,
       },
     });
+  }
+
+  // -------------------------------------------------------------
+  // Navegacion lead -> boceto (pedido explicito del usuario, 30/oct/2026):
+  // desde el chat de un lead, la comercial quiere ir directo al ULTIMO
+  // boceto que pidio para ese lead -- no un desplegable con todo el
+  // historico (puede tener muchos bocetos viejos). Devuelve solo el id
+  // (el mas reciente por createdAt) respetando la misma visibilidad que
+  // el resto del modulo (visibilityWhere) -- SALES solo encuentra algo
+  // aca si el boceto es suyo; null si el lead no tiene ninguno visible
+  // para este usuario. El frontend abre el detalle completo con el id
+  // (mismo patron que el deep-link ?requestId=... del tablero), asi que
+  // no hace falta decorar/formatear nada aca.
+  async getLatestRequestIdForLead(
+    user: AuthUser,
+    leadId: string,
+  ): Promise<{ id: string | null }> {
+    const request = await this.prisma.designRequest.findFirst({
+      where: {
+        ...this.visibilityWhere(user),
+        deletedAt: null,
+        leadId,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    return { id: request?.id ?? null };
   }
 
   // -------------------------------------------------------------
