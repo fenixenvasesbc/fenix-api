@@ -1483,6 +1483,41 @@ describe('DesignBoardService', () => {
       expect(result).toEqual({ id: 'c-1', attachments: [{ id: 'att-1' }] });
     });
 
+    // Pedido explicito del usuario, 31/oct/2026: comentar solo con
+    // adjuntos, sin texto -- antes el DTO exigia body siempre.
+    it('allows a comment with only attachments, no body (31/oct/2026)', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(reviewRequest());
+      prisma.designRequestComment.create.mockResolvedValue({
+        id: 'c-4',
+        attachments: [{ id: 'att-2' }],
+      });
+
+      const result = await service.addComment(SALES, 'req-1', {
+        attachments: [
+          { kind: DesignAttachmentKind.FROM_CHAT, sourceMessageId: 'msg-2' },
+        ],
+      });
+
+      expect(prisma.designRequestComment.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ body: '' }),
+        }),
+      );
+      expect(result).toEqual({ id: 'c-4', attachments: [{ id: 'att-2' }] });
+    });
+
+    it('rejects a comment with neither body nor attachments (31/oct/2026)', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(reviewRequest());
+
+      await expect(service.addComment(SALES, 'req-1', {})).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      await expect(
+        service.addComment(SALES, 'req-1', { body: '   ' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.designRequestComment.create).not.toHaveBeenCalled();
+    });
+
     it('blocks a SALES user who did not create the request', async () => {
       prisma.designRequest.findUnique.mockResolvedValue(reviewRequest());
 

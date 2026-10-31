@@ -1494,6 +1494,18 @@ export class DesignBoardService {
     const request = await this.findOrThrow(id);
     this.assertCanView(user, request);
 
+    // Pedido explicito del usuario, 31/oct/2026: permitir comentar
+    // adjuntando SOLO archivos, sin escribir texto -- el DTO ya dejo
+    // `body` opcional; aca es donde se exige que venga al menos uno de
+    // los dos (body con contenido real, o attachments), para no crear
+    // comentarios completamente vacios.
+    const trimmedBody = dto.body?.trim() ?? '';
+    if (!trimmedBody && !dto.attachments?.length) {
+      throw new BadRequestException(
+        'El comentario necesita texto o al menos un adjunto.',
+      );
+    }
+
     // ADR-004 Submódulo 3: adjuntos dentro del comentario (mismo shape que
     // los adjuntos de la solicitud -- FROM_CHAT referencia un Message ya
     // existente, UPLOADED trae metadata de un archivo ya subido). Ver
@@ -1509,7 +1521,7 @@ export class DesignBoardService {
       data: {
         designRequestId: request.id,
         authorUserId: user.userId,
-        body: dto.body,
+        body: trimmedBody,
         attachments: attachmentsCreateInput
           ? { create: attachmentsCreateInput }
           : undefined,

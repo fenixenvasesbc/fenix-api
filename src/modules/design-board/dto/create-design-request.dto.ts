@@ -328,10 +328,15 @@ export class MoveDesignRequestDto {
 }
 
 export class AddDesignRequestCommentDto {
+  // Pedido explicito del usuario, 31/oct/2026: si solo se quiere adjuntar
+  // un archivo (sin escribir texto), el comentario no deberia bloquearse
+  // por falta de body -- body pasa a ser opcional aca; el service
+  // (addComment()) es quien exige al menos uno de los dos (body o
+  // attachments), no esta clase.
+  @IsOptional()
   @IsString()
-  @MinLength(1)
   @MaxLength(4000)
-  body!: string;
+  body?: string;
 
   // ADR-004 Submódulo 3: adjuntos dentro de un comentario, mismo shape que
   // los adjuntos de la solicitud (reusa CreateDesignRequestAttachmentDto).

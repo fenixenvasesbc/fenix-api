@@ -109,6 +109,14 @@ Pedido explicito del usuario: la descarga de los archivos de la versión aprobad
 
 ## Reenviar al lead
 
+## Comentarios
+
+`POST /design-board/requests/:id/comments` (`AddDesignRequestCommentDto`). Desde el 31/oct/2026, `body` es **opcional** -- el servicio (`addComment()`) exige al menos uno de los dos (`body` con contenido real tras `trim()`, o `attachments` no vacío), para permitir comentar adjuntando solo un archivo, sin texto (pedido explícito del usuario: antes el botón "Comentar" quedaba deshabilitado si no se escribía nada, aunque hubiera un adjunto cargado). Si no llega ninguno de los dos, `BadRequestException`.
+
+UI (`Fenix-SPA`): el textarea de comentario nuevo y el de edición de un comentario existente (`design-request-detail-dialog.tsx`) responden a **Enter** para enviar/guardar (`Shift+Enter` sigue insertando un salto de línea) -- antes solo se podía confirmar con el botón.
+
+## Reenviar al lead
+
 `POST /requests/:id/attachments/:attachmentId/forward` (`ADMIN` o `SALES` dueña). Busca el adjunto por `designRequestId` o dentro de un comentario de la misma solicitud (el boceto terminado suele quedar en un comentario del diseñador, no en los adjuntos de entrada de la comercial).
 
 - Si la ventana de servicio de WhatsApp (24h) está abierta: `OutboundService.sendMediaMessage()` (mensaje libre).
