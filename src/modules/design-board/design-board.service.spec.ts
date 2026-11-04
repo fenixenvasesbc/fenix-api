@@ -2097,6 +2097,28 @@ describe('DesignBoardService', () => {
       ]);
     });
 
+    // Pedido explicito del usuario, 04/nov/2026: "Por diseñador" solo debe
+    // contar BOCETO/REPET_BOCETO -- MOD/REPET_MOD/REPET_ANADE son ajustes
+    // sobre un boceto ya contado antes, no trabajo nuevo. Las solicitudes
+    // viejas sin requestType persistido siguen contando (se tratan como
+    // BOCETO, mismo criterio que currentEffectiveType en updateRequest()).
+    it('filters byDesigner to BOCETO/REPET_BOCETO (or null, legacy) only', async () => {
+      prisma.designRequest.count.mockResolvedValue(0);
+      prisma.designRequest.groupBy.mockResolvedValue([]);
+      prisma.designRequest.findMany.mockResolvedValue([]);
+
+      await service.getReportsSummary(MANAGER, { dateTo: '2026-01-15' });
+
+      const designerCalls = prisma.designRequest.findMany.mock.calls;
+      expect(designerCalls.length).toBeGreaterThan(0);
+      for (const [args] of designerCalls) {
+        expect(args.where.OR).toEqual([
+          { requestType: null },
+          { requestType: { in: ['BOCETO', 'REPET_BOCETO'] } },
+        ]);
+      }
+    });
+
     it('defaults to the current month as the end of the window when dateTo is not given', async () => {
       prisma.designRequest.count.mockResolvedValue(0);
       prisma.designRequest.groupBy.mockResolvedValue([]);

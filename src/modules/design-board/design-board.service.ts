@@ -2447,7 +2447,20 @@ export class DesignBoardService {
       // completedAt NO se toca (sigue contando para este diseñador).
       includeByDesigner
         ? this.prisma.designRequest.findMany({
-            where: completedInMonth,
+            where: {
+              ...completedInMonth,
+              // Pedido explicito del usuario, 04/nov/2026: "Por diseñador"
+              // solo debe contar bocetos y repeticiones de boceto -- no
+              // modificaciones (MOD/REPET_MOD/REPET_ANADE), que son ajustes
+              // sobre un boceto ya contado antes, no un trabajo nuevo. Las
+              // solicitudes viejas sin requestType persistido se tratan
+              // como BOCETO (mismo criterio que currentEffectiveType en
+              // updateRequest()), por eso el OR con `null`.
+              OR: [
+                { requestType: null },
+                { requestType: { in: ['BOCETO', 'REPET_BOCETO'] } },
+              ],
+            },
             select: { id: true, title: true, assignedUserId: true },
           })
         : Promise.resolve([]),

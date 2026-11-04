@@ -128,6 +128,8 @@ UI (`Fenix-SPA`): el textarea de comentario nuevo y el de edición de un comenta
 
 `GET /design-board/reports/summary?dateFrom&dateTo` (`ADMIN`, `DESIGNER_MANAGER`, `SALES_MANAGER`): devuelve los **últimos 3 meses separados** (el mes de `dateTo` es el más reciente de los 3), cada uno con `completedCount`, `approvedCount`, `approvalRate`, `approvedByCountry`, `byCreator` (por comercial) y `byDesigner` (por diseñador asignado, con el detalle de títulos). `byDesigner` se omite (`[]`) cuando el rol es `SALES_MANAGER` — esa pestaña de la SPA no es para ese rol.
 
+Pedido explicito del usuario, 04/nov/2026: `byDesigner` solo cuenta solicitudes de tipo `BOCETO`/`REPET_BOCETO` (más las viejas sin `requestType` persistido, tratadas como `BOCETO`) -- las de tipo `MOD`/`REPET_MOD`/`REPET_ANADE` quedan afuera, porque son un ajuste sobre un boceto que ya se contó antes, no un trabajo nuevo del diseñador. El resto del desglose del mes (`completedCount`, `approvedCount`, `byCreator`, `byCategory`) no cambió -- sigue contando todos los tipos.
+
 Pedido explicito del usuario, 28/oct/2026: cada mes incluye además `byCategory: { categoryId, completedCount }[]` -- cantidad de solicitudes **terminadas** (misma cohorte `completedAt` del mes) por categoría, vía `designRequestCategoryAssignment.groupBy({ by: ['categoryId'] })`. Una solicitud puede tener varias categorías a la vez (N:M), así que la suma de `byCategory` no tiene por qué coincidir con `completedCount` del mes. Misma visibilidad que `byDesigner`: se omite (`[]`) para `SALES_MANAGER`.
 
 `GET /design-board/reports/my-approval-rate` (`SALES`): tasa de aprobación personal del comercial, últimos 3 meses.
