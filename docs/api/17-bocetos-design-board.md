@@ -12,7 +12,7 @@ Módulo: `src/modules/design-board/`. Endpoints: ver doc 09.
 |---|---|
 | `SALES` / `SALES_MANAGER` (tratado igual que `SALES` en este módulo) | Crea solicitudes; ve Nuevos, Modificación, Terminado y (desde 30/oct/2026) también Aprobados -- siempre solo sus propias tarjetas, nunca "En revisión". Aprueba/envía a modificación/reenvía sus propias tarjetas; en "Aprobados" es solo lectura (archivar sigue siendo exclusivo de `DESIGNER_MANAGER`/`ADMIN`). `SALES_MANAGER` además ve la pestaña "Reportes y estadísticas" (no "Por diseñador"). |
 | `DESIGNER` | Ve todas las columnas excepto "Aprobados"; solo sus tarjetas asignadas; mueve ±1. |
-| `DESIGNER_MANAGER` | Control total: asigna diseñador, ve "Aprobados", pausa/reanuda, archiva, ve reportes y "Por diseñador". Login restringido únicamente a este módulo. |
+| `DESIGNER_MANAGER` | Asigna diseñador, ve "Aprobados" (solo lectura: desde 05/nov/2026 ya **no** puede aprobar, ver más abajo), pausa/reanuda, archiva, ve reportes y "Por diseñador". Login restringido únicamente a este módulo. |
 | `ADMIN` | Todo lo anterior sin restricción. |
 
 ## Columnas (tablero por defecto)
@@ -85,6 +85,7 @@ Pedido explicito del usuario, 28/oct/2026: el Jefe de Diseño (`DESIGNER_MANAGER
 - `DesignRequestAttachment.isApprovedVersion` (boolean, default `false`, migración `20261028140000_design_request_attachment_approved_version`). Puede haber más de un adjunto marcado por solicitud (ej. frontal y trasero de un mismo diseño).
 - `PATCH /design-board/requests/:id/attachments/:attachmentId/approved-version` body `{ approved: boolean }` -- marca/desmarca. Mismo criterio de permisos que "Reenviar al lead": solo la comercial propietaria de la solicitud (dueña, no cualquier `SALES`) o `ADMIN`. El Jefe de Diseño **nunca** puede marcarlo, solo consultar el resultado -- él no estuvo en la conversación con el cliente.
 - `POST /design-board/requests/:id/approve` acepta opcionalmente `{ approvedAttachmentIds?: string[] }` -- permite marcar de una vez al momento de aprobar desde el tablero. Es opcional a propósito: una aprobación automática por etiqueta (`approveByLabel()`) nunca pasa por aquí y no manda esta lista, así que el marcado también tiene que poder hacerse después, en cualquier momento, con el endpoint de arriba. Si se manda, valida que cada id sea un adjunto real de esa solicitud (tarjeta o comentario) antes de tocar nada, y la selección de esa llamada **reemplaza** cualquier marcado anterior de esa misma solicitud.
+- **Permiso de `POST .../approve` (05/nov/2026, pedido explícito del usuario)**: aprobar es exclusivo de la comercial dueña de la solicitud (o `ADMIN`) -- antes `DESIGNER_MANAGER` también podía aprobar igual que ellos, ahora `ForbiddenException` para el Jefe de Diseño. Su rol en el flujo sigue terminando en mover la tarjeta a "Terminado" (y sigue pudiendo "Enviar a modificación", eso no cambió); de ahí en más, aprobar es decisión de la comercial, manualmente o vía `approveByLabel()` (que no se tocó).
 - `listRequests()`/`getRequestDetail()` no cambian su forma -- `isApprovedVersion` viene incluido en cada adjunto como cualquier otro campo escalar; la SPA filtra client-side para la sección "Versión aprobada" del detalle (`design-request-detail-dialog.tsx`).
 
 ### Buscador de archivo histórico

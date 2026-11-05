@@ -157,7 +157,10 @@ export class DesignBoardController {
     return this.designBoardService.deleteAttachment(req.user, id, attachmentId);
   }
 
-  @Roles(Role.ADMIN, Role.SALES, Role.DESIGNER_MANAGER)
+  // Pedido explicito del usuario, 05/nov/2026: aprobar una solicitud es
+  // exclusivo de la comercial dueña (o ADMIN) -- el Jefe de Diseño ya no
+  // tiene este botón/permiso, solo gestiona el tablero hasta "Terminado".
+  @Roles(Role.ADMIN, Role.SALES)
   @Post('requests/:id/approve')
   approve(
     @Req() req: { user: AuthUser },

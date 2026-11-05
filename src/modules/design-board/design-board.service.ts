@@ -1678,10 +1678,17 @@ export class DesignBoardService {
   ) {
     const request = await this.findOrThrow(id);
 
+    // Pedido explicito del usuario, 05/nov/2026: aprobar es exclusivo de
+    // la comercial dueña de la solicitud (o ADMIN) -- el Jefe de Diseño
+    // (DESIGNER_MANAGER) ya NO puede aprobar, antes podia hacerlo igual
+    // que ADMIN/SALES propietaria. Su rol en el flujo termina en mover la
+    // tarjeta a "Terminado"; de ahí en más la decisión de aprobar es de
+    // la comercial (manualmente, o via approveByLabel(), que no pasa por
+    // aca -- ese camino no se tocó).
     const isOwnerSales = this.isSalesLike(user.role) && request.createdByUserId === user.userId;
-    const isManagerOrAdmin = user.role === Role.DESIGNER_MANAGER || user.role === Role.ADMIN;
+    const isAdmin = user.role === Role.ADMIN;
 
-    if (!isOwnerSales && !isManagerOrAdmin) {
+    if (!isOwnerSales && !isAdmin) {
       throw new ForbiddenException('No puedes aprobar esta solicitud');
     }
 

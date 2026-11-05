@@ -1622,14 +1622,25 @@ describe('DesignBoardService', () => {
       expect(result).toEqual({ id: 'req-1', columnId: 'col-approved' });
     });
 
-    it('lets DESIGNER_MANAGER/ADMIN approve any request', async () => {
+    it('lets ADMIN approve any request', async () => {
       prisma.designRequest.findUnique.mockResolvedValue(doneRequest());
       tx.designRequest.update.mockResolvedValue({ id: 'req-1', columnId: 'col-approved' });
 
-      await service.approve(MANAGER, 'req-1');
       await service.approve(ADMIN, 'req-1');
 
-      expect(tx.designRequest.update).toHaveBeenCalledTimes(2);
+      expect(tx.designRequest.update).toHaveBeenCalledTimes(1);
+    });
+
+    // Pedido explicito del usuario, 05/nov/2026: aprobar pasa a ser
+    // exclusivo de la comercial dueña (o ADMIN) -- antes DESIGNER_MANAGER
+    // tambien podia, igual que ADMIN/SALES propietaria.
+    it('blocks DESIGNER_MANAGER from approving (05/nov/2026)', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(doneRequest());
+
+      await expect(service.approve(MANAGER, 'req-1')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(tx.designRequest.update).not.toHaveBeenCalled();
     });
 
     // Pedido explicito del usuario, 23/oct/2026: al aprobar desde el
