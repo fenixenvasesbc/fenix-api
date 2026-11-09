@@ -1239,6 +1239,15 @@ model Employee {
   contractType EmployeeContractType
   isActive     Boolean              @default(true)
 
+  // Precio por hora individual (09/nov/2026, pedido explicito del usuario).
+  // Opcional: si es null, se usa la tarifa global TimeTrackingRate.hourlyRate
+  // sin cambios -- ver TimeEntriesService.computeFinancials(). Solo tiene
+  // efecto para contrato POR_HORAS (es el unico que usa hourlyRate; FIJO
+  // solo paga horas extra, siempre a las tarifas globales). Las 4 tarifas
+  // de hora extra siguen siendo exclusivamente globales, no son
+  // configurables por empleado.
+  hourlyRate Decimal? @db.Decimal(10, 2)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

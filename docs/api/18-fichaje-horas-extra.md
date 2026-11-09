@@ -4,7 +4,7 @@ Módulo `src/modules/time-tracking/`. Permite a los empleados fichar entrada/sal
 
 ## Modelo
 
-- `Employee`: `contractType` (`FIJO` | `POR_HORAS`), `isActive`.
+- `Employee`: `contractType` (`FIJO` | `POR_HORAS`), `isActive`, `hourlyRate` (opcional, `Decimal?`, agregado 09/nov/2026 -- ver "Precio por hora individual" más abajo).
 - `TimeEntry`: un fichaje (`clockInAt`/`clockOutAt`). Al cerrarse (fichar salida o editar manualmente) se calculan y guardan `totalMinutes`, `wasCapped`, `payableHours`, `rateType`, `rateApplied`, `amount`.
 - `TimeEntryRateType` (enum): `OVERTIME_WEEKDAY`, `OVERTIME_SATURDAY`, `OVERTIME_SUNDAY`, `OVERTIME_HOLIDAY`, `HOURLY`.
 - `TimeTrackingRate`: tarifas vigentes (una fila, editable desde Configuración → Tarifas): `overtimeWeekdayRate`, `overtimeSaturdayRate`, `overtimeSundayRate`, `overtimeHolidayRate`, `hourlyRate`, `maxShiftEnabled`/`maxShiftMinutes`.
@@ -18,8 +18,20 @@ Módulo `src/modules/time-tracking/`. Permite a los empleados fichar entrada/sal
 4. Contrato `FIJO`:
    - Entre semana: solo se paga como extra lo que supere 8h (`payableHours` = horas por encima de la jornada regular).
    - Sábado / domingo / festivo: **toda la jornada** cuenta como extra desde la primera hora, a la tarifa de ese tipo de día.
-5. Contrato `POR_HORAS`: todas las horas se pagan a `hourlyRate`, `rateType = HOURLY`, sin importar el día.
+5. Contrato `POR_HORAS`: todas las horas se pagan a `rateType = HOURLY`, sin importar el día, a `Employee.hourlyRate` si el empleado tiene uno propio configurado, o a la tarifa global `TimeTrackingRate.hourlyRate` en caso contrario (ver más abajo).
 6. Fracciones ≥ 30 min redondean a la hora completa; menos de 30 min no se pagan.
+
+## Precio por hora individual (09/nov/2026, pedido explícito del usuario)
+
+Cada empleado puede tener su propio precio por hora (`Employee.hourlyRate`, `Decimal?`, opcional), configurable desde el mismo diálogo "Editar empleado" (pestaña Empleados) que ya existía para nombre/tipo de contrato/estado -- no se agregó un formulario aparte.
+
+- Si el campo queda vacío (`null`), el empleado sigue usando la tarifa global `TimeTrackingRate.hourlyRate` (pestaña Tarifas) sin ningún cambio de comportamiento respecto a antes.
+- Si se pone un valor, ese valor reemplaza a la tarifa global **solo para ese empleado**, exclusivamente en el paso 5 de `computeFinancials()` (contrato `POR_HORAS`).
+- **No afecta a contrato `FIJO`**: las 4 tarifas de hora extra (`overtimeWeekdayRate`/`overtimeSaturdayRate`/`overtimeSundayRate`/`overtimeHolidayRate`) siguen siendo exclusivamente globales, no son configurables por empleado -- decisión explícita del usuario al definir el alcance de este cambio.
+- `CreateEmployeeDto`/`UpdateEmployeeDto.hourlyRate` acepta `number | null | undefined`: omitir el campo en un `PATCH` deja el valor actual sin cambios; mandar `null` explícito lo borra (vuelve a la tarifa global). Mismo patrón de `@ValidateIf` + `@IsOptional()` ya usado en `UpdateLeadLabelDefinitionDto.alertThresholdDays`, para que un `null` explícito no se transforme en `0` vía `@Type(() => Number)`.
+- `TimeEntriesService.clock()`/`updateEntry()` pasan `employee.hourlyRate` a `computeFinancials()`, que lo usa en vez de `rates.hourlyRate` cuando no es `null`.
+- UI: la pestaña Empleados muestra una columna "Precio/h" con el valor configurado o "Global (Tarifas)" si no tiene override. El campo del diálogo incluye el helper text explicando que solo aplica a `POR_HORAS` y que vacío = tarifa global.
+- No se tocó `TimeTrackingSummaryService` ni `TimeTrackingRatesService` -- el resumen agregado sigue funcionando igual, porque sigue leyendo `rateApplied`/`amount` ya calculados y guardados en cada `TimeEntry`, sin importar de dónde vino la tarifa.
 
 ## Resumen agregado (`TimeTrackingSummaryService`, pestaña "Resumen")
 

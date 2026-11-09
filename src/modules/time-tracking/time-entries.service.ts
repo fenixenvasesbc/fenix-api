@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { EmployeeContractType, TimeEntryRateType } from '@prisma/client';
+import { EmployeeContractType, Prisma, TimeEntryRateType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TimeTrackingRatesService } from './time-tracking-rates.service';
 import { UpdateTimeEntryDto } from './dto/time-entry.dto';
@@ -62,6 +62,7 @@ export class TimeEntriesService {
     const entry = await this.closeEntry(
       openEntry,
       employee.contractType,
+      employee.hourlyRate,
       userId,
     );
     return { action: 'CLOCK_OUT' as const, entry };
@@ -143,6 +144,7 @@ export class TimeEntriesService {
       clockInAt,
       clockOutAt,
       entry.employee.contractType,
+      entry.employee.hourlyRate,
       rates,
     );
 
@@ -193,6 +195,7 @@ export class TimeEntriesService {
   private async closeEntry(
     openEntry: { id: string; clockInAt: Date },
     contractType: EmployeeContractType,
+    employeeHourlyRate: Prisma.Decimal | null,
     userId: string,
   ) {
     const clockOutAt = new Date();
@@ -201,6 +204,7 @@ export class TimeEntriesService {
       openEntry.clockInAt,
       clockOutAt,
       contractType,
+      employeeHourlyRate,
       rates,
     );
 
@@ -221,6 +225,7 @@ export class TimeEntriesService {
     clockInAt: Date,
     clockOutAt: Date,
     contractType: EmployeeContractType,
+    employeeHourlyRate: Prisma.Decimal | null,
     rates: RatesShape,
   ): Promise<EntryFinancials> {
     // Duracion real del turno, sin capar: se guarda siempre tal cual para
@@ -262,9 +267,15 @@ export class TimeEntriesService {
         rateApplied = this.rateForDay(dayType, rates);
       }
     } else {
+      // Precio por hora individual (09/nov/2026): si el empleado tiene su
+      // propio hourlyRate, se usa en vez de la tarifa global. Solo aplica
+      // aqui -- contrato POR_HORAS es el unico que usa esta tarifa.
       payableHours = this.minutesToPayableHours(payableMinutes);
       rateType = 'HOURLY';
-      rateApplied = Number(rates.hourlyRate);
+      rateApplied =
+        employeeHourlyRate !== null
+          ? Number(employeeHourlyRate)
+          : Number(rates.hourlyRate);
     }
 
     const amount = Number((payableHours * rateApplied).toFixed(2));
