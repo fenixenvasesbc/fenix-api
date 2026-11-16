@@ -11,11 +11,12 @@ export type ChatEventType =
   | 'notification.updated'
   // ADR-004 Submodulo 11: reusa el mismo bus (RabbitMQ + SSE) del chat en
   // vez de montar infraestructura de tiempo real nueva. 'moved' cubre
-  // cualquier cambio de columna (move/sendToModification/approve/
-  // approveByLabel/archive); 'commented' un comentario nuevo; 'updated' el
-  // resto (create/assign/pause/resume) -- suficiente para que la SPA sepa
-  // que debe refrescar el tablero, sin duplicar el estado completo en el
-  // evento.
+  // cualquier cambio de columna (move/sendToModification/approve/archive)
+  // -- la aprobación automática por etiqueta (approveByLabel) se eliminó
+  // 16/nov/2026, ver DesignBoardService; 'commented' un comentario nuevo;
+  // 'updated' el resto (create/assign/pause/resume) -- suficiente para
+  // que la SPA sepa que debe refrescar el tablero, sin duplicar el estado
+  // completo en el evento.
   | 'design_request.created'
   | 'design_request.moved'
   | 'design_request.commented'

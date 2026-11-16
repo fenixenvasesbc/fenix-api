@@ -99,7 +99,7 @@ export class DesignRequestNotificationsListener {
     );
   }
 
-  // Al aprobar (approve()/approveByLabel()) avisamos a DOS destinatarios
+  // Al aprobar (approve(), único camino desde 16/nov/2026) avisamos a DOS destinatarios
   // distintos: el diseñador asignado (su trabajo quedo aprobado) y, a
   // diferencia de los demas eventos de este listener, a TODO el Jefe de
   // Diseño (Role.DESIGNER_MANAGER) -- no hay un unico "manager asignado" a

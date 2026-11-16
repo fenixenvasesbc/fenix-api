@@ -178,9 +178,9 @@ export class ListDesignRequestsQueryDto {
 // Pedido explicito del usuario, 28/oct/2026: al aprobar desde el
 // tablero, la comercial puede indicar de una vez cuales de los adjuntos
 // (tarjeta o comentarios) son la version que el cliente aprobo -- ver
-// DesignBoardService.approve(). Opcional: una aprobacion automatica por
-// etiqueta (approveByLabel) nunca manda esto, y tambien se puede marcar
-// despues desde el detalle (markApprovedVersionAttachment()).
+// DesignBoardService.approve(). Opcional cuando ya se marco antes desde
+// el detalle (markApprovedVersionAttachment()); desde 16/nov/2026, si no
+// llega ninguna y tampoco hay nada marcado de antes, approve() rechaza.
 export class ApproveDesignRequestDto {
   @IsOptional()
   @IsArray()
@@ -191,9 +191,8 @@ export class ApproveDesignRequestDto {
 
 // Pedido explicito del usuario, 28/oct/2026: marcar/desmarcar un adjunto
 // concreto como "version aprobada" fuera del momento de aprobar (p.ej. la
-// comercial se da cuenta despues de que marco el archivo equivocado, o la
-// solicitud se aprobo automaticamente por etiqueta y nadie elegiste nada
-// todavia). Ver DesignBoardService.markApprovedVersionAttachment().
+// comercial se da cuenta despues de que marco el archivo equivocado).
+// Ver DesignBoardService.markApprovedVersionAttachment().
 export class MarkApprovedVersionAttachmentDto {
   @IsBoolean()
   approved!: boolean;

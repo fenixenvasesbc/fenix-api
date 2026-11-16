@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import {
+  SYSTEM_LABEL_CODES,
   SYSTEM_LABEL_SEED,
   SystemLabelCode,
 } from 'src/common/constants/lead-labels';
@@ -50,9 +51,22 @@ export class LeadLabelDefinitionsService {
   async list() {
     await this.ensureSystemLabelsSeeded();
 
-    return this.prisma.leadLabelDefinition.findMany({
+    const definitions = await this.prisma.leadLabelDefinition.findMany({
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
+
+    // Pedido explicito del usuario, 16/nov/2026: BOCETO_APROBADO ya no se
+    // puede asignar a mano desde el selector de labels del chat/leads --
+    // aprobar un boceto solo puede hacerse desde la solicitud de boceto en
+    // si, marcando la "version aprobada" (ver LeadsController.setLabel(),
+    // que bloquea esta etiqueta de forma incondicional). Se expone este
+    // flag calculado (no es un campo de la tabla) para que la SPA
+    // deshabilite la opcion en el listado en vez de dejar que el usuario
+    // la elija y se encuentre con el error recien al guardar.
+    return definitions.map((definition) => ({
+      ...definition,
+      manuallyAssignable: definition.code !== SYSTEM_LABEL_CODES.BOCETO_APROBADO,
+    }));
   }
 
   async create(input: CreateInput) {

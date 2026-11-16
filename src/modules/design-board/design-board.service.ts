@@ -1685,8 +1685,9 @@ export class DesignBoardService {
     // (DESIGNER_MANAGER) ya NO puede aprobar, antes podia hacerlo igual
     // que ADMIN/SALES propietaria. Su rol en el flujo termina en mover la
     // tarjeta a "Terminado"; de ahí en más la decisión de aprobar es de
-    // la comercial (manualmente, o via approveByLabel(), que no pasa por
-    // aca -- ese camino no se tocó).
+    // la comercial, únicamente desde aca (el botón "Aprobar" de la
+    // solicitud) -- desde 16/nov/2026 ya no existe un camino alternativo
+    // por etiqueta (ver nota al final de este archivo).
     const isOwnerSales = this.isSalesLike(user.role) && request.createdByUserId === user.userId;
     const isAdmin = user.role === Role.ADMIN;
 
@@ -1709,11 +1710,10 @@ export class DesignBoardService {
 
     // Pedido explicito del usuario, 28/oct/2026: el momento natural para
     // que la comercial diga "estos son los archivos que aprobo el
-    // cliente" es justo al aprobar -- opcional (una aprobacion automatica
-    // por etiqueta, approveByLabel(), no pasa por aqui y nunca manda esta
-    // lista; tambien se puede marcar despues desde el detalle, ver
-    // markApprovedVersionAttachment()). Se valida que los ids mandados
-    // sean adjuntos reales de ESTA solicitud antes de tocar nada.
+    // cliente" es justo al aprobar -- opcional, tambien se puede marcar
+    // antes desde el detalle (ver markApprovedVersionAttachment()). Se
+    // valida que los ids mandados sean adjuntos reales de ESTA solicitud
+    // antes de tocar nada.
     const ids = [...new Set(approvedAttachmentIds ?? [])];
     if (ids.length > 0) {
       const matching = await this.prisma.designRequestAttachment.findMany({
@@ -1737,9 +1737,9 @@ export class DesignBoardService {
     // (ids.length > 0) alcanza -- se van a marcar mas abajo, dentro de la
     // misma transaccion; si no, tiene que haber quedado marcado algo de
     // antes (via markApprovedVersionAttachment(), el boton-estrella del
-    // detalle). approveByLabel() (aprobacion automatica por etiqueta
-    // desde el chat) es un camino separado y no se tocó -- sigue sin
-    // exigir esto.
+    // detalle). Este es, ademas, el ÚNICO camino para aprobar desde
+    // 16/nov/2026 -- la aprobación automática por etiqueta desde el chat
+    // (approveByLabel()) fue eliminada ese mismo día.
     if (ids.length === 0) {
       const hasApprovedVersion = await this.prisma.designRequestAttachment.count({
         where: {
@@ -2637,107 +2637,18 @@ export class DesignBoardService {
   }
 
   // -------------------------------------------------------------
-  // Aprobación automática por etiqueta (ADR-004 Submódulo 2): invocado por
-  // LeadsController.setLabel cuando alguien le pone BOCETO_APROBADO a un
-  // lead. Mueve la solicitud en "Terminado" a "Aprobados", o bloquea la
-  // etiqueta (lanzando) si no hay ninguna solicitud esperando aprobación.
+  // 16/nov/2026: la "aprobación automática por etiqueta" (ADR-004
+  // Submódulo 2, antes implementada aca como approveByLabel()) fue
+  // eliminada a pedido explicito del usuario -- ya no se puede aprobar un
+  // boceto poniendole la etiqueta BOCETO_APROBADO a mano desde el chat.
+  // LeadsController.setLabel() ahora bloquea esa etiqueta de forma
+  // incondicional. La única forma de llegar a "Aprobados" es el botón
+  // "Aprobar" de la solicitud (ver approve() más arriba), que desde el
+  // mismo cambio exige tener una "versión aprobada" marcada. El campo
+  // DesignRequest.approvedViaLabel sigue en el esquema solo para no
+  // perder el historial de aprobaciones automáticas anteriores a esta
+  // fecha; no se escribe mas.
   // -------------------------------------------------------------
-
-  async approveByLabel(accountId: string, leadId: string, userId?: string) {
-    const request = await this.prisma.designRequest.findFirst({
-      where: {
-        accountId,
-        leadId,
-        approvedAt: null,
-        column: { isFinal: true },
-      },
-      orderBy: { completedAt: 'desc' },
-      include: { column: true, board: { include: { columns: true } } },
-    });
-
-    if (!request) {
-      throw new BadRequestException(
-        'No hay ninguna solicitud de boceto en "Boceto terminado" esperando aprobación para este lead',
-      );
-    }
-
-    const approvedColumn = request.board.columns.find((c) => c.isApproved);
-    if (!approvedColumn) {
-      throw new BadRequestException(
-        'El tablero no tiene una columna de aprobados configurada',
-      );
-    }
-
-    const now = new Date();
-
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const result = await tx.designRequest.update({
-        where: { id: request.id },
-        data: {
-          columnId: approvedColumn.id,
-          approvedAt: now,
-          approvedViaLabel: true,
-        },
-      });
-
-      await tx.designRequestStatusEvent.create({
-        data: {
-          designRequestId: request.id,
-          fromColumnId: request.column.id,
-          toColumnId: approvedColumn.id,
-          direction: 'AUTO_APPROVED',
-          changedByUserId: userId ?? null,
-        },
-      });
-
-      return result;
-    });
-
-    // Pedido explicito del usuario, 27/oct/2026: este camino de
-    // aprobacion (etiqueta BOCETO_APROBADO puesta a mano en el chat, ver
-    // LeadsController.setLabel) aplica la etiqueta el mismo setLabel()
-    // generico del controller, DESPUES de que esto retorne -- no pasa
-    // por applyBocetoStageLabel(). Para que BOCETO_EN_PROCESO/
-    // BOCETO_ENVIADO queden desactivados igual que por el boton
-    // "Aprobar" (approve(), que si usa el helper), se limpian aca de
-    // forma defensiva; el setLabel(BOCETO_APROBADO) que sigue despues en
-    // el controller es idempotente si ya quedo activa por otro camino.
-    await Promise.all(
-      DesignBoardService.BOCETO_STAGE_LABELS.filter(
-        (code) => code !== SYSTEM_LABEL_CODES.BOCETO_APROBADO,
-      ).map((code) =>
-        this.leadsService
-          .removeLabel({
-            accountId: request.accountId,
-            leadId: request.leadId,
-            label: code,
-            changedByUserId: userId ?? null,
-          })
-          .catch((error) =>
-            this.logger.warn(
-              `No se pudo quitar la etiqueta de estado de boceto "${code}": ${String(error)}`,
-            ),
-          ),
-      ),
-    );
-
-    this.eventEmitter.emit(
-      DESIGN_REQUEST_EVENTS.APPROVED,
-      new DesignRequestApprovedEvent(
-        request.id,
-        request.accountId,
-        request.leadId,
-        request.assignedUserId,
-        now,
-      ),
-    );
-
-    await this.emitDesignBoardEvent('design_request.moved', request, {
-      toColumnId: approvedColumn.id,
-    });
-
-    return updated;
-  }
 
   private mapMimeTypeToOutboundMediaType(
     mimeType: string | null,

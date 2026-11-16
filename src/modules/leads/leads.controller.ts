@@ -13,7 +13,6 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
-import { ModuleRef } from '@nestjs/core';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -26,13 +25,6 @@ import {
 } from './dto/lead.dto';
 import { LeadsService } from './leads.service';
 import { SYSTEM_LABEL_CODES } from '../../common/constants/lead-labels';
-// DesignBoardService se resuelve en runtime via ModuleRef (ver
-// getDesignBoardService() mas abajo) en vez de que LeadsModule importe
-// DesignBoardModule en su @Module({ imports: [...] }) -- eso SI crearia un
-// ciclo, porque DesignBoardModule ya importa LeadsModule para poder llamar
-// setLabel(). Un import de la clase (valor de TS/JS, no del @Module de
-// Nest) es seguro: no participa del grafo de dependencias de Nest.
-import { DesignBoardService } from '../design-board/design-board.service';
 
 type AuthUser = {
   userId: string;
@@ -43,10 +35,7 @@ type AuthUser = {
 @Controller('leads')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class LeadsController {
-  constructor(
-    private readonly leadsService: LeadsService,
-    private readonly moduleRef: ModuleRef,
-  ) {}
+  constructor(private readonly leadsService: LeadsService) {}
 
   @Roles(Role.ADMIN, Role.SALES)
   @Get()
@@ -79,16 +68,17 @@ export class LeadsController {
   ) {
     const accountId = this.resolveAccountId(req.user, accountIdFromQuery);
 
-    // ADR-004 Submódulo 2: BOCETO_APROBADO mueve automáticamente la
-    // solicitud de boceto correspondiente a "Aprobados", o bloquea la
-    // etiqueta (lanza) si no hay ninguna esperando aprobación. Se corre
-    // ANTES de aplicar la etiqueta en sí, para que el bloqueo impida que
-    // llegue a guardarse.
+    // 16/nov/2026, pedido explicito del usuario: ya NO se puede aprobar un
+    // boceto poniendole la etiqueta BOCETO_APROBADO a mano desde el chat --
+    // ese camino (ADR-004 Submódulo 2, "aprobación automática por
+    // etiqueta") queda eliminado. La única forma de aprobar es desde la
+    // solicitud de boceto en si (botón "Aprobar", que exige tener marcada
+    // una "versión aprobada", ver DesignBoardService.approve()). Por eso
+    // esta etiqueta se bloquea aca de forma incondicional, nunca llega a
+    // guardarse ni a disparar nada del tablero.
     if (body.label === SYSTEM_LABEL_CODES.BOCETO_APROBADO) {
-      await this.getDesignBoardService().approveByLabel(
-        accountId,
-        leadId,
-        req.user.userId,
+      throw new ForbiddenException(
+        'No puedes aprobar un boceto poniendo esta etiqueta directamente. Aprueba la solicitud desde el tablero de bocetos, marcando la versión aprobada.',
       );
     }
 
@@ -99,10 +89,6 @@ export class LeadsController {
       reminderDays: body.reminderDays,
       changedByUserId: req.user.userId,
     });
-  }
-
-  private getDesignBoardService(): DesignBoardService {
-    return this.moduleRef.get(DesignBoardService, { strict: false });
   }
 
   @Roles(Role.ADMIN, Role.SALES)

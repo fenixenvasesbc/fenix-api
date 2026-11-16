@@ -107,7 +107,7 @@ Labels de sistema actuales:
 | `MUESTRAS` | Gestión de muestras. |
 | `REPETICIONES` | Cliente listo para recordatorio de repetición. |
 | `BOCETOS_ATRASADOS` | Bocetos atrasados (aplicada por el cron de SLA del módulo de bocetos, ver doc 17). |
-| `BOCETO_APROBADO` | Dispara la aprobación automática de la solicitud de boceto correspondiente (ver doc 17); bloquea si no hay ninguna esperando aprobación. |
+| `BOCETO_APROBADO` | Marca un boceto aprobado. **No se puede asignar a mano desde el selector de labels desde el 16/nov/2026** (pedido explícito del usuario): `LeadsController.setLabel()` la bloquea de forma incondicional y `GET /lead-label-definitions` la devuelve con `manuallyAssignable: false` para que la SPA la muestre deshabilitada. Solo se activa cuando se aprueba la solicitud de boceto correspondiente desde el tablero (ver doc 17). |
 
 Ejemplo de label personalizada en uso: `BOCETO_ENVIADO` ("Boceto enviado") — reemplaza a `BOCETO_EN_PROCESO` cuando la comercial reenvía al lead el boceto ya terminado (ver doc 17). No está sembrada por defecto: hay que crearla desde Configuración > Etiquetas para que el reenvío tenga efecto visible.
 
