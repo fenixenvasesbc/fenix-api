@@ -806,25 +806,19 @@ export class DesignBoardService {
     // ADR-004 Submódulo 8: "Aprobados" (isApproved) queda restringida a
     // DESIGNER_MANAGER/ADMIN -- SALES y DESIGNER nunca ven esas tarjetas,
     // archivadas o no.
-    // Ademas (pedido explicito de negocio, 2026-09-30, ampliado 23/oct/2026):
-    // SALES (y SALES_MANAGER, tratado igual en este modulo -- ver
-    // isSalesLike()) solo ve sus propios bocetos y, dentro de esos, solo
-    // las columnas "Nuevos" (isInitial), "Modificacion" (isModification) y
-    // "Terminado" (isFinal) -- nunca "En revision", que sigue siendo un
-    // estado interno del area de Diseno. Esto aplica tanto al listado
-    // (listRequests) como al detalle (getRequestDetail, que reusa este
-    // mismo where), asi que una tarjeta en "En revision" tampoco es
-    // abrible por id -- assertCanView() (usado por comentarios/adjuntos)
-    // es un chequeo aparte y no se ve afectado, asi que SALES sigue
-    // pudiendo comentar mientras su boceto esta en "En revision", solo no
-    // lo ve en el tablero.
+    // Ademas (pedido explicito de negocio, 2026-09-30, ampliado 23/oct/2026
+    // y 16/nov/2026): SALES (y SALES_MANAGER, tratado igual en este modulo
+    // -- ver isSalesLike()) solo ve sus propios bocetos. Esto aplica tanto
+    // al listado (listRequests) como al detalle (getRequestDetail, que
+    // reusa este mismo where) -- assertCanView() (usado por comentarios/
+    // adjuntos) es un chequeo aparte y no se ve afectado, asi que SALES ya
+    // podia comentar aunque su boceto no fuera visible en el tablero.
     if (this.isSalesLike(user.role)) {
       return {
         createdByUserId: user.userId,
         accountId: user.accountId ?? '__none__',
         // Pedido explicito del usuario, 23/oct/2026: tambien ve la columna
-        // "Modificacion" (antes solo Nuevos/Terminado) -- "En revision"
-        // sigue oculta, es un estado interno de Diseno.
+        // "Modificacion" (antes solo Nuevos/Terminado).
         // Pedido explicito del usuario, 30/oct/2026: ahora tambien ve
         // "Aprobados" (isApproved) -- antes quedaba oculta para SIEMPRE,
         // incluso para sus propios bocetos ya aprobados (ni en el tablero
@@ -833,10 +827,18 @@ export class DesignBoardService {
         // acciones de esa columna (archivar, etc.) siguen gateadas aparte
         // por rol en cada metodo (ver archive()), esto solo cambia que
         // ahora puede verlas.
+        // Pedido explicito del usuario, 16/nov/2026: ahora tambien ve
+        // "En revision" (isInReview) -- antes era el unico estado interno
+        // del area de Diseno oculto para SALES. Tambien es solo lectura:
+        // el endpoint move() (unico que mueve tarjetas dentro/fuera de
+        // esta columna) ya excluye SALES de @Roles en el controller, asi
+        // que esto solo cambia que ahora puede verla, no que pueda
+        // mover/gestionar desde ahi.
         column: {
           OR: [
             { isInitial: true },
             { isModification: true },
+            { isInReview: true },
             { isFinal: true },
             { isApproved: true },
           ],
@@ -1725,6 +1727,29 @@ export class DesignBoardService {
       if (matching.length !== ids.length) {
         throw new BadRequestException(
           'Alguno de los adjuntos indicados como versión aprobada no pertenece a esta solicitud',
+        );
+      }
+    }
+
+    // Pedido explicito del usuario, 16/nov/2026: no se puede aprobar sin
+    // haber seleccionado antes cual version es la aprobada por el
+    // cliente. Si este mismo llamado ya viene con approvedAttachmentIds
+    // (ids.length > 0) alcanza -- se van a marcar mas abajo, dentro de la
+    // misma transaccion; si no, tiene que haber quedado marcado algo de
+    // antes (via markApprovedVersionAttachment(), el boton-estrella del
+    // detalle). approveByLabel() (aprobacion automatica por etiqueta
+    // desde el chat) es un camino separado y no se tocó -- sigue sin
+    // exigir esto.
+    if (ids.length === 0) {
+      const hasApprovedVersion = await this.prisma.designRequestAttachment.count({
+        where: {
+          isApprovedVersion: true,
+          OR: [{ designRequestId: request.id }, { comment: { designRequestId: request.id } }],
+        },
+      });
+      if (hasApprovedVersion === 0) {
+        throw new BadRequestException(
+          'Debes marcar al menos un adjunto como "versión aprobada" antes de aprobar esta solicitud',
         );
       }
     }

@@ -56,7 +56,12 @@ describe('DesignBoardService', () => {
     designRequestStatusEvent: { create: jest.Mock };
     designRequestComment: { create: jest.Mock; groupBy: jest.Mock };
     designRequestCommentView: { findMany: jest.Mock; upsert: jest.Mock };
-    designRequestAttachment: { findFirst: jest.Mock; update: jest.Mock };
+    designRequestAttachment: {
+      findFirst: jest.Mock;
+      update: jest.Mock;
+      count: jest.Mock;
+      findMany: jest.Mock;
+    };
     appNotification: { upsert: jest.Mock; create: jest.Mock };
     user: { findUnique: jest.Mock; findMany: jest.Mock };
     lead: { findUnique: jest.Mock };
@@ -73,12 +78,14 @@ describe('DesignBoardService', () => {
   let tx: {
     designRequest: { create: jest.Mock; update: jest.Mock };
     designRequestStatusEvent: { create: jest.Mock };
+    designRequestAttachment: { updateMany: jest.Mock };
   };
 
   beforeEach(async () => {
     tx = {
       designRequest: { create: jest.fn(), update: jest.fn() },
       designRequestStatusEvent: { create: jest.fn() },
+      designRequestAttachment: { updateMany: jest.fn() },
     };
 
     prisma = {
@@ -102,7 +109,16 @@ describe('DesignBoardService', () => {
         findMany: jest.fn().mockResolvedValue([]),
         upsert: jest.fn().mockResolvedValue({}),
       },
-      designRequestAttachment: { findFirst: jest.fn(), update: jest.fn() },
+      // count() default resuelto en 1 -- la mayoria de los tests de approve()
+      // no le interesa esta validacion nueva (16/nov/2026), asi que se deja
+      // en "ya hay una version aprobada marcada" salvo que un test puntual
+      // lo pise.
+      designRequestAttachment: {
+        findFirst: jest.fn(),
+        update: jest.fn(),
+        count: jest.fn().mockResolvedValue(1),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       appNotification: { upsert: jest.fn(), create: jest.fn() },
       user: { findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
       lead: { findUnique: jest.fn() },
@@ -1641,6 +1657,44 @@ describe('DesignBoardService', () => {
         ForbiddenException,
       );
       expect(tx.designRequest.update).not.toHaveBeenCalled();
+    });
+
+    // Pedido explicito del usuario, 16/nov/2026: no se puede aprobar si
+    // todavia no se marco ningun adjunto como "version aprobada".
+    it('blocks approving when no attachment is marked as approved version (16/nov/2026)', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(doneRequest());
+      prisma.designRequestAttachment.count.mockResolvedValue(0);
+
+      await expect(service.approve(SALES, 'req-1')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(tx.designRequest.update).not.toHaveBeenCalled();
+    });
+
+    it('allows approving when an attachment was already marked as approved version', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(doneRequest());
+      prisma.designRequestAttachment.count.mockResolvedValue(1);
+      tx.designRequest.update.mockResolvedValue({ id: 'req-1', columnId: 'col-approved' });
+
+      await service.approve(SALES, 'req-1');
+
+      expect(tx.designRequest.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('allows approving when approvedAttachmentIds are provided in the same call, even with no prior mark', async () => {
+      prisma.designRequest.findUnique.mockResolvedValue(doneRequest());
+      prisma.designRequestAttachment.count.mockResolvedValue(0);
+      prisma.designRequestAttachment.findMany.mockResolvedValue([{ id: 'att-1' }]);
+      tx.designRequest.update.mockResolvedValue({ id: 'req-1', columnId: 'col-approved' });
+
+      await service.approve(SALES, 'req-1', ['att-1']);
+
+      // No deberia llegar a consultar count() -- ids.length > 0 alcanza.
+      expect(prisma.designRequestAttachment.count).not.toHaveBeenCalled();
+      expect(tx.designRequestAttachment.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: ['att-1'] } }, data: { isApprovedVersion: true } }),
+      );
+      expect(tx.designRequest.update).toHaveBeenCalledTimes(1);
     });
 
     // Pedido explicito del usuario, 23/oct/2026: al aprobar desde el
