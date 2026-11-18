@@ -237,6 +237,9 @@ Response:
       "textBody": "Hola",
       "mediaUrl": null,
       "caption": null,
+      "providerSendTime": "2026-06-19T09:57:58.000Z",
+      "providerCreateTime": null,
+      "occurredAt": "2026-06-19T09:57:58.000Z",
       "createdAt": "2026-06-19T09:58:00.000Z"
     }
   ],
@@ -251,7 +254,8 @@ Scroll contract:
 
 - Primera carga: llamar sin `before`.
 - Al hacer scroll hacia arriba: llamar con `before = pageInfo.nextBefore`.
-- El backend devuelve mensajes en orden cronologico ascendente.
+- El backend devuelve mensajes en orden cronologico ascendente por `occurredAt` (hora real del mensaje en WhatsApp), con desempate por `id`.
+- El frontend debe ordenar y mostrar la hora con `occurredAt` (fallback: `providerSendTime` → `providerCreateTime` → `createdAt` para mensajes optimistas). `createdAt` es cuando Fenix guardo el mensaje y puede ser muy posterior (importacion de historial, reintentos).
 - El frontend debe insertar la pagina anterior al inicio del array actual.
 - Si `pageInfo.hasMore` es `false`, no hay mas mensajes antiguos.
 

@@ -228,6 +228,26 @@ pnpm notifications:run-label-alerts -- --now=2026-07-17T07:00:00+02:00
 
 ## Observabilidad: logs, health y reconexión
 
+### Ver los logs: Dozzle
+
+Los logs de todos los contenedores del VPS se ven en **https://logs.fenixcrm.site** (Dozzle), sin entrar por SSH.
+
+| Pieza | Configuración |
+|---|---|
+| Proyecto Docker | `dozzle-kdc9` en el Docker Manager de Hostinger (desplegado desde el catálogo) |
+| Imagen | `amir20/dozzle:latest` |
+| Login | `DOZZLE_AUTH_PROVIDER=simple`; usuario `admin`, contraseña en la variable `ADMIN_PASSWORD` del proyecto (Administrar → Editor .yaml → Entorno). El servicio `dozzle-auth-init` genera `users.yml` al desplegar |
+| Socket Docker | `/var/run/docker.sock` en solo lectura (`:ro`) |
+| Red | `nginx-proxy-manager-zr1y_default` (sin puertos publicados: solo accesible por el proxy) |
+| Proxy | Nginx Proxy Manager: `logs.fenixcrm.site` → `http://dozzle-kdc9-dozzle-1:8080`, Let's Encrypt, forzar SSL, HTTP/2, websockets, bloquear exploits |
+| DNS | Registro A `logs` → `72.61.106.224` en el DNS de `fenixcrm.site` (Hostinger) |
+
+Uso habitual:
+
+- Contenedores `fenix_api` y `fenix_worker` en la barra lateral.
+- Filtrar por nivel: botón «En vivo» → Filtros → Niveles (dejar Warn/Error) e Intervalo de tiempo (p. ej. últimas 24 h). Dozzle reconoce los niveles del formato de Nest. El filtro es por contenedor.
+- Alertas (pendiente de configurar): Notifications → destino (Discord/Slack/ntfy/webhook) + alerta de tipo Log para `ERROR` en `fenix_api`/`fenix_worker`.
+
 ### Niveles de log
 
 Todos los procesos usan el `Logger` de NestJS (niveles `log`, `warn`, `error`, `debug`).
