@@ -138,6 +138,24 @@ Reglas:
 
 ## Scripts operativos
 
+### Reprocesar webhooks de estado sin mensaje
+
+Vuelve a procesar `whatsapp.message.updated` con `WebhookEvent.messageId = null` usando la lógica actual de `MessageStatusService` (p. ej. plantillas enviadas fuera de Fenix que antes se descartaban con `reason=unsupported_type`). Idempotente; procesa en orden de hora del proveedor.
+
+Dry-run (solo lista):
+
+```bash
+pnpm messages:reprocess-unmatched-updates -- --since=2026-11-18
+```
+
+Apply:
+
+```bash
+pnpm messages:reprocess-unmatched-updates -- --since=2026-11-18 --type=template --apply
+```
+
+Opciones: `--type=<tipo>|all` (por defecto `template`), `--accountId=<uuid>`, `--limit=500`.
+
 ### Backfill de nombres
 
 Dry-run:

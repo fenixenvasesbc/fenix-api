@@ -113,7 +113,20 @@ Reglas:
 - Ignora transiciones no progresivas.
 - Crea `MessageStatusHistory`.
 - Si el mensaje pertenece a una `LeadCampaign` en estado `UNKNOWN`, reconcilia a `SENT` o `FAILED`.
-- Si no encuentra mensaje, puede reconciliar mensajes outbound manuales usando `externalId`.
+- Si no encuentra mensaje (por `ycloudMessageId`, `wamid` o `externalId`), **reconstruye** el outbound: un mensaje enviado fuera de Fenix (panel de YCloud, n8n, otra integración que no llama a `POST /events/outbound/accepted`).
+
+Reconstrucción de outbound enviados fuera de Fenix:
+
+| Tipo | Contenido guardado |
+|---|---|
+| `text` | `textBody` |
+| `image` / `video` / `document` / `audio` | `mediaUrl` (+ caption, mimeType, fileName); se archiva el media |
+| `template` | `templateName` / `templateLang` del bloque `template` del webhook (si viene); la bandeja pinta el contenido con la plantilla sincronizada |
+
+- Crea el lead si no existe (con `firstOutboundTemplateName` en plantillas).
+- La hora del mensaje es la real de envío (`sendTime`/`createTime`), no la del webhook: aunque se reconstruya desde un `read` horas después, queda en su sitio en la conversación.
+- No hace retroceder fechas del lead ni limpia no leídos de respuestas posteriores (ver `touchOutboundTx` en mensajería).
+- Webhooks antiguos que quedaron sin mensaje se pueden reprocesar con `pnpm messages:reprocess-unmatched-updates` (ver operación).
 
 ## Contact attributes changed
 

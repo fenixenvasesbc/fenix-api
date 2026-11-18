@@ -117,6 +117,24 @@ Uso:
 
 - Obtener mensajes paginados de un lead.
 
+Orden y hora de los mensajes:
+
+| Campo | Significado |
+|---|---|
+| `occurredAt` | Hora real del mensaje en WhatsApp. La bandeja **ordena y muestra** por este campo. |
+| `providerSendTime` / `providerCreateTime` | Horas que devuelve YCloud (envío / creación). |
+| `createdAt` | Momento en que Fenix guardó la fila. Puede ser muy posterior (importación de historial, reintentos, reconstrucciones). |
+
+- `occurredAt = COALESCE(providerSendTime, providerCreateTime, createdAt)`, calculado por un trigger de Postgres en cada INSERT/UPDATE (migración `20261118170000_message_occurred_at`). Ningún flujo lo rellena a mano.
+- Paginación: `before=<messageId>` devuelve los mensajes con `occurredAt` anterior (desempate por `id`). Índice `(accountId, leadId, occurredAt, id)`.
+- Envíos desde Fenix: el mensaje se guarda como borrador (`UNKNOWN`, hora local) **antes** de llamar a YCloud, y al aceptar se actualiza `providerCreateTime` con la hora de YCloud. Si falla queda `FAILED` con la hora del borrador.
+
+Fechas de la conversación y del lead al registrar un outbound (`touchOutboundTx`):
+
+- Si el outbound es el más reciente: reabre la conversación, limpia `requiresAttention`/`unreadCount` y pasa a ser `lastMessage`.
+- Si es más antiguo que el último mensaje (registrado tarde): solo avanza `lastOutbound*` si es más nuevo; no reabre ni limpia no leídos.
+- `Lead.lastMessageAt` / `lastOutboundAt` nunca retroceden.
+
 ## Envío outbound manual
 
 Endpoints:
