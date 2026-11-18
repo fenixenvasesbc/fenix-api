@@ -741,6 +741,13 @@ model Message {
   rawPayload Json? // guardas el payload entero por si mañana necesitas campos
 
   createdAt DateTime @default(now())
+  // Hora real del mensaje en WhatsApp: COALESCE(providerSendTime,
+  // providerCreateTime, createdAt). La calcula un trigger de Postgres en cada
+  // INSERT/UPDATE (migración 20261118170000_message_occurred_at), así que no
+  // hay que rellenarla a mano. La bandeja ordena y muestra por este campo:
+  // createdAt es cuándo Fenix guardó el mensaje, que puede ser mucho después
+  // (importación de historial, reintentos, reconstrucciones).
+  occurredAt DateTime @default(now())
 
   externalId               String?   @unique
   clientRequestId          String?
@@ -787,6 +794,7 @@ model Message {
   @@index([accountId, externalId])
   @@index([accountId, wamid])
   @@index([leadId, createdAt])
+  @@index([accountId, leadId, occurredAt, id])
   @@index([accountId, leadId, deletedAt])
   @@index([templateName, createdAt])
   @@index([externalId])

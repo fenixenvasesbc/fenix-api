@@ -116,7 +116,7 @@ export class MessageService {
           },
           select: {
             id: true,
-            createdAt: true,
+            occurredAt: true,
           },
         })
       : null;
@@ -129,16 +129,19 @@ export class MessageService {
       where: {
         accountId,
         leadId,
+        // Paginación por hora real del mensaje (occurredAt), no por cuándo
+        // Fenix lo guardó (createdAt): ver schema.prisma / migración
+        // 20261118170000_message_occurred_at.
         ...(beforeMessage
           ? {
               OR: [
                 {
-                  createdAt: {
-                    lt: beforeMessage.createdAt,
+                  occurredAt: {
+                    lt: beforeMessage.occurredAt,
                   },
                 },
                 {
-                  createdAt: beforeMessage.createdAt,
+                  occurredAt: beforeMessage.occurredAt,
                   id: {
                     lt: beforeMessage.id,
                   },
@@ -147,7 +150,7 @@ export class MessageService {
             }
           : {}),
       },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
       select: {
         id: true,
@@ -192,6 +195,7 @@ export class MessageService {
         responseToId: true,
         campaignKey: true,
         referralPayload: true,
+        occurredAt: true,
         createdAt: true,
         updatedAt: true,
       },
