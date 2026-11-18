@@ -208,6 +208,94 @@ Reglas:
 pnpm notifications:run-label-alerts -- --now=2026-07-17T07:00:00+02:00
 ```
 
+## Observabilidad: logs, health y reconexión
+
+### Niveles de log
+
+Todos los procesos usan el `Logger` de NestJS (niveles `log`, `warn`, `error`, `debug`).
+
+| Nivel | Cuándo aparece |
+|---|---|
+| `LOG` | Flujo normal: webhook encolado, job recibido, campaña encolada, resumen de cron sin fallos. |
+| `WARN` | Situación anómala pero controlada: webhook sin `id`/`type`, evento duplicado, evento sin ruta, cron que terminó con `failed>0`, health check degradado. |
+| `ERROR` | Fallo que requiere atención: job que va a retry o a dead, cron abortado, RabbitMQ desconectado, errores no capturados del proceso. Incluye el stack en las líneas siguientes. |
+
+Helpers compartidos en `src/common/utils/logging.ts`: `errorMessage`, `errorStack`, `runCronWithSummary`, `bump`.
+
+### Workers (RabbitMQ)
+
+Cada error de worker incluye `deaths`, `action` (`retry:<rk>` o `dead:<rk>`), `providerEventId`, `eventType` (o `leadCampaignId` en campañas) y el stack.
+
+Buscar en logs:
+
+- `action=dead` → el mensaje agotó los reintentos y quedó en la cola dead.
+- `Unhandled consumer error queue=` → excepción que escapó al handler del worker.
+- `RabbitMQ consumer cancelled by broker` → el broker canceló un consumidor.
+
+### Crons
+
+Todos los `@Cron` (excepto alertas por labels, que ya tenía su propio resumen) van envueltos en `runCronWithSummary` y dejan siempre dos líneas:
+
+```text
+[cron:reengagement] started
+[cron:reengagement] finished found=12 enqueued=10 skipped=2 failed=0 durationMs=840
+```
+
+| Job | Horario (Europe/Madrid) | Contadores |
+|---|---|---|
+| `reengagement` | 09:00 L-V | `found`, `enqueued`, `skipped`, `failed`, `noWindow` |
+| `repetition-reminder` | 09:15 L-V | `found`, `enqueued`, `skipped`, `failed` |
+| `label-message-rules` | 09:30 diario | `rules`, `found`, `enqueued`, `skipped`, `failed` |
+| `design-request-sla` | minuto 15 de cada hora | `found`, `labeled`, `failed` |
+| `media-cleanup` | 03:00 diario | `inspected`, `deleted`, `failed` |
+
+- Si `failed>0`, el resumen sale como `WARN`.
+- Si falla algo fuera del bucle (p. ej. la query principal contra la BD), sale `[cron:<job>] aborted ... err=...` como `ERROR` con stack.
+- Si un día no aparece `[cron:<job>] started` a su hora, el proceso API no estaba levantado.
+
+### Reconexión de RabbitMQ
+
+`RabbitmqService` se reconecta solo si la conexión o el canal se cierran después del arranque:
+
+1. Log `ERROR`: `RabbitMQ connection closed unexpectedly. Reconnecting and restoring N consumers...`
+2. Reintenta con backoff (0,5 s → 10 s). A partir del 5.º intento cada fallo sale como `ERROR`.
+3. Vuelve a declarar la topología y re-suscribe todos los consumidores.
+4. Log `LOG`: `RabbitMQ reconnected after <ms>ms. consumers restored=N`.
+
+Mientras reconecta, `publish` falla con `Rabbit channel unavailable (reconnecting)`. Los mensajes que estaban en proceso en el canal viejo no se ack-ean y el broker los re-entrega.
+
+### Health check
+
+`GET /health` (público, proceso API):
+
+| HTTP | `status` | Significado |
+|---|---|---|
+| 200 | `ok` | BD responde a `SELECT 1` y RabbitMQ conectado. |
+| 503 | `degraded` | Falla BD o RabbitMQ (detalle en `checks`). |
+
+```json
+{
+  "status": "ok",
+  "uptimeSec": 3600,
+  "checks": {
+    "database": { "ok": true, "latencyMs": 3 },
+    "rabbitmq": { "connected": true, "reconnecting": false, "consumers": 1, "disconnectedSince": null }
+  },
+  "timestamp": "2026-11-18T11:00:00.000Z"
+}
+```
+
+Usarlo como healthcheck de Docker o en un monitor externo. El worker no expone HTTP: su salud se ve en los logs.
+
+### Errores de proceso
+
+`main.ts` y `worker.main.ts` registran `registerProcessErrorHandlers` (`src/common/utils/process-handlers.ts`):
+
+- `unhandledRejection` → `ERROR` con stack; el proceso sigue vivo.
+- `uncaughtException` → `ERROR` con stack y salida con código 1 (el contenedor se reinicia).
+- Fallo en el arranque (`bootstrap`) → `ERROR` `API/Worker failed to start` y salida con código 1.
+- `SIGTERM`/`SIGINT` → `WARN` y cierre ordenado (`enableShutdownHooks`).
+
 ## Validaciones recomendadas antes de despliegue
 
 ```bash
@@ -225,7 +313,8 @@ pnpm run build
 4. Reiniciar worker.
 5. Verificar que RabbitMQ creó colas.
 6. Verificar plantillas `APPROVED` en `AccountCampaignTemplate`.
-7. Revisar logs del scheduler a las 09:00 y 09:15 Europe/Madrid.
+7. Revisar logs `[cron:reengagement]` (09:00) y `[cron:repetition-reminder]` (09:15) Europe/Madrid: deben aparecer `started` y `finished`.
+8. Comprobar `GET /health` → 200.
 
 ## Alertas por labels
 
