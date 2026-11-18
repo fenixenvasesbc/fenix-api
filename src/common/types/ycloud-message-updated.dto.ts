@@ -27,6 +27,14 @@ export interface YCloudUpdatedMediaPayload {
   mime_type?: string;
 }
 
+// Plantilla de un saliente tipo template (mismo objeto que devuelve el envío
+// de YCloud). Puede no venir en todos los webhooks de estado.
+export interface YCloudUpdatedTemplatePayload {
+  name?: string;
+  language?: { code?: string; policy?: string } | string;
+  components?: unknown[];
+}
+
 export interface YCloudCustomerProfileDto {
   name?: string;
   username?: string;
@@ -63,6 +71,7 @@ export interface YCloudUpdatedWhatsappMessageDto {
   audio?: YCloudUpdatedMediaPayload;
   video?: YCloudUpdatedMediaPayload;
   document?: YCloudUpdatedMediaPayload;
+  template?: YCloudUpdatedTemplatePayload;
 
   externalId?: string;
 

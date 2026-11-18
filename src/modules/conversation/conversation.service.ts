@@ -155,6 +155,7 @@ export class ConversationService {
       select: {
         id: true,
         lastMessageAt: true,
+        lastOutboundAt: true,
         customerWindowExpiresAt: true,
       },
     });
@@ -186,32 +187,61 @@ export class ConversationService {
         ? existing.customerWindowExpiresAt.getTime() > Date.now()
         : false;
 
-      conversation = await tx.conversation.update({
-        where: { id: existing.id },
-        data: {
-          status: ConversationStatus.OPEN,
-          closedAt: null,
-          lastOutboundMessageId: messageId,
-          lastOutboundAt: outboundAt,
-          isCustomerWindowOpen,
-          requiresAttention: false,
-          ...(clearUnread && {
-            unreadCount: 0,
-          }),
-          ...(shouldReplaceLastMessage && {
+      const isNewerOutbound =
+        !existing.lastOutboundAt ||
+        outboundAt.getTime() >= existing.lastOutboundAt.getTime();
+
+      if (shouldReplaceLastMessage) {
+        conversation = await tx.conversation.update({
+          where: { id: existing.id },
+          data: {
+            status: ConversationStatus.OPEN,
+            closedAt: null,
+            lastOutboundMessageId: messageId,
+            lastOutboundAt: outboundAt,
+            isCustomerWindowOpen,
+            requiresAttention: false,
+            ...(clearUnread && {
+              unreadCount: 0,
+            }),
             lastMessageId: messageId,
             lastMessageAt: outboundAt,
-          }),
-        },
-      });
+          },
+        });
+      } else {
+        // Saliente registrado tarde (más antiguo que el último mensaje de la
+        // conversación): p. ej. una plantilla enviada fuera de Fenix que se
+        // reconstruye desde un webhook de estado retrasado. No debe reabrir la
+        // conversación ni limpiar "requiere atención"/no leídos de respuestas
+        // del cliente posteriores; solo avanza lastOutbound* si es más nuevo.
+        conversation = isNewerOutbound
+          ? await tx.conversation.update({
+              where: { id: existing.id },
+              data: {
+                lastOutboundMessageId: messageId,
+                lastOutboundAt: outboundAt,
+              },
+            })
+          : await tx.conversation.findUniqueOrThrow({
+              where: { id: existing.id },
+            });
+      }
     }
 
-    await tx.lead.update({
-      where: { id: leadId },
-      data: {
-        lastOutboundAt: outboundAt,
-        lastMessageAt: outboundAt,
+    // Nunca hacer retroceder las fechas del lead con un mensaje antiguo.
+    await tx.lead.updateMany({
+      where: {
+        id: leadId,
+        OR: [{ lastOutboundAt: null }, { lastOutboundAt: { lt: outboundAt } }],
       },
+      data: { lastOutboundAt: outboundAt },
+    });
+    await tx.lead.updateMany({
+      where: {
+        id: leadId,
+        OR: [{ lastMessageAt: null }, { lastMessageAt: { lt: outboundAt } }],
+      },
+      data: { lastMessageAt: outboundAt },
     });
 
     return conversation;

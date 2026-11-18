@@ -3,6 +3,7 @@ import { MessageStatusService } from './message-status.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ChatEventsService } from '../chat-events/chat-events.service';
 import { ConversationService } from '../conversation/conversation.service';
+import { MessageMediaService } from '../message-media/message-media.service';
 import { MessageDirection, MessageStatus, MessageType } from '@prisma/client';
 
 describe('MessageStatusService', () => {
@@ -80,6 +81,10 @@ describe('MessageStatusService', () => {
         {
           provide: ConversationService,
           useValue: conversationService,
+        },
+        {
+          provide: MessageMediaService,
+          useValue: { archiveMessageMedia: jest.fn() },
         },
       ],
     }).compile();
@@ -191,6 +196,73 @@ describe('MessageStatusService', () => {
         messageId: 'message-1',
       }),
     );
+  });
+
+  it('reconstructs a template sent outside Fenix with its template name and real send time', async () => {
+    prisma.message.findFirst.mockResolvedValue(null);
+    prisma.account.findUnique.mockResolvedValue({ id: 'account-1' });
+    tx.lead.upsert.mockResolvedValue({
+      id: 'lead-1',
+      firstOutboundAt: new Date('2026-11-18T14:00:00.000Z'),
+    });
+    tx.message.upsert.mockResolvedValue({ id: 'message-1' });
+    conversationService.touchOutboundTx.mockResolvedValue({
+      id: 'conversation-1',
+    });
+
+    await service.process({
+      providerEventId: 'evt_template_external',
+      payload: {
+        id: 'evt_template_external',
+        type: 'whatsapp.message.updated',
+        apiVersion: 'v2',
+        createTime: '2026-11-18T15:39:08.000Z',
+        whatsappMessage: {
+          id: '6afda2eabab12a32dd504424',
+          wamid: 'wamid.TEMPLATE',
+          status: 'read',
+          from: '+34605136224',
+          to: '+34646388648',
+          wabaId: '1460327388543316',
+          createTime: '2026-11-18T13:06:54.000Z',
+          sendTime: '2026-11-18T13:06:55.000Z',
+          readTime: '2026-11-18T14:39:08.000Z',
+          type: 'template',
+          template: {
+            name: 'bienvenida_es',
+            language: { code: 'es' },
+          },
+        },
+      },
+    } as any);
+
+    const sendTime = new Date('2026-11-18T13:06:55.000Z');
+
+    expect(tx.message.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          type: MessageType.TEMPLATE,
+          status: MessageStatus.READ,
+          templateName: 'bienvenida_es',
+          templateLang: 'es',
+          providerSendTime: sendTime,
+          providerCreateTime: new Date('2026-11-18T13:06:54.000Z'),
+        }),
+      }),
+    );
+
+    // La conversación se toca con la hora real de envío, no con la del
+    // webhook de "read" que llegó más de una hora después.
+    expect(conversationService.touchOutboundTx).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ outboundAt: sendTime }),
+    );
+
+    // Una reconstrucción tardía no debe pisar lastMessageAt/lastOutboundAt
+    // del lead desde el upsert (lo hace touchOutboundTx solo si es más nuevo).
+    const leadUpsertArgs = tx.lead.upsert.mock.calls[0][0];
+    expect(leadUpsertArgs.update).not.toHaveProperty('lastMessageAt');
+    expect(leadUpsertArgs.update).not.toHaveProperty('lastOutboundAt');
   });
 
   it('marks webhook event with account, lead and message when updating an existing message', async () => {

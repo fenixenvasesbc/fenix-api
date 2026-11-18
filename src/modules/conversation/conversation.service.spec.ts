@@ -82,3 +82,98 @@ describe('ConversationService pagination', () => {
     expect(prisma.conversation.findMany).not.toHaveBeenCalled();
   });
 });
+
+describe('ConversationService touchOutboundTx', () => {
+  const makeTx = (existing: Record<string, unknown> | null) => ({
+    conversation: {
+      findUnique: jest.fn().mockResolvedValue(existing),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'conversation-1' }),
+      create: jest.fn().mockResolvedValue({ id: 'conversation-1' }),
+      update: jest.fn().mockResolvedValue({ id: 'conversation-1' }),
+    },
+    lead: {
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+  });
+  const service = new ConversationService({} as never);
+  const base = {
+    accountId: 'account-1',
+    leadId: 'lead-1',
+    messageId: 'message-1',
+  };
+
+  it('a new outbound reopens the conversation and clears unread/attention', async () => {
+    const tx = makeTx({
+      id: 'conversation-1',
+      lastMessageAt: new Date('2026-11-18T10:00:00.000Z'),
+      lastOutboundAt: new Date('2026-11-18T09:00:00.000Z'),
+      customerWindowExpiresAt: null,
+    });
+
+    await service.touchOutboundTx(tx as never, {
+      ...base,
+      outboundAt: new Date('2026-11-18T11:00:00.000Z'),
+    });
+
+    expect(tx.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          requiresAttention: false,
+          unreadCount: 0,
+          lastMessageId: 'message-1',
+          lastOutboundMessageId: 'message-1',
+        }),
+      }),
+    );
+  });
+
+  it('a late (older) outbound does not clear unread/attention nor move lastMessage', async () => {
+    const tx = makeTx({
+      id: 'conversation-1',
+      // El cliente respondió a las 14:00…
+      lastMessageAt: new Date('2026-11-18T14:00:00.000Z'),
+      lastOutboundAt: new Date('2026-11-18T12:00:00.000Z'),
+      customerWindowExpiresAt: null,
+    });
+
+    // …y la plantilla de las 13:06 se reconstruye después.
+    await service.touchOutboundTx(tx as never, {
+      ...base,
+      outboundAt: new Date('2026-11-18T13:06:55.000Z'),
+    });
+
+    const data = tx.conversation.update.mock.calls[0][0].data;
+    expect(data).toEqual({
+      lastOutboundMessageId: 'message-1',
+      lastOutboundAt: new Date('2026-11-18T13:06:55.000Z'),
+    });
+    // Las fechas del lead solo avanzan (updateMany con condición "lt").
+    expect(tx.lead.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            { lastMessageAt: null },
+            { lastMessageAt: { lt: new Date('2026-11-18T13:06:55.000Z') } },
+          ],
+        }),
+      }),
+    );
+  });
+
+  it('an outbound older than both lastMessage and lastOutbound leaves the conversation untouched', async () => {
+    const tx = makeTx({
+      id: 'conversation-1',
+      lastMessageAt: new Date('2026-11-18T14:00:00.000Z'),
+      lastOutboundAt: new Date('2026-11-18T13:30:00.000Z'),
+      customerWindowExpiresAt: null,
+    });
+
+    await service.touchOutboundTx(tx as never, {
+      ...base,
+      outboundAt: new Date('2026-11-18T13:06:55.000Z'),
+    });
+
+    expect(tx.conversation.update).not.toHaveBeenCalled();
+    expect(tx.conversation.findUniqueOrThrow).toHaveBeenCalled();
+  });
+});

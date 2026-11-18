@@ -398,9 +398,13 @@ export class MessageStatusService {
             whatsappMessage.customerProfile?.username ?? undefined,
           status: LeadStatus.NEW,
           firstOutboundAt: outboundAt,
+          firstOutboundTemplateName: content.templateName ?? undefined,
           lastOutboundAt: outboundAt,
           lastMessageAt: outboundAt,
         },
+        // lastOutboundAt/lastMessageAt del lead los actualiza touchOutboundTx
+        // solo si este mensaje es más nuevo: una reconstrucción tardía no debe
+        // hacerlos retroceder.
         update: {
           whatsappProfileName: whatsappProfileName ?? undefined,
           whatsappUserId: whatsappMessage.recipientUserId ?? undefined,
@@ -408,8 +412,6 @@ export class MessageStatusService {
             whatsappMessage.parentRecipientUserId ?? undefined,
           whatsappUsername:
             whatsappMessage.customerProfile?.username ?? undefined,
-          lastOutboundAt: outboundAt,
-          lastMessageAt: outboundAt,
         },
         select: {
           id: true,
@@ -417,10 +419,18 @@ export class MessageStatusService {
         },
       });
 
-      if (!lead.firstOutboundAt) {
+      if (
+        !lead.firstOutboundAt ||
+        outboundAt.getTime() < lead.firstOutboundAt.getTime()
+      ) {
         await tx.lead.update({
           where: { id: lead.id },
-          data: { firstOutboundAt: outboundAt },
+          data: {
+            firstOutboundAt: outboundAt,
+            ...(content.templateName && {
+              firstOutboundTemplateName: content.templateName,
+            }),
+          },
         });
       }
 
@@ -719,6 +729,11 @@ export class MessageStatusService {
         return MessageType.VIDEO;
       case 'document':
         return MessageType.DOCUMENT;
+      // Plantillas enviadas fuera de Fenix (panel de YCloud, n8n u otra
+      // integración que no llama a POST /events/outbound/accepted). Antes se
+      // descartaban con reason=unsupported_type y no aparecían en la bandeja.
+      case 'template':
+        return MessageType.TEMPLATE;
       default:
         return null;
     }
@@ -741,8 +756,29 @@ export class MessageStatusService {
     messageType: MessageType,
   ): Pick<
     Prisma.MessageUncheckedCreateInput,
-    'textBody' | 'mediaUrl' | 'caption' | 'mimeType' | 'fileName'
+    | 'textBody'
+    | 'mediaUrl'
+    | 'caption'
+    | 'mimeType'
+    | 'fileName'
+    | 'templateName'
+    | 'templateLang'
   > | null {
+    if (messageType === MessageType.TEMPLATE) {
+      // La bandeja pinta la plantilla a partir de templateName/templateLang
+      // (MessageService.getTemplatePayloadsForMessages). Si el webhook no trae
+      // el bloque template, se guarda igualmente como plantilla sin nombre.
+      const template = whatsappMessage.template;
+      const language =
+        typeof template?.language === 'string'
+          ? template.language
+          : template?.language?.code;
+      return {
+        templateName: this.nonEmpty(template?.name),
+        templateLang: this.nonEmpty(language),
+      };
+    }
+
     if (messageType === MessageType.TEXT) {
       const textBody = this.nonEmpty(whatsappMessage.text?.body);
       return textBody ? { textBody } : null;
