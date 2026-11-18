@@ -86,7 +86,7 @@ Skip reasons:
 | Motivo | Significado |
 |---|---|
 | `LEAD_WITHOUT_ACCOUNT` | Lead sin cuenta. |
-| `LEAD_WITHOUT_LANGUAGE` | No se pudo resolver idioma. |
+| `LEAD_WITHOUT_LANGUAGE` | No se pudo resolver idioma (solo leads sin teléfono; los prefijos no listados usan `en`). |
 | `LEAD_STATUS_CHANGED` | Ya no está `NEW`. |
 | `LEAD_ALREADY_RESPONDED` | El lead respondió. |
 | `TEMPLATE_NOT_FOUND` | No hay plantilla aprobada. |
@@ -165,7 +165,7 @@ Skip reasons:
 | `REMINDER_ALREADY_SENT` | Ya fue enviado. |
 | `REMINDER_CANCELED` | Fue cancelado por cambio de label. |
 | `LEAD_WITHOUT_ACCOUNT` | Lead sin cuenta. |
-| `LEAD_WITHOUT_LANGUAGE` | No se pudo resolver idioma. |
+| `LEAD_WITHOUT_LANGUAGE` | No se pudo resolver idioma (solo leads sin teléfono; los prefijos no listados usan `en`). |
 | `LEAD_LABEL_CHANGED` | Ya no tiene asignación activa `REPETICIONES`. |
 | `TEMPLATE_NOT_FOUND` | No hay plantilla aprobada. |
 
@@ -274,7 +274,7 @@ Skip reasons:
 | `RULE_INACTIVE` | La regla se desactivó entre encolar y despachar. |
 | `LEAD_LABEL_CHANGED` | Al lead ya no le queda esa asignación activa (se la quitaron). |
 | `LEAD_WITHOUT_ACCOUNT` | Lead sin cuenta. |
-| `LEAD_WITHOUT_LANGUAGE` | No se pudo resolver idioma. |
+| `LEAD_WITHOUT_LANGUAGE` | No se pudo resolver idioma (solo leads sin teléfono; los prefijos no listados usan `en`). |
 | `TEMPLATE_NOT_FOUND` | No existe `GlobalWhatsappTemplate` con ese nombre+idioma. |
 | `TEMPLATE_NOT_APPROVED` | Existe pero no está `APPROVED` para la cuenta del lead. |
 

@@ -223,3 +223,7 @@ La API resuelve idioma por:
 | `+39` | `it` |
 | `+49` | `de` |
 | `+41` | `en` |
+| Cualquier otro | `en` (por defecto) |
+
+- Solo queda sin idioma (`LEAD_WITHOUT_LANGUAGE`) un lead sin teléfono.
+- Para que la campaña se envíe a un lead con idioma `en`, la cuenta necesita la plantilla correspondiente aprobada en `en`; si no la tiene, se salta por falta de plantilla.

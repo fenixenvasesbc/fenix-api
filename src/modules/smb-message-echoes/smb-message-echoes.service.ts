@@ -70,9 +70,18 @@ export class SmbMessageEchoesService {
     const messageType = this.mapMessageType(whatsappMessage.type);
     if (!messageType) {
       await this.markSkipped(job, 'UNSUPPORTED_MESSAGE_TYPE');
-      this.logger.warn(
-        `SMB echo skipped unsupported type providerEventId=${job.providerEventId} type=${whatsappMessage.type ?? '-'}`,
-      );
+      const skipLog = `SMB echo skipped unsupported type providerEventId=${job.providerEventId} type=${whatsappMessage.type ?? '-'}`;
+      // reaction/revoke: el comercial reacciona o borra un mensaje desde la
+      // app del móvil. Es esperado y no se pierde nada importante, así que
+      // no debe ensuciar el filtro de warnings. Otros tipos sí avisan.
+      if (
+        whatsappMessage.type === 'reaction' ||
+        whatsappMessage.type === 'revoke'
+      ) {
+        this.logger.debug(skipLog);
+      } else {
+        this.logger.warn(skipLog);
+      }
       return;
     }
 
