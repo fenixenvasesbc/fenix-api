@@ -419,18 +419,14 @@ export class MessageStatusService {
         },
       });
 
-      if (
-        !lead.firstOutboundAt ||
-        outboundAt.getTime() < lead.firstOutboundAt.getTime()
-      ) {
+      // Igual que antes: firstOutboundAt solo se fija si el lead no tenía.
+      // No se adelanta ni se cambia firstOutboundTemplateName de un lead
+      // existente, porque la selección del reenganche (ventana por
+      // firstOutboundAt) y el dashboard por plantilla dependen de esos campos.
+      if (!lead.firstOutboundAt) {
         await tx.lead.update({
           where: { id: lead.id },
-          data: {
-            firstOutboundAt: outboundAt,
-            ...(content.templateName && {
-              firstOutboundTemplateName: content.templateName,
-            }),
-          },
+          data: { firstOutboundAt: outboundAt },
         });
       }
 
