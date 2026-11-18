@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import * as amqplib from 'amqplib';
 import type { ConfirmChannel, ConsumeMessage, Options } from 'amqplib';
+import { errorMessage, errorStack } from 'src/common/utils/logging';
 
 type AmqpConnection = Awaited<ReturnType<typeof amqplib.connect>>;
 
@@ -21,68 +22,171 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
   private conn?: AmqpConnection;
   private ch?: ConfirmChannel;
 
+  // Consumidores registrados, para volver a suscribirlos tras una reconexion.
+  // Antes, si RabbitMQ cerraba la conexion despues del arranque, solo quedaba
+  // un warn y los consumidores se quedaban muertos hasta reiniciar el proceso.
+  private readonly consumers: Array<{
+    queue: string;
+    handler: (msg: ConsumeMessage) => Promise<ConsumeDecision>;
+  }> = [];
+  private url?: string;
+  private prefetch = 15;
+  private generation = 0;
+  private reconnecting = false;
+  private shuttingDown = false;
+  private connected = false;
+  private disconnectedAt?: number;
+
   async onModuleInit() {
     const url = process.env.RABBITMQ_URL;
     if (!url) throw new Error('Missing env RABBITMQ_URL');
 
+    this.url = url;
+    this.prefetch = Number(process.env.RABBITMQ_PREFETCH ?? 15);
+
     await this.connectWithRetry(url);
-
-    const prefetch = Number(process.env.RABBITMQ_PREFETCH ?? 15);
-    await this.ch!.prefetch(prefetch);
-
+    await this.ch!.prefetch(this.prefetch);
     await this.assertTopology();
+    this.connected = true;
 
-    this.logger.log(`RabbitMQ connected. prefetch=${prefetch}`);
+    this.logger.log(`RabbitMQ connected. prefetch=${this.prefetch}`);
   }
 
   async onModuleDestroy() {
+    this.shuttingDown = true;
     await this.safeClose();
+  }
+
+  /** Estado para /health. */
+  isHealthy(): boolean {
+    return this.connected && !!this.ch;
+  }
+
+  getStatus() {
+    return {
+      connected: this.isHealthy(),
+      reconnecting: this.reconnecting,
+      consumers: this.consumers.length,
+      disconnectedSince: this.disconnectedAt
+        ? new Date(this.disconnectedAt).toISOString()
+        : null,
+    };
   }
 
   private async connectWithRetry(url: string) {
     const delaysMs = [500, 1000, 2000, 5000, 10000];
     let attempt = 0;
 
-    while (true) {
+    while (!this.shuttingDown) {
       try {
+        const generation = ++this.generation;
         this.conn = await amqplib.connect(url);
 
         this.conn.on('error', (err: unknown) => {
-          this.logger.error(`RabbitMQ connection error: ${String(err)}`);
+          this.logger.error(
+            `RabbitMQ connection error: ${errorMessage(err)}`,
+            errorStack(err),
+          );
         });
 
         this.conn.on('close', () => {
-          this.logger.warn('RabbitMQ connection closed.');
+          this.handleDisconnect('connection', generation);
         });
 
         this.ch = await this.conn.createConfirmChannel();
 
         this.ch.on('error', (err: unknown) => {
-          this.logger.error(`RabbitMQ channel error: ${String(err)}`);
+          this.logger.error(
+            `RabbitMQ channel error: ${errorMessage(err)}`,
+            errorStack(err),
+          );
         });
 
         this.ch.on('close', () => {
-          this.logger.warn('RabbitMQ channel closed.');
+          this.handleDisconnect('channel', generation);
         });
 
         return;
       } catch (err) {
         const delay = delaysMs[Math.min(attempt, delaysMs.length - 1)];
         attempt += 1;
-        this.logger.warn(
-          `RabbitMQ connect failed (attempt ${attempt}). Retrying in ${delay}ms. ${String(err)}`,
-        );
+        const message = `RabbitMQ connect failed (attempt ${attempt}). Retrying in ${delay}ms. ${errorMessage(err)}`;
+        // Los primeros intentos son normales (arranque de contenedores); si
+        // persiste, sube a error para que destaque en los logs.
+        if (attempt >= 5) {
+          this.logger.error(message);
+        } else {
+          this.logger.warn(message);
+        }
         await new Promise((r) => setTimeout(r, delay));
       }
     }
   }
 
-  private async safeClose() {
+  private handleDisconnect(source: 'connection' | 'channel', generation: number) {
+    // Ignora eventos de conexiones/canales viejos o de un cierre ordenado.
+    if (this.shuttingDown || generation !== this.generation) return;
+    if (this.reconnecting) return;
+
+    this.reconnecting = true;
+    this.connected = false;
+    this.disconnectedAt = Date.now();
+    this.ch = undefined;
+
+    this.logger.error(
+      `RabbitMQ ${source} closed unexpectedly. Reconnecting and restoring ${this.consumers.length} consumers...`,
+    );
+
+    void this.reconnect();
+  }
+
+  private async reconnect() {
     try {
-      await this.ch?.close();
+      await this.safeClose();
+      await this.connectWithRetry(this.url!);
+      if (this.shuttingDown) return;
+
+      await this.ch!.prefetch(this.prefetch);
+      await this.assertTopology();
+
+      for (const consumer of this.consumers) {
+        await this.registerConsumer(consumer.queue, consumer.handler);
+      }
+
+      this.connected = true;
+      const downMs = this.disconnectedAt ? Date.now() - this.disconnectedAt : 0;
+      this.disconnectedAt = undefined;
+
+      this.logger.log(
+        `RabbitMQ reconnected after ${downMs}ms. consumers restored=${this.consumers.length}`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `RabbitMQ reconnect failed: ${errorMessage(err)}. Retrying in 5000ms`,
+        errorStack(err),
+      );
+      await new Promise((r) => setTimeout(r, 5000));
+      this.reconnecting = false;
+      if (!this.shuttingDown) {
+        this.reconnecting = true;
+        void this.reconnect();
+      }
+      return;
+    }
+
+    this.reconnecting = false;
+  }
+
+  private async safeClose() {
+    const ch = this.ch;
+    const conn = this.conn;
+    this.ch = undefined;
+    this.conn = undefined;
+    try {
+      await ch?.close();
     } catch {}
     try {
-      await this.conn?.close();
+      await conn?.close();
     } catch {}
   }
 
@@ -755,7 +859,13 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
   async publish(routingKey: string, payload: unknown) {
     const exchange = process.env.RABBITMQ_EXCHANGE;
     if (!exchange) throw new Error('Missing env RABBITMQ_EXCHANGE');
-    if (!this.ch) throw new Error('Rabbit channel is not initialized');
+    if (!this.ch) {
+      throw new Error(
+        this.reconnecting
+          ? `Rabbit channel unavailable (reconnecting). routingKey=${routingKey}`
+          : 'Rabbit channel is not initialized',
+      );
+    }
 
     const body = Buffer.from(JSON.stringify(payload));
 
@@ -817,27 +927,61 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
   ) {
     if (!this.ch) throw new Error('Rabbit channel is not initialized');
 
-    await this.ch.consume(queue, async (msg) => {
-      if (!msg) return;
+    this.consumers.push({ queue, handler });
+    await this.registerConsumer(queue, handler);
+  }
+
+  private async registerConsumer(
+    queue: string,
+    handler: (msg: ConsumeMessage) => Promise<ConsumeDecision>,
+  ) {
+    const ch = this.ch!;
+
+    await ch.consume(queue, async (msg) => {
+      if (!msg) {
+        // El broker cancelo el consumidor (cola borrada, failover...).
+        this.logger.error(`RabbitMQ consumer cancelled by broker queue=${queue}`);
+        return;
+      }
+
+      // Si el canal que entrego el mensaje ya no es el activo (hubo
+      // reconexion mientras se procesaba), no se puede ack/nack sobre el:
+      // el broker lo re-entregara solo al nuevo consumidor.
+      const isStale = () => ch !== this.ch;
 
       try {
         const decision = await handler(msg);
 
+        if (isStale()) {
+          this.logger.warn(
+            `Channel replaced while processing message queue=${queue}; it will be redelivered`,
+          );
+          return;
+        }
+
         if (decision.action === 'ack') {
-          this.ch!.ack(msg);
+          ch.ack(msg);
           return;
         }
 
         if (decision.action === 'retry' || decision.action === 'dead') {
           await this.publishToDLX(decision.routingKey, msg);
-          this.ch!.ack(msg);
+          ch.ack(msg);
           return;
         }
 
-        this.ch!.ack(msg);
+        ch.ack(msg);
       } catch (err) {
+        if (isStale()) {
+          this.logger.warn(
+            `Consumer error on stale channel queue=${queue}; message will be redelivered. ${errorMessage(err)}`,
+          );
+          return;
+        }
+
         this.logger.error(
-          `Unhandled consumer error. Sending to dead. ${String(err)}`,
+          `Unhandled consumer error queue=${queue}. Sending to dead. ${errorMessage(err)}`,
+          errorStack(err),
         );
 
         try {
@@ -845,12 +989,19 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
           if (!rkDead) throw new Error('Missing env RABBITMQ_RK_DEAD');
 
           await this.publishToDLX(rkDead, msg);
-          this.ch!.ack(msg);
+          ch.ack(msg);
         } catch (publishErr) {
           this.logger.error(
-            `Failed to publish to DLX dead queue. ${String(publishErr)}`,
+            `Failed to publish to DLX dead queue queue=${queue}. ${errorMessage(publishErr)}`,
+            errorStack(publishErr),
           );
-          this.ch!.nack(msg, false, false);
+          try {
+            ch.nack(msg, false, false);
+          } catch (nackErr) {
+            this.logger.error(
+              `Failed to nack message queue=${queue}. ${errorMessage(nackErr)}`,
+            );
+          }
         }
       }
     });

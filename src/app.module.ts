@@ -57,6 +57,7 @@ import { GlobalTemplatesModule } from './modules/global-templates/global-templat
 import { CampaignTemplatesModule } from './modules/campaign-templates/campaign-templates.module';
 import { LeadLabelDefinitionsModule } from './modules/lead-label-definitions/lead-label-definitions.module';
 import { DesignRequestCategoriesModule } from './modules/design-request-categories/design-request-categories.module';
+import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
@@ -77,6 +78,7 @@ import { DesignRequestCategoriesModule } from './modules/design-request-categori
     EventsModule,
     DashboardModule,
     RabbitmqModule,
+    HealthModule,
     WebhookModule,
     WebhookInboxModule,
     InboundMessageModule,

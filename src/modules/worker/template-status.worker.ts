@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { ConsumeMessage } from 'amqplib';
+import { errorMessage, errorStack } from 'src/common/utils/logging';
 import {
   RabbitmqService,
   type ConsumeDecision,
@@ -51,7 +52,8 @@ export class TemplateStatusWorker implements OnModuleInit {
       }
 
       this.logger.error(
-        `Template-status worker failed. deaths=${deaths}. action=${decision.action}:${target}. err=${String(err)}`,
+        `Template-status worker failed. deaths=${deaths}. action=${decision.action}:${target}. providerEventId=${payload?.providerEventId ?? msg.properties.messageId ?? '(no id)'} eventType=${payload?.eventType ?? '-'} err=${errorMessage(err)}`,
+        errorStack(err),
       );
 
       return decision;

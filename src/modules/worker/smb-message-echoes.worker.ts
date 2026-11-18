@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { ConsumeMessage } from 'amqplib';
+import { errorMessage, errorStack } from 'src/common/utils/logging';
 import {
   RabbitmqService,
   type ConsumeDecision,
@@ -52,7 +53,8 @@ export class SmbMessageEchoesWorker implements OnModuleInit {
       }
 
       this.logger.error(
-        `SMB message echoes worker failed. deaths=${deaths}. action=${decision.action}:${target}. err=${String(err)}`,
+        `SMB message echoes worker failed. deaths=${deaths}. action=${decision.action}:${target}. providerEventId=${payload?.providerEventId ?? msg.properties.messageId ?? '(no id)'} eventType=${payload?.eventType ?? '-'} err=${errorMessage(err)}`,
+        errorStack(err),
       );
 
       return decision;

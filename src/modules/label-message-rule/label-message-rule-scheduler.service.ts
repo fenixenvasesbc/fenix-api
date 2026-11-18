@@ -8,6 +8,7 @@ import {
   LABEL_MESSAGE_RULE_BUSINESS_WINDOW_PREFIX,
   LABEL_MESSAGE_RULE_ROUTING_KEY,
 } from './constant';
+import { bump, CronRunStats, errorMessage, errorStack, runCronWithSummary } from 'src/common/utils/logging';
 
 // Job unico generico de ADR-002: recorre las reglas activas de
 // LabelMessageRule y, por cada una, busca las asignaciones de esa etiqueta
@@ -27,6 +28,12 @@ export class LabelMessageRuleSchedulerService {
 
   @Cron('30 9 * * *', { timeZone: 'Europe/Madrid' })
   async run(): Promise<void> {
+    await runCronWithSummary(this.logger, 'label-message-rules', (stats) =>
+      this.execute(stats),
+    );
+  }
+
+  private async execute(stats: CronRunStats): Promise<void> {
     const limit = this.resolveBatchLimit();
     const routingKey =
       process.env.RABBITMQ_RK_LABEL_MESSAGE_RULE ??
@@ -39,6 +46,11 @@ export class LabelMessageRuleSchedulerService {
     const now = new Date();
 
     this.logger.log(`Found ${rules.length} active label message rules`);
+    stats.rules = rules.length;
+    stats.found = 0;
+    stats.enqueued = 0;
+    stats.skipped = 0;
+    stats.failed = 0;
 
     for (const rule of rules) {
       // Filtro SQL amplio por dias calendario (superconjunto seguro: los
@@ -78,6 +90,7 @@ export class LabelMessageRuleSchedulerService {
       this.logger.log(
         `Rule "${rule.name}" (${rule.id}) matched ${assignments.length} label assignments`,
       );
+      bump(stats, 'found', assignments.length);
 
       for (const assignment of assignments) {
         const businessWindowKey = this.businessWindowKey(
@@ -98,6 +111,7 @@ export class LabelMessageRuleSchedulerService {
           });
 
           if (existingLeadCampaign) {
+            bump(stats, 'skipped');
             continue;
           }
 
@@ -123,12 +137,12 @@ export class LabelMessageRuleSchedulerService {
           this.logger.log(
             `Label message rule enqueued ruleId=${rule.id} assignmentId=${assignment.id} leadId=${assignment.leadId} leadCampaignId=${leadCampaign.id}`,
           );
+          bump(stats, 'enqueued');
         } catch (error) {
-          const message =
-            error instanceof Error ? error.message : 'Unknown scheduler error';
-
+          bump(stats, 'failed');
           this.logger.error(
-            `Failed to enqueue label message rule ruleId=${rule.id} assignmentId=${assignment.id}: ${message}`,
+            `Failed to enqueue label message rule ruleId=${rule.id} assignmentId=${assignment.id}: ${errorMessage(error)}`,
+            errorStack(error),
           );
         }
       }

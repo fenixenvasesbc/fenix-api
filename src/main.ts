@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { registerProcessErrorHandlers } from './common/utils/process-handlers';
 
 // Node no serializa BigInt a JSON de forma nativa (p. ej. DesignRequest.pausedTotalMs).
 // Se convierte a Number aca, de forma global, para que cualquier campo BigInt
@@ -17,8 +18,12 @@ declare global {
 };
 
 async function bootstrap() {
+  registerProcessErrorHandlers('api');
+
   const app = await NestFactory.create(AppModule);
   app.useLogger(['log', 'error', 'warn', 'debug']);
+  // Ejecuta onModuleDestroy (cierre ordenado de RabbitMQ) en SIGTERM.
+  app.enableShutdownHooks();
 
   // CORS (debe ir antes de listen)
   app.enableCors({
@@ -48,6 +53,16 @@ async function bootstrap() {
     }),
   );
 
-  await app.listen(process.env.PORT ?? 3000);
+  const port = process.env.PORT ?? 3000;
+  await app.listen(port);
+  new Logger('Bootstrap').log(`API listening on port ${port}`);
 }
-bootstrap();
+bootstrap().catch((error: unknown) => {
+  // Si el arranque falla (BD/RabbitMQ/env), salir con 1 para que el
+  // orquestador reinicie el contenedor en vez de dejar un proceso zombi.
+  new Logger('Bootstrap').error(
+    `API failed to start: ${error instanceof Error ? error.message : String(error)}`,
+    error instanceof Error ? error.stack : undefined,
+  );
+  process.exit(1);
+});

@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { SYSTEM_LABEL_CODES } from 'src/common/constants/lead-labels';
 import { LeadsService } from '../leads/leads.service';
+import { bump, CronRunStats, errorMessage, errorStack, runCronWithSummary } from 'src/common/utils/logging';
 
 // ADR-004 Submodulo 1: recorre las solicitudes de boceto que ya vencieron
 // (dueAt < now) y todavia no llegaron a "Terminado"/"Aprobados", y les
@@ -20,6 +21,12 @@ export class DesignRequestSlaSchedulerService {
 
   @Cron('15 * * * *', { timeZone: 'Europe/Madrid' })
   async run(): Promise<void> {
+    await runCronWithSummary(this.logger, 'design-request-sla', (stats) =>
+      this.execute(stats),
+    );
+  }
+
+  private async execute(stats: CronRunStats): Promise<void> {
     const now = new Date();
 
     const overdue = await this.prisma.designRequest.findMany({
@@ -35,6 +42,10 @@ export class DesignRequestSlaSchedulerService {
       select: { id: true, accountId: true, leadId: true },
       take: 500,
     });
+
+    stats.found = overdue.length;
+    stats.labeled = 0;
+    stats.failed = 0;
 
     if (overdue.length === 0) return;
 
@@ -52,10 +63,12 @@ export class DesignRequestSlaSchedulerService {
           where: { id: request.id },
           data: { overdueLabelAppliedAt: now },
         });
+        bump(stats, 'labeled');
       } catch (error) {
+        bump(stats, 'failed');
         this.logger.error(
-          `Failed to mark design request ${request.id} as overdue`,
-          error as Error,
+          `Failed to mark design request ${request.id} as overdue: ${errorMessage(error)}`,
+          errorStack(error),
         );
       }
     }

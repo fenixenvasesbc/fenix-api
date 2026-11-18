@@ -1,3 +1,4 @@
+import { errorMessage, errorStack } from 'src/common/utils/logging';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConsumeMessage } from 'amqplib';
 import { LabelMessageRuleJobPayload } from 'src/common/types/LabelMessageRuleJobPayload';
@@ -71,7 +72,8 @@ export class LabelMessageRuleWorker implements OnModuleInit {
         }
 
         this.logger.error(
-          `Label message rule worker failed deaths=${deaths} leadCampaignId=${leadCampaignId ?? 'unknown'} error=${String(error)}`,
+          `Label message rule worker failed deaths=${deaths} leadCampaignId=${leadCampaignId ?? 'unknown'} error=${errorMessage(error)}`,
+          errorStack(error),
         );
 
         if (deaths >= 3) {

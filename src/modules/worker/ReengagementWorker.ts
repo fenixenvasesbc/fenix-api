@@ -1,3 +1,4 @@
+import { errorMessage, errorStack } from 'src/common/utils/logging';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConsumeMessage } from 'amqplib';
 import { RabbitmqService } from '../rabbitmq/rabbitmq.service';
@@ -68,7 +69,8 @@ export class ReengagementWorker implements OnModuleInit {
         }
 
         this.logger.error(
-          `Reengagement worker failed deaths=${deaths} leadCampaignId=${leadCampaignId ?? 'unknown'} error=${String(error)}`,
+          `Reengagement worker failed deaths=${deaths} leadCampaignId=${leadCampaignId ?? 'unknown'} error=${errorMessage(error)}`,
+          errorStack(error),
         );
 
         if (deaths >= 3) {

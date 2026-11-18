@@ -1,3 +1,4 @@
+import { errorMessage, errorStack } from 'src/common/utils/logging';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConsumeMessage } from 'amqplib';
 import { RepetitionReminderJobPayload } from 'src/common/types/RepetitionReminderJobPayload';
@@ -79,7 +80,8 @@ export class RepetitionReminderWorker implements OnModuleInit {
         }
 
         this.logger.error(
-          `Repetition reminder worker failed deaths=${deaths} leadCampaignId=${leadCampaignId ?? 'unknown'} error=${String(error)}`,
+          `Repetition reminder worker failed deaths=${deaths} leadCampaignId=${leadCampaignId ?? 'unknown'} error=${errorMessage(error)}`,
+          errorStack(error),
         );
 
         if (deaths >= 3) {

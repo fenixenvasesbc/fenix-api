@@ -8,6 +8,7 @@ import {
   REPETITION_REMINDER_BUSINESS_WINDOW_PREFIX,
   REPETITION_REMINDER_ROUTING_KEY,
 } from './constant';
+import { bump, CronRunStats, errorMessage, errorStack, runCronWithSummary } from 'src/common/utils/logging';
 
 @Injectable()
 export class RepetitionReminderSchedulerService {
@@ -20,6 +21,12 @@ export class RepetitionReminderSchedulerService {
 
   @Cron('15 9 * * 1-5', { timeZone: 'Europe/Madrid' })
   async run(): Promise<void> {
+    await runCronWithSummary(this.logger, 'repetition-reminder', (stats) =>
+      this.execute(stats),
+    );
+  }
+
+  private async execute(stats: CronRunStats): Promise<void> {
     const limit = this.resolveBatchLimit();
     const routingKey =
       process.env.RABBITMQ_RK_REPETITION_REMINDER ??
@@ -72,6 +79,10 @@ export class RepetitionReminderSchedulerService {
     this.logger.log(
       `Found ${reminders.length} due repetition reminders limit=${limit}`,
     );
+    stats.found = reminders.length;
+    stats.enqueued = 0;
+    stats.skipped = 0;
+    stats.failed = 0;
 
     for (const reminder of reminders) {
       const businessWindowKey = this.businessWindowKey(reminder.id);
@@ -95,6 +106,7 @@ export class RepetitionReminderSchedulerService {
           this.logger.log(
             `Repetition LeadCampaign already exists reminderId=${reminder.id} leadCampaignId=${existingLeadCampaign.id} status=${existingLeadCampaign.status}`,
           );
+          bump(stats, 'skipped');
           continue;
         }
 
@@ -122,12 +134,12 @@ export class RepetitionReminderSchedulerService {
         this.logger.log(
           `Repetition reminder enqueued reminderId=${reminder.id} leadId=${reminder.leadId} leadCampaignId=${leadCampaign.id}`,
         );
+        bump(stats, 'enqueued');
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : 'Unknown scheduler error';
-
+        bump(stats, 'failed');
         this.logger.error(
-          `Failed to enqueue repetition reminder reminderId=${reminder.id} leadId=${reminder.leadId}: ${message}`,
+          `Failed to enqueue repetition reminder reminderId=${reminder.id} leadId=${reminder.leadId}: ${errorMessage(error)}`,
+          errorStack(error),
         );
       }
     }

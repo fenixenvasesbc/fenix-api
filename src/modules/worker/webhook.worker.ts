@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { ConsumeMessage } from 'amqplib';
+import { errorMessage, errorStack } from 'src/common/utils/logging';
 import {
   RabbitmqService,
   type ConsumeDecision,
@@ -56,7 +57,8 @@ export class WebhookWorker implements OnModuleInit {
       const target = 'routingKey' in decision ? decision.routingKey : '-';
 
       this.logger.error(
-        `Handler failed for id=${id}. deaths=${deaths}. action=${decision.action}:${target}. err=${String(err)}`,
+        `Handler failed for id=${id}. deaths=${deaths}. action=${decision.action}:${target}. eventType=${payload?.eventType ?? '-'} err=${errorMessage(err)}`,
+        errorStack(err),
       );
 
       return decision;

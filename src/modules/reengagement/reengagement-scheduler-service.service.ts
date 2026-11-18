@@ -6,6 +6,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { resolveReengagementWindow } from './reengagement-window';
 import { ReengagementSelectionService } from './reengagement-selection-service.service';
 import { RabbitmqService } from '../rabbitmq/rabbitmq.service';
+import { bump, CronRunStats, errorMessage, errorStack, runCronWithSummary } from 'src/common/utils/logging';
 
 @Injectable()
 export class ReengagementSchedulerService {
@@ -19,6 +20,12 @@ export class ReengagementSchedulerService {
 
   @Cron('0 9 * * 1-5', { timeZone: 'Europe/Madrid' })
   async run(): Promise<void> {
+    await runCronWithSummary(this.logger, 'reengagement', (stats) =>
+      this.execute(stats),
+    );
+  }
+
+  private async execute(stats: CronRunStats): Promise<void> {
     const window = resolveReengagementWindow(new Date());
 
     this.logger.log(
@@ -27,6 +34,7 @@ export class ReengagementSchedulerService {
 
     if (!window) {
       this.logger.log('No business window today, skipping reengagement job');
+      stats.noWindow = 1;
       return;
     }
 
@@ -38,6 +46,10 @@ export class ReengagementSchedulerService {
     this.logger.log(
       `Found ${leads.length} eligible leads for ${window.businessWindowKey}`,
     );
+    stats.found = leads.length;
+    stats.enqueued = 0;
+    stats.skipped = 0;
+    stats.failed = 0;
 
     for (const lead of leads) {
       try {
@@ -59,6 +71,7 @@ export class ReengagementSchedulerService {
           this.logger.log(
             `LeadCampaign already exists leadId=${lead.id} leadCampaignId=${existingLeadCampaign.id} status=${existingLeadCampaign.status} window=${window.businessWindowKey}`,
           );
+          bump(stats, 'skipped');
           continue;
         }
         const externalId = `reengagement:week1:${lead.id}:${window.businessWindowKey}`;
@@ -88,12 +101,12 @@ export class ReengagementSchedulerService {
         this.logger.log(
           `Reengagement enqueued leadId=${lead.id} leadCampaignId=${leadCampaign.id} window=${window.businessWindowKey}`,
         );
+        bump(stats, 'enqueued');
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : 'Unknown scheduler error';
-
+        bump(stats, 'failed');
         this.logger.error(
-          `Failed to enqueue reengagement for leadId=${lead.id}: ${message}`,
+          `Failed to enqueue reengagement for leadId=${lead.id}: ${errorMessage(error)}`,
+          errorStack(error),
         );
       }
     }
