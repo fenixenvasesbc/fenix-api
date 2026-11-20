@@ -2340,15 +2340,27 @@ export class DesignBoardService {
 
   // -------------------------------------------------------------
   // Reportes y estadísticas (ADR-004 Submódulo 10, §10): solo
-  // DESIGNER_MANAGER/ADMIN. A propósito NO filtra por archivedAt -- el
-  // histórico completo cuenta para las métricas, archivado o no (ver §10:
-  // "el archivado solo las saca del tablero visual, no de las
-  // estadísticas").
+  // DESIGNER_MANAGER/ADMIN/SALES_MANAGER. A propósito NO filtra por
+  // archivedAt -- el histórico completo cuenta para las métricas,
+  // archivado o no (ver §10: "el archivado solo las saca del tablero
+  // visual, no de las estadísticas").
+  //
+  // Pedido explicito del usuario (apuntes de negocio), 20/nov/2026: se
+  // elimina la pestaña "Por categoria" como vista separada y se integra
+  // todo en "Reportes y estadisticas" via filtros (createdByUserId,
+  // categoryId) + un modo de rango personalizado ("range") para poder
+  // mirar, por ejemplo, una semana puntual en vez de los 3 meses fijos.
   // -------------------------------------------------------------
 
   async getReportsSummary(
     user: AuthUser,
-    query: { dateFrom?: string; dateTo?: string },
+    query: {
+      dateFrom?: string;
+      dateTo?: string;
+      createdByUserId?: string;
+      categoryId?: string;
+      mode?: 'months' | 'range';
+    },
   ) {
     // Pedido explicito del usuario, 26/oct/2026: la jefa de ventas
     // (SALES_MANAGER) tambien puede ver este reporte -- mismo criterio
@@ -2363,17 +2375,6 @@ export class DesignBoardService {
       );
     }
 
-    // Pedido explicito del usuario, 26/oct/2026: ya no se muestra un
-    // numero "global" para el rango elegido -- ahora se muestran los
-    // ultimos 3 meses SEPARADOS por mes (terminados/aprobados/tasa, por
-    // pais y por comercial, cada uno con su propio desglose mes a mes).
-    // El filtro Desde/Hasta se conserva en la UI, pero pasa a decidir
-    // HASTA que mes mirar: se toma el mes que contiene la fecha "Hasta"
-    // como el mas reciente de los 3 (si no se manda, el mes actual);
-    // "Desde" ya no acota el resultado.
-    const endMonthKey = this.resolveEndMonthKey(query.dateTo);
-    const monthKeys = this.lastThreeMonthKeys(endMonthKey);
-
     // Pedido explicito del usuario, 27/oct/2026: la pestaña "Por
     // diseñador" NO debe ser vista por la jefa de ventas (SALES_MANAGER)
     // -- a diferencia de "Reportes y estadisticas", que si puede ver.
@@ -2382,12 +2383,65 @@ export class DesignBoardService {
     const includeByDesigner = user.role !== Role.SALES_MANAGER;
     // Pedido explicito del usuario, 28/oct/2026: mismo criterio de
     // visibilidad que "Por diseñador" -- la jefa de ventas tampoco ve el
-    // desglose por categoria.
+    // desglose por categoria. Se ignora tambien el filtro `categoryId`
+    // si lo manda (no tiene sentido filtrar por algo que no puede ver).
     const includeByCategory = user.role !== Role.SALES_MANAGER;
+    const filters = {
+      createdByUserId: query.createdByUserId || undefined,
+      categoryId: includeByCategory ? query.categoryId || undefined : undefined,
+    };
+
+    // Pedido explicito del usuario, 20/nov/2026: modo "range" -- en vez
+    // de los 3 meses fijos, se pide un unico periodo [dateFrom, dateTo]
+    // (p.ej. una semana concreta) y se devuelve un solo elemento en
+    // `months` con `month: null` para que el frontend lo distinga.
+    if (query.mode === 'range') {
+      if (!query.dateFrom || !query.dateTo) {
+        throw new BadRequestException(
+          'Para un rango personalizado hace falta "dateFrom" y "dateTo"',
+        );
+      }
+      if (
+        !/^\d{4}-\d{2}-\d{2}$/.test(query.dateFrom) ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(query.dateTo)
+      ) {
+        throw new BadRequestException(
+          'Formato de fecha inválido, usá YYYY-MM-DD',
+        );
+      }
+      const start = new Date(`${query.dateFrom}T00:00:00.000Z`);
+      // "Hasta" es inclusive para quien lo usa desde la UI -- el rango
+      // real que se consulta es [dateFrom, dateTo + 1 dia).
+      const end = new Date(
+        new Date(`${query.dateTo}T00:00:00.000Z`).getTime() + 24 * 60 * 60 * 1000,
+      );
+      if (start >= end) {
+        throw new BadRequestException('"dateFrom" debe ser anterior a "dateTo"');
+      }
+      const period = await this.reportPeriodBreakdown(
+        { start, end },
+        null,
+        includeByDesigner,
+        includeByCategory,
+        filters,
+      );
+      return { months: [period] };
+    }
+
+    // Pedido explicito del usuario, 26/oct/2026: ya no se muestra un
+    // numero "global" para el rango elegido -- ahora se muestran los
+    // ultimos 3 meses SEPARADOS por mes (terminados/aprobados/tasa, por
+    // pais y por comercial, cada uno con su propio desglose mes a mes).
+    // El filtro Desde/Hasta se conserva en la UI, pero pasa a decidir
+    // HASTA que mes mirar: se toma el mes que contiene la fecha "Hasta"
+    // como el mas reciente de los 3 (si no se manda, el mes actual);
+    // "Desde" ya no acota el resultado en este modo.
+    const endMonthKey = this.resolveEndMonthKey(query.dateTo);
+    const monthKeys = this.lastThreeMonthKeys(endMonthKey);
 
     const months = await Promise.all(
       monthKeys.map((monthKey) =>
-        this.monthlyReportBreakdown(monthKey, includeByDesigner, includeByCategory),
+        this.monthlyReportBreakdown(monthKey, includeByDesigner, includeByCategory, filters),
       ),
     );
 
@@ -2421,26 +2475,55 @@ export class DesignBoardService {
     return keys;
   }
 
-  // Desglose de un mes puntual para el reporte de managers: totales
-  // generales, por pais, y por comercial (terminados/aprobados/tasa de
-  // ESE comercial en ESE mes -- antes solo se mostraba un conteo de
-  // aprobados por comercial, sin terminados ni tasa individual, pedido
-  // explicito del usuario 26/oct/2026). Misma cohorte que siempre: un
-  // boceto cuenta como terminado/aprobado del mes en que se TERMINO
-  // (completedAt), aunque approvedAt caiga despues.
+  // Envoltorio de reportPeriodBreakdown() anclado a un mes calendario
+  // completo -- es el modo "months" (default) de getReportsSummary().
   private async monthlyReportBreakdown(
     monthKey: string,
     includeByDesigner = true,
-    // Pedido explicito del usuario, 28/oct/2026: cantidad de solicitudes
-    // por categoria, mes a mes -- mismo criterio de visibilidad que
-    // includeByDesigner (SALES_MANAGER no lo ve, igual que "Por
-    // diseñador").
     includeByCategory = true,
+    filters: { createdByUserId?: string; categoryId?: string } = {},
   ) {
     const { start, end } = this.monthRange(monthKey);
-    const completedInMonth = { completedAt: { gte: start, lt: end } };
-    const approvedFromMonthCohort = {
-      ...completedInMonth,
+    return this.reportPeriodBreakdown(
+      { start, end },
+      monthKey,
+      includeByDesigner,
+      includeByCategory,
+      filters,
+    );
+  }
+
+  // Desglose de un periodo puntual (mes calendario, o un rango libre en
+  // modo "range") para el reporte de managers: totales generales, por
+  // pais, por comercial y por categoria (terminados/aprobados/NO
+  // aprobados/tasa, cada uno con su propio desglose -- antes "por
+  // categoria" solo traia `completedCount`, pedido explicito del usuario
+  // 20/nov/2026 de poder cruzar categoria x comercial x aprobado). Misma
+  // cohorte que siempre: un boceto cuenta como terminado/aprobado del
+  // periodo en que se TERMINO (completedAt), aunque approvedAt caiga
+  // despues. `filters.createdByUserId`/`filters.categoryId` acotan TODO
+  // el desglose a un comercial y/o categoria puntual cuando se piden.
+  private async reportPeriodBreakdown(
+    range: { start: Date; end: Date },
+    monthKey: string | null,
+    includeByDesigner = true,
+    includeByCategory = true,
+    filters: { createdByUserId?: string; categoryId?: string } = {},
+  ) {
+    const baseWhere: Record<string, unknown> = {};
+    if (filters.createdByUserId) {
+      baseWhere.createdByUserId = filters.createdByUserId;
+    }
+    if (filters.categoryId) {
+      baseWhere.categories = { some: { categoryId: filters.categoryId } };
+    }
+
+    const completedInRange = {
+      ...baseWhere,
+      completedAt: { gte: range.start, lt: range.end },
+    };
+    const approvedFromRangeCohort = {
+      ...completedInRange,
       approvedAt: { not: null },
     };
 
@@ -2451,36 +2534,37 @@ export class DesignBoardService {
       completedByCreator,
       approvedByCreator,
       completedByDesignerRequests,
-      completedByCategory,
+      completedByCategoryRows,
+      approvedByCategoryRows,
     ] = await Promise.all([
-      this.prisma.designRequest.count({ where: completedInMonth }),
-      this.prisma.designRequest.count({ where: approvedFromMonthCohort }),
+      this.prisma.designRequest.count({ where: completedInRange }),
+      this.prisma.designRequest.count({ where: approvedFromRangeCohort }),
       this.prisma.designRequest.groupBy({
         by: ['country'],
-        where: approvedFromMonthCohort,
+        where: approvedFromRangeCohort,
         _count: { _all: true },
       }),
       this.prisma.designRequest.groupBy({
         by: ['createdByUserId'],
-        where: completedInMonth,
+        where: completedInRange,
         _count: { _all: true },
       }),
       this.prisma.designRequest.groupBy({
         by: ['createdByUserId'],
-        where: approvedFromMonthCohort,
+        where: approvedFromRangeCohort,
         _count: { _all: true },
       }),
       // Pedido explicito del usuario, 26/oct/2026: historico de bocetos
       // TERMINADOS por diseñador (assignedUserId), con el nombre de cada
       // solicitud para poder listarlas al hacer click en un diseñador.
-      // Misma cohorte "completedInMonth" que ya cumple las dos reglas que
+      // Misma cohorte "completedInRange" que ya cumple las dos reglas que
       // pidio: si vuelve a Modificacion se le limpia completedAt (deja de
       // contar, ver sendToModification()), y si pasa a Aprobados
       // completedAt NO se toca (sigue contando para este diseñador).
       includeByDesigner
         ? this.prisma.designRequest.findMany({
             where: {
-              ...completedInMonth,
+              ...completedInRange,
               // Pedido explicito del usuario, 04/nov/2026: "Por diseñador"
               // solo debe contar bocetos y repeticiones de boceto -- no
               // modificaciones (MOD/REPET_MOD/REPET_ANADE), que son ajustes
@@ -2496,18 +2580,24 @@ export class DesignBoardService {
             select: { id: true, title: true, assignedUserId: true },
           })
         : Promise.resolve([]),
-      // Pedido explicito del usuario, 28/oct/2026: cantidad de
-      // solicitudes TERMINADAS por categoria, mes a mes -- misma cohorte
-      // "completedInMonth" que el resto de este desglose. Una solicitud
-      // puede tener varias categorias (N:M), asi que una misma solicitud
-      // puede sumar en mas de un bucket -- la suma de `byCategory` NO
-      // tiene por que coincidir con `completedCount` (igual criterio que
-      // cualquier desglose por etiqueta/tag, no es un exclusivo como
-      // pais/comercial/diseñador).
+      // Pedido explicito del usuario, 28/oct/2026 (extendido 20/nov/2026
+      // con el conteo de aprobados): cantidad de solicitudes TERMINADAS
+      // por categoria. Una solicitud puede tener varias categorias (N:M),
+      // asi que una misma solicitud puede sumar en mas de un bucket -- la
+      // suma de `byCategory` NO tiene por que coincidir con
+      // `completedCount` (igual criterio que cualquier desglose por
+      // etiqueta/tag, no es un exclusivo como pais/comercial/diseñador).
       includeByCategory
         ? this.prisma.designRequestCategoryAssignment.groupBy({
             by: ['categoryId'],
-            where: { designRequest: completedInMonth },
+            where: { designRequest: completedInRange },
+            _count: { _all: true },
+          })
+        : Promise.resolve([]),
+      includeByCategory
+        ? this.prisma.designRequestCategoryAssignment.groupBy({
+            by: ['categoryId'],
+            where: { designRequest: approvedFromRangeCohort },
             _count: { _all: true },
           })
         : Promise.resolve([]),
@@ -2527,6 +2617,7 @@ export class DesignBoardService {
         createdByUserId: row.createdByUserId,
         completedCount: creatorCompletedCount,
         approvedCount: creatorApprovedCount,
+        notApprovedCount: creatorCompletedCount - creatorApprovedCount,
         approvalRate:
           creatorCompletedCount > 0
             ? (creatorApprovedCount / creatorCompletedCount) * 100
@@ -2559,10 +2650,31 @@ export class DesignBoardService {
       entry.requests.push({ id: request.id, title: request.title });
     }
 
+    const approvedCountByCategory = new Map<string, number>(
+      (approvedByCategoryRows as any[]).map((row) => [row.categoryId, row._count._all]),
+    );
+    const byCategory = (completedByCategoryRows as any[]).map((row) => {
+      const categoryCompletedCount = row._count._all;
+      const categoryApprovedCount = approvedCountByCategory.get(row.categoryId) ?? 0;
+      return {
+        categoryId: row.categoryId,
+        completedCount: categoryCompletedCount,
+        approvedCount: categoryApprovedCount,
+        notApprovedCount: categoryCompletedCount - categoryApprovedCount,
+        approvalRate:
+          categoryCompletedCount > 0
+            ? (categoryApprovedCount / categoryCompletedCount) * 100
+            : 0,
+      };
+    });
+
     return {
       month: monthKey,
+      rangeFrom: range.start.toISOString().slice(0, 10),
+      rangeTo: new Date(range.end.getTime() - 1).toISOString().slice(0, 10),
       completedCount,
       approvedCount,
+      notApprovedCount: completedCount - approvedCount,
       approvalRate,
       approvedByCountry: approvedByCountry.map((row: any) => ({
         country: row.country,
@@ -2570,10 +2682,114 @@ export class DesignBoardService {
       })),
       byCreator,
       byDesigner: Array.from(byDesignerMap.values()),
-      byCategory: (completedByCategory as any[]).map((row) => ({
-        categoryId: row.categoryId,
-        completedCount: row._count._all,
-      })),
+      byCategory,
+    };
+  }
+
+  // Informe semanal (ADR-004 Submódulo 10, §10 -- añadido 20/nov/2026):
+  // replica el proceso manual que hoy hacen "yo y Jesus" para avisarle a
+  // Cristian cuales bocetos se aprobaron esta semana. Por cada comercial y
+  // por cada uno de los ultimos 3 meses (misma cohorte "completedAt" de
+  // siempre): cuantos quedan sin aprobar HOY (pendingCount, ya refleja lo
+  // aprobado esta semana porque approvedAt ya se actualizo), y cuantos de
+  // ESE mes se aprobaron durante la semana consultada
+  // (approvedThisWeekCount). No requiere persistencia nueva -- se computa
+  // en vivo con los mismos campos que el resto de reportes.
+  async getWeeklyApprovalReport(
+    user: AuthUser,
+    query: { dateTo?: string; weekStart?: string },
+  ) {
+    if (
+      user.role !== Role.DESIGNER_MANAGER &&
+      user.role !== Role.ADMIN &&
+      user.role !== Role.SALES_MANAGER
+    ) {
+      throw new ForbiddenException(
+        'No tenés permiso para ver el informe semanal',
+      );
+    }
+
+    let weekStart: Date;
+    if (query.weekStart) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(query.weekStart)) {
+        throw new BadRequestException('Formato de fecha inválido, usá YYYY-MM-DD');
+      }
+      weekStart = new Date(`${query.weekStart}T00:00:00.000Z`);
+    } else {
+      weekStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    }
+    const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const endMonthKey = this.resolveEndMonthKey(query.dateTo);
+    const monthKeys = this.lastThreeMonthKeys(endMonthKey);
+
+    const byCreatorMap = new Map<
+      string,
+      {
+        createdByUserId: string;
+        months: {
+          month: string;
+          completedCount: number;
+          pendingCount: number;
+          approvedThisWeekCount: number;
+        }[];
+      }
+    >();
+
+    for (const monthKey of monthKeys) {
+      const { start, end } = this.monthRange(monthKey);
+      const completedInMonth = { completedAt: { gte: start, lt: end } };
+
+      const [completedByCreator, approvedByCreator, approvedThisWeekByCreator] =
+        await Promise.all([
+          this.prisma.designRequest.groupBy({
+            by: ['createdByUserId'],
+            where: completedInMonth,
+            _count: { _all: true },
+          }),
+          this.prisma.designRequest.groupBy({
+            by: ['createdByUserId'],
+            where: { ...completedInMonth, approvedAt: { not: null } },
+            _count: { _all: true },
+          }),
+          this.prisma.designRequest.groupBy({
+            by: ['createdByUserId'],
+            where: {
+              ...completedInMonth,
+              approvedAt: { gte: weekStart, lt: weekEnd },
+            },
+            _count: { _all: true },
+          }),
+        ]);
+
+      const approvedCountByCreator = new Map<string, number>(
+        approvedByCreator.map((row: any) => [row.createdByUserId, row._count._all]),
+      );
+      const approvedThisWeekCountByCreator = new Map<string, number>(
+        approvedThisWeekByCreator.map((row: any) => [row.createdByUserId, row._count._all]),
+      );
+
+      for (const row of completedByCreator as any[]) {
+        const creatorId = row.createdByUserId;
+        const completedCount = row._count._all;
+        const approvedCount = approvedCountByCreator.get(creatorId) ?? 0;
+        const approvedThisWeekCount = approvedThisWeekCountByCreator.get(creatorId) ?? 0;
+        if (!byCreatorMap.has(creatorId)) {
+          byCreatorMap.set(creatorId, { createdByUserId: creatorId, months: [] });
+        }
+        byCreatorMap.get(creatorId)!.months.push({
+          month: monthKey,
+          completedCount,
+          pendingCount: completedCount - approvedCount,
+          approvedThisWeekCount,
+        });
+      }
+    }
+
+    return {
+      weekFrom: weekStart.toISOString().slice(0, 10),
+      weekTo: new Date(weekEnd.getTime() - 1).toISOString().slice(0, 10),
+      byCreator: Array.from(byCreatorMap.values()),
     };
   }
 

@@ -258,8 +258,10 @@ export class SearchArchivedDesignRequestsQueryDto {
 export class DesignBoardReportsQueryDto {
   // Pedido explicito del usuario, 25/oct/2026: las estadisticas ya no se
   // filtran por mes completo, sino por un rango de fechas (Desde/Hasta).
-  // "YYYY-MM-DD"; si se omite cualquiera de los dos, se usa la semana en
-  // curso (lunes a domingo) -- ver DesignBoardService.reportsDateRange().
+  // "YYYY-MM-DD". En modo "months" (default) "dateTo" decide el mes mas
+  // reciente de los ultimos 3; en modo "range" (pedido explicito del
+  // usuario, 20/nov/2026) "dateFrom"/"dateTo" delimitan un unico periodo
+  // libre (p.ej. una semana puntual) -- ver getReportsSummary().
   @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   dateFrom?: string;
@@ -267,6 +269,39 @@ export class DesignBoardReportsQueryDto {
   @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   dateTo?: string;
+
+  // Pedido explicito del usuario, 20/nov/2026: unificacion de "Por
+  // categoria" dentro de "Reportes y estadisticas" via filtros por
+  // comercial y/o categoria (cualquier combinacion de ambos).
+  @IsOptional()
+  @IsString()
+  createdByUserId?: string;
+
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+
+  // "months" (default): los ultimos 3 meses calendario. "range": un
+  // unico periodo libre definido por dateFrom/dateTo (ambos requeridos
+  // en ese caso).
+  @IsOptional()
+  @IsIn(['months', 'range'])
+  mode?: 'months' | 'range';
+}
+
+export class DesignBoardWeeklyReportQueryDto {
+  // Mismo criterio que dateTo en DesignBoardReportsQueryDto: decide el
+  // mes mas reciente de los ultimos 3 a listar.
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  dateTo?: string;
+
+  // "YYYY-MM-DD", inicio de la semana a consultar (7 dias desde esa
+  // fecha, inclusive). Sin este parametro, se usan los ultimos 7 dias
+  // hasta hoy.
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  weekStart?: string;
 }
 
 // Edicion de titulo/descripcion por la comercial propietaria (o ADMIN)

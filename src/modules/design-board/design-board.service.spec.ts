@@ -105,6 +105,13 @@ describe('DesignBoardService', () => {
       },
       designRequestStatusEvent: { create: jest.fn() },
       designRequestComment: { create: jest.fn(), groupBy: jest.fn().mockResolvedValue([]) },
+      // Pedido explicito del usuario, 20/nov/2026: faltaba en este mock --
+      // getReportsSummary() (via reportPeriodBreakdown) llama a esto para
+      // includeByCategory=true (cualquier rol que no sea SALES_MANAGER),
+      // incluso antes de este cambio (desglose "byCategory" del
+      // 28/oct/2026). Sin este mock, cualquier test de getReportsSummary
+      // con MANAGER/ADMIN explota con "Cannot read properties of undefined".
+      designRequestCategoryAssignment: { groupBy: jest.fn().mockResolvedValue([]) },
       designRequestCommentView: {
         findMany: jest.fn().mockResolvedValue([]),
         upsert: jest.fn().mockResolvedValue({}),
@@ -2117,7 +2124,7 @@ describe('DesignBoardService', () => {
       expect(nov.approvalRate).toBe(50);
       expect(nov.approvedByCountry).toEqual([{ country: 'ES', count: 1 }]);
       expect(nov.byCreator).toEqual([
-        { createdByUserId: 'sales-1', completedCount: 2, approvedCount: 1, approvalRate: 50 },
+        { createdByUserId: 'sales-1', completedCount: 2, approvedCount: 1, notApprovedCount: 1, approvalRate: 50 },
       ]);
       // Historico de terminados por diseñador, con el nombre de cada
       // solicitud -- pedido explicito del usuario, 26/oct/2026.
@@ -2141,7 +2148,7 @@ describe('DesignBoardService', () => {
       expect(jan.approvedCount).toBe(5);
       expect(jan.approvalRate).toBe(100);
       expect(jan.byCreator).toEqual([
-        { createdByUserId: 'sales-2', completedCount: 5, approvedCount: 5, approvalRate: 100 },
+        { createdByUserId: 'sales-2', completedCount: 5, approvedCount: 5, notApprovedCount: 0, approvalRate: 100 },
       ]);
       // Dos diseñadores distintos + una solicitud sin asignar, cada uno en
       // su propio grupo (la sin asignar no se pierde del total).
@@ -2222,8 +2229,145 @@ describe('DesignBoardService', () => {
       const result = await service.getReportsSummary(ADMIN, { dateTo: '2026-03-10' });
 
       expect(result.months[2].byCreator).toEqual([
-        { createdByUserId: 'sales-3', completedCount: 3, approvedCount: 0, approvalRate: 0 },
+        { createdByUserId: 'sales-3', completedCount: 3, approvedCount: 0, notApprovedCount: 3, approvalRate: 0 },
       ]);
+    });
+
+    // Pedido explicito del usuario (apuntes de negocio), 20/nov/2026:
+    // unificacion de "Por categoria" en "Reportes y estadisticas" via
+    // filtros (createdByUserId/categoryId) + modo "range" para un periodo
+    // libre (p.ej. una semana puntual) en vez de los 3 meses fijos.
+    describe('mode "range" y filtros createdByUserId/categoryId', () => {
+      it('rejects "range" mode without both dateFrom and dateTo', async () => {
+        await expect(
+          service.getReportsSummary(MANAGER, { mode: 'range', dateTo: '2026-03-10' }),
+        ).rejects.toBeInstanceOf(BadRequestException);
+        await expect(
+          service.getReportsSummary(MANAGER, { mode: 'range', dateFrom: '2026-03-01' }),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      });
+
+      it('rejects "range" mode when dateFrom is not before dateTo', async () => {
+        await expect(
+          service.getReportsSummary(MANAGER, {
+            mode: 'range',
+            dateFrom: '2026-03-10',
+            dateTo: '2026-03-01',
+          }),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      });
+
+      it('returns a single period (month: null) covering exactly [dateFrom, dateTo] inclusive in "range" mode', async () => {
+        prisma.designRequest.count.mockResolvedValue(0);
+        prisma.designRequest.groupBy.mockResolvedValue([]);
+
+        const result = await service.getReportsSummary(MANAGER, {
+          mode: 'range',
+          dateFrom: '2026-03-01',
+          dateTo: '2026-03-07',
+        });
+
+        expect(result.months).toHaveLength(1);
+        expect(result.months[0].month).toBeNull();
+        expect(result.months[0].rangeFrom).toBe('2026-03-01');
+        expect(result.months[0].rangeTo).toBe('2026-03-07');
+
+        const [{ where }] = prisma.designRequest.count.mock.calls[0];
+        expect(where.completedAt.gte.toISOString()).toBe('2026-03-01T00:00:00.000Z');
+        expect(where.completedAt.lt.toISOString()).toBe('2026-03-08T00:00:00.000Z');
+      });
+
+      it('scopes every query to a single comercial when createdByUserId is given', async () => {
+        prisma.designRequest.count.mockResolvedValue(0);
+        prisma.designRequest.groupBy.mockResolvedValue([]);
+
+        await service.getReportsSummary(MANAGER, {
+          dateTo: '2026-03-10',
+          createdByUserId: 'sales-1',
+        });
+
+        const [{ where }] = prisma.designRequest.count.mock.calls[0];
+        expect(where.createdByUserId).toBe('sales-1');
+      });
+
+      it('scopes every query to a single categoria when categoryId is given', async () => {
+        prisma.designRequest.count.mockResolvedValue(0);
+        prisma.designRequest.groupBy.mockResolvedValue([]);
+
+        await service.getReportsSummary(MANAGER, {
+          dateTo: '2026-03-10',
+          categoryId: 'cat-1',
+        });
+
+        const [{ where }] = prisma.designRequest.count.mock.calls[0];
+        expect(where.categories).toEqual({ some: { categoryId: 'cat-1' } });
+      });
+
+      it('ignores categoryId for SALES_MANAGER (same visibility as byCategory/byDesigner)', async () => {
+        prisma.designRequest.count.mockResolvedValue(0);
+        prisma.designRequest.groupBy.mockResolvedValue([]);
+
+        await service.getReportsSummary(SALES_MANAGER, {
+          dateTo: '2026-03-10',
+          categoryId: 'cat-1',
+        });
+
+        const [{ where }] = prisma.designRequest.count.mock.calls[0];
+        expect(where.categories).toBeUndefined();
+      });
+    });
+  });
+
+  // ---------------------------------------------------------------
+  // getWeeklyApprovalReport (apuntes de negocio, 20/nov/2026): informe
+  // semanal que replica el aviso manual "cuales se aprobaron esta semana".
+  // ---------------------------------------------------------------
+  describe('getWeeklyApprovalReport', () => {
+    it('rejects roles other than DESIGNER_MANAGER/ADMIN/SALES_MANAGER', async () => {
+      await expect(service.getWeeklyApprovalReport(SALES, {})).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it('rejects an invalid weekStart format', async () => {
+      await expect(
+        service.getWeeklyApprovalReport(MANAGER, { weekStart: 'not-a-date' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    // Ejemplo textual del pedido de negocio: "Lucia tiene sin aprobar 20 de
+    // agosto, 34 de Septiembre y 10 de octubre, y esta semana aprueba 2 de
+    // agosto. Lucia en Agosto pasará a tener 18 sin aprobar, y se debe
+    // especificar que Lucia ha aprobado 2 bocetos de Agosto esta semana".
+    it('computes pendingCount (current) and approvedThisWeekCount (delta) per creator per month', async () => {
+      prisma.designRequest.groupBy.mockImplementation(async ({ by, where }: any) => {
+        if (by[0] !== 'createdByUserId') return [];
+        if (where.approvedAt?.gte) {
+          // aprobados ESTA SEMANA: 2 de los 20 de agosto ya se aprobaron.
+          return [{ createdByUserId: 'lucia', _count: { _all: 2 } }];
+        }
+        if (where.approvedAt?.not === null) {
+          // aprobados en total, a dia de hoy (20 - 18 = 2 quedaron aprobados).
+          return [{ createdByUserId: 'lucia', _count: { _all: 2 } }];
+        }
+        return [{ createdByUserId: 'lucia', _count: { _all: 20 } }];
+      });
+
+      const result = await service.getWeeklyApprovalReport(MANAGER, {
+        dateTo: '2026-08-15',
+        weekStart: '2026-08-10',
+      });
+
+      const lucia = result.byCreator.find((row: any) => row.createdByUserId === 'lucia');
+      expect(lucia).toBeDefined();
+      const augustRow = lucia!.months.find((m: any) => m.month === '2026-08');
+      expect(augustRow).toEqual({
+        month: '2026-08',
+        completedCount: 20,
+        pendingCount: 18,
+        approvedThisWeekCount: 2,
+      });
+      expect(result.weekFrom).toBe('2026-08-10');
     });
   });
 

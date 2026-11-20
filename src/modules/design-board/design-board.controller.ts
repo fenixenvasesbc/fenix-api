@@ -27,6 +27,7 @@ import {
   AssignDesignRequestDto,
   CreateDesignRequestDto,
   DesignBoardReportsQueryDto,
+  DesignBoardWeeklyReportQueryDto,
   EditDesignRequestCommentDto,
   ListDesignRequestsQueryDto,
   MarkApprovedVersionAttachmentDto,
@@ -312,6 +313,19 @@ export class DesignBoardController {
     @Query() query: DesignBoardReportsQueryDto,
   ) {
     return this.designBoardService.getReportsSummary(req.user, query);
+  }
+
+  // Informe semanal (pedido explicito del usuario, 20/nov/2026): replica
+  // el aviso manual "cuales se aprobaron esta semana" que hoy se hace
+  // entre ventas y diseño -- mismo criterio de visibilidad que
+  // reports/summary.
+  @Roles(Role.ADMIN, Role.DESIGNER_MANAGER, Role.SALES_MANAGER)
+  @Get('reports/weekly')
+  getWeeklyApprovalReport(
+    @Req() req: { user: AuthUser },
+    @Query() query: DesignBoardWeeklyReportQueryDto,
+  ) {
+    return this.designBoardService.getWeeklyApprovalReport(req.user, query);
   }
 
   // Tasa de aprobacion personal del comercial (ultimos 3 meses, ver
