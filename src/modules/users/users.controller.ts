@@ -27,8 +27,15 @@ type AuthUser = {
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  // Lectura liviana de SALES/SALES_MANAGER (usersService.getSales()), sin
+  // los filtros de gestion de listUsers()/assertCanManageRole(). Pedido
+  // explicito del usuario, 20/nov/2026: el selector "Comercial" de
+  // Reportes y estadisticas (ver ADR-004 Complemento, 20/nov/2026) la
+  // necesita tambien para SALES_MANAGER y DESIGNER_MANAGER, no solo ADMIN
+  // -- antes de este cambio devolvia 403 para esos dos roles, que son
+  // justamente los otros dos roles con acceso a esa pestana.
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.SALES_MANAGER, Role.DESIGNER_MANAGER)
   @Get('sales')
   getSales() {
     return this.usersService.getSales();
