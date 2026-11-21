@@ -2821,6 +2821,13 @@ export class DesignBoardService {
           completedCount: number;
           pendingCount: number;
           approvedThisWeekCount: number;
+          // Pedido explicito del usuario, 21/nov/2026: ademas de saber
+          // DE QUE MES eran los bocetos aprobados esta semana (ya
+          // resuelto arriba, por mes), tambien de que CATEGORIA --
+          // ej. "aprobo 6 esta semana: 2 de octubre y 1 de noviembre"
+          // ahora se puede desglosar ademas por categoria dentro de
+          // cada mes.
+          approvedThisWeekByCategory: { categoryId: string; count: number }[];
         }[];
       }
     >();
@@ -2828,28 +2835,46 @@ export class DesignBoardService {
     for (const monthKey of monthKeys) {
       const { start, end } = this.monthRange(monthKey);
       const completedInMonth = { completedAt: { gte: start, lt: end } };
+      const approvedThisWeekInMonth = {
+        ...completedInMonth,
+        approvedAt: { gte: weekStart, lt: weekEnd },
+      };
 
-      const [completedByCreator, approvedByCreator, approvedThisWeekByCreator] =
-        await Promise.all([
-          this.prisma.designRequest.groupBy({
-            by: ['createdByUserId'],
-            where: completedInMonth,
-            _count: { _all: true },
-          }),
-          this.prisma.designRequest.groupBy({
-            by: ['createdByUserId'],
-            where: { ...completedInMonth, approvedAt: { not: null } },
-            _count: { _all: true },
-          }),
-          this.prisma.designRequest.groupBy({
-            by: ['createdByUserId'],
-            where: {
-              ...completedInMonth,
-              approvedAt: { gte: weekStart, lt: weekEnd },
-            },
-            _count: { _all: true },
-          }),
-        ]);
+      const [
+        completedByCreator,
+        approvedByCreator,
+        approvedThisWeekByCreator,
+        approvedThisWeekAssignments,
+      ] = await Promise.all([
+        this.prisma.designRequest.groupBy({
+          by: ['createdByUserId'],
+          where: completedInMonth,
+          _count: { _all: true },
+        }),
+        this.prisma.designRequest.groupBy({
+          by: ['createdByUserId'],
+          where: { ...completedInMonth, approvedAt: { not: null } },
+          _count: { _all: true },
+        }),
+        this.prisma.designRequest.groupBy({
+          by: ['createdByUserId'],
+          where: approvedThisWeekInMonth,
+          _count: { _all: true },
+        }),
+        // Pedido explicito del usuario, 21/nov/2026: por categoria, de
+        // los bocetos aprobados esta semana (dentro de este mes) -- solo
+        // las categorias que el cliente SI acepto (approved: true, ver
+        // DesignBoardService.approve()/rejectedCategoryIds, 21/nov/2026
+        // mas temprano este mismo dia); no se puede agrupar directo por
+        // createdByUserId con groupBy (campo de la relacion, no de esta
+        // tabla), asi que se trae el detalle y se agrega en memoria --
+        // mismo criterio que ya usaba byDesigner mas arriba en este
+        // mismo archivo.
+        this.prisma.designRequestCategoryAssignment.findMany({
+          where: { approved: true, designRequest: approvedThisWeekInMonth },
+          select: { categoryId: true, designRequest: { select: { createdByUserId: true } } },
+        }),
+      ]);
 
       const approvedCountByCreator = new Map<string, number>(
         approvedByCreator.map((row: any) => [row.createdByUserId, row._count._all]),
@@ -2858,11 +2883,27 @@ export class DesignBoardService {
         approvedThisWeekByCreator.map((row: any) => [row.createdByUserId, row._count._all]),
       );
 
+      const approvedThisWeekByCategoryByCreator = new Map<string, Map<string, number>>();
+      for (const assignment of approvedThisWeekAssignments as Array<{
+        categoryId: string;
+        designRequest: { createdByUserId: string };
+      }>) {
+        const creatorId = assignment.designRequest.createdByUserId;
+        if (!approvedThisWeekByCategoryByCreator.has(creatorId)) {
+          approvedThisWeekByCategoryByCreator.set(creatorId, new Map());
+        }
+        const byCategory = approvedThisWeekByCategoryByCreator.get(creatorId)!;
+        byCategory.set(assignment.categoryId, (byCategory.get(assignment.categoryId) ?? 0) + 1);
+      }
+
       for (const row of completedByCreator as any[]) {
         const creatorId = row.createdByUserId;
         const completedCount = row._count._all;
         const approvedCount = approvedCountByCreator.get(creatorId) ?? 0;
         const approvedThisWeekCount = approvedThisWeekCountByCreator.get(creatorId) ?? 0;
+        const approvedThisWeekByCategory = Array.from(
+          approvedThisWeekByCategoryByCreator.get(creatorId)?.entries() ?? [],
+        ).map(([categoryId, count]) => ({ categoryId, count }));
         if (!byCreatorMap.has(creatorId)) {
           byCreatorMap.set(creatorId, { createdByUserId: creatorId, months: [] });
         }
@@ -2871,6 +2912,7 @@ export class DesignBoardService {
           completedCount,
           pendingCount: completedCount - approvedCount,
           approvedThisWeekCount,
+          approvedThisWeekByCategory,
         });
       }
     }

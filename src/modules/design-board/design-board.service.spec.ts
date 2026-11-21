@@ -55,7 +55,7 @@ describe('DesignBoardService', () => {
     };
     designRequestStatusEvent: { create: jest.Mock };
     designRequestComment: { create: jest.Mock; groupBy: jest.Mock };
-    designRequestCategoryAssignment: { groupBy: jest.Mock };
+    designRequestCategoryAssignment: { groupBy: jest.Mock; findMany: jest.Mock };
     designRequestCommentView: { findMany: jest.Mock; upsert: jest.Mock };
     designRequestAttachment: {
       findFirst: jest.Mock;
@@ -117,7 +117,13 @@ describe('DesignBoardService', () => {
       // incluso antes de este cambio (desglose "byCategory" del
       // 28/oct/2026). Sin este mock, cualquier test de getReportsSummary
       // con MANAGER/ADMIN explota con "Cannot read properties of undefined".
-      designRequestCategoryAssignment: { groupBy: jest.fn().mockResolvedValue([]) },
+      designRequestCategoryAssignment: {
+        groupBy: jest.fn().mockResolvedValue([]),
+        // Pedido explicito del usuario, 21/nov/2026: getWeeklyApprovalReport
+        // usa findMany (no groupBy) para el desglose por categoria, ver
+        // describe('getWeeklyApprovalReport').
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       designRequestCommentView: {
         findMany: jest.fn().mockResolvedValue([]),
         upsert: jest.fn().mockResolvedValue({}),
@@ -2497,8 +2503,58 @@ describe('DesignBoardService', () => {
         completedCount: 20,
         pendingCount: 18,
         approvedThisWeekCount: 2,
+        approvedThisWeekByCategory: [],
       });
       expect(result.weekFrom).toBe('2026-08-10');
+    });
+
+    // Pedido explicito del usuario, 21/nov/2026: "cuando indique cuantos
+    // aprobo esta semana tambien indique ... de que categoria" -- ej.
+    // "aprobo 6 esta semana: 2 de octubre y 1 de noviembre" ahora ademas
+    // dice de que categoria dentro de cada mes.
+    it('breaks down approvedThisWeekByCategory per creator per month, counting only categories the client actually approved', async () => {
+      prisma.designRequest.groupBy.mockImplementation(async ({ by, where }: any) => {
+        if (by[0] !== 'createdByUserId') return [];
+        if (where.approvedAt?.gte) {
+          return [{ createdByUserId: 'lucia', _count: { _all: 2 } }];
+        }
+        if (where.approvedAt?.not === null) {
+          return [{ createdByUserId: 'lucia', _count: { _all: 2 } }];
+        }
+        return [{ createdByUserId: 'lucia', _count: { _all: 20 } }];
+      });
+
+      prisma.designRequestCategoryAssignment.findMany.mockResolvedValue([
+        { categoryId: 'cat-vasos', designRequest: { createdByUserId: 'lucia' } },
+        { categoryId: 'cat-vasos', designRequest: { createdByUserId: 'lucia' } },
+        { categoryId: 'cat-bolsas', designRequest: { createdByUserId: 'lucia' } },
+        // una categoria de OTRO comercial no debe mezclarse con las de Lucia.
+        { categoryId: 'cat-cajas', designRequest: { createdByUserId: 'otro-vendedor' } },
+      ]);
+
+      const result = await service.getWeeklyApprovalReport(MANAGER, {
+        dateTo: '2026-08-15',
+        weekStart: '2026-08-10',
+      });
+
+      const lucia = result.byCreator.find((row: any) => row.createdByUserId === 'lucia');
+      const augustRow = lucia!.months.find((m: any) => m.month === '2026-08');
+      expect(augustRow!.approvedThisWeekByCategory).toEqual(
+        expect.arrayContaining([
+          { categoryId: 'cat-vasos', count: 2 },
+          { categoryId: 'cat-bolsas', count: 1 },
+        ]),
+      );
+      expect(augustRow!.approvedThisWeekByCategory).toHaveLength(2);
+
+      // El filtro de categorias rechazadas (approved: true) y la cohorte
+      // de "aprobados esta semana, en este mes" se le pasan al findMany.
+      const [{ where }] = prisma.designRequestCategoryAssignment.findMany.mock.calls[0];
+      expect(where.approved).toBe(true);
+      expect(where.designRequest.approvedAt).toEqual({
+        gte: new Date('2026-08-10T00:00:00.000Z'),
+        lt: new Date('2026-08-17T00:00:00.000Z'),
+      });
     });
   });
 
