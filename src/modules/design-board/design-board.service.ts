@@ -176,6 +176,19 @@ export class DesignBoardService {
     return role === Role.SALES || role === Role.SALES_MANAGER;
   }
 
+  // Pedido explicito del usuario, 21/nov/2026: SUPPORT debe tener los
+  // mismos permisos que ADMIN en TODOS los modulos, incluido bocetos. A
+  // nivel de rutas esto ya lo resuelve ROLE_INHERITANCE en roles.guard.ts
+  // (SUPPORT hereda ADMIN), pero los chequeos literales `user.role ===
+  // Role.ADMIN` dentro de este servicio no pasan por el guard y se
+  // quedaban bloqueando a SUPPORT. Centralizar la equivalencia acá evita
+  // que quede un chequeo desactualizado si se agrega otro caso. No toca
+  // los permisos EXCLUSIVOS de SUPPORT (p. ej. LabelMessageRule), que
+  // siguen intactos porque son chequeos aparte, no relacionados con ADMIN.
+  private isAdminLike(role: Role): boolean {
+    return role === Role.ADMIN || role === Role.SUPPORT;
+  }
+
   // ADR-004 Submódulo 11: publica al mismo bus de eventos que ya usa el
   // chat (RabbitMQ + SSE vía ChatEventsService), en vez de una
   // infraestructura de tiempo real nueva. El payload es deliberadamente
@@ -460,7 +473,7 @@ export class DesignBoardService {
     // SALES_MANAGER debe comportarse EXACTAMENTE como SALES en este modulo
     // (ver isSalesLike()), asi que tambien queda acotado a su propia cuenta
     // -- a diferencia de otros modulos (Leads), donde si tiene mas alcance.
-    if (!this.isSalesLike(user.role) && user.role !== Role.ADMIN) {
+    if (!this.isSalesLike(user.role) && !this.isAdminLike(user.role)) {
       throw new ForbiddenException(
         'Solo SALES, SALES_MANAGER o ADMIN pueden crear solicitudes de boceto',
       );
@@ -611,7 +624,7 @@ export class DesignBoardService {
 
     const isOwnerSales =
       this.isSalesLike(user.role) && request.createdByUserId === user.userId;
-    const isAdmin = user.role === Role.ADMIN;
+    const isAdmin = this.isAdminLike(user.role);
 
     if (!isOwnerSales && !isAdmin) {
       throw new ForbiddenException(
@@ -771,7 +784,7 @@ export class DesignBoardService {
 
     const isOwnerSales =
       this.isSalesLike(user.role) && request.createdByUserId === user.userId;
-    const isAdmin = user.role === Role.ADMIN;
+    const isAdmin = this.isAdminLike(user.role);
 
     if (!isOwnerSales && !isAdmin) {
       throw new ForbiddenException(
@@ -1203,7 +1216,7 @@ export class DesignBoardService {
     user: AuthUser,
     request: { createdByUserId: string; assignedUserId: string | null },
   ) {
-    if (user.role === Role.ADMIN || user.role === Role.DESIGNER_MANAGER) return;
+    if (this.isAdminLike(user.role) || user.role === Role.DESIGNER_MANAGER) return;
 
     if (this.isSalesLike(user.role)) {
       if (request.createdByUserId !== user.userId) {
@@ -1227,7 +1240,7 @@ export class DesignBoardService {
   // -------------------------------------------------------------
 
   async assign(user: AuthUser, id: string, dto: AssignDesignRequestDto) {
-    if (user.role !== Role.DESIGNER_MANAGER && user.role !== Role.ADMIN) {
+    if (user.role !== Role.DESIGNER_MANAGER && !this.isAdminLike(user.role)) {
       throw new ForbiddenException(
         'Solo el Jefe de Diseño puede asignar solicitudes',
       );
@@ -1384,7 +1397,7 @@ export class DesignBoardService {
     const request = await this.findOrThrow(id);
 
     const isOwnerSales = this.isSalesLike(user.role) && request.createdByUserId === user.userId;
-    const isManagerOrAdmin = user.role === Role.DESIGNER_MANAGER || user.role === Role.ADMIN;
+    const isManagerOrAdmin = user.role === Role.DESIGNER_MANAGER || this.isAdminLike(user.role);
 
     if (!isOwnerSales && !isManagerOrAdmin) {
       throw new ForbiddenException(
@@ -1608,7 +1621,7 @@ export class DesignBoardService {
 
     const isAuthor = comment.authorUserId === user.userId;
     const isModerator =
-      user.role === Role.ADMIN || user.role === Role.DESIGNER_MANAGER;
+      this.isAdminLike(user.role) || user.role === Role.DESIGNER_MANAGER;
     if (!isAuthor && !isModerator) {
       throw new ForbiddenException('Solo puedes eliminar tus propios comentarios');
     }
@@ -1654,7 +1667,7 @@ export class DesignBoardService {
 
     const isUploader = attachment.uploadedByUserId === user.userId;
     const isModerator =
-      user.role === Role.ADMIN || user.role === Role.DESIGNER_MANAGER;
+      this.isAdminLike(user.role) || user.role === Role.DESIGNER_MANAGER;
     if (!isUploader && !isModerator) {
       throw new ForbiddenException('No puedes eliminar este adjunto');
     }
@@ -1689,7 +1702,7 @@ export class DesignBoardService {
     // solicitud) -- desde 16/nov/2026 ya no existe un camino alternativo
     // por etiqueta (ver nota al final de este archivo).
     const isOwnerSales = this.isSalesLike(user.role) && request.createdByUserId === user.userId;
-    const isAdmin = user.role === Role.ADMIN;
+    const isAdmin = this.isAdminLike(user.role);
 
     if (!isOwnerSales && !isAdmin) {
       throw new ForbiddenException('No puedes aprobar esta solicitud');
@@ -1836,7 +1849,7 @@ export class DesignBoardService {
 
     const isOwnerSales =
       this.isSalesLike(user.role) && request.createdByUserId === user.userId;
-    const isAdmin = user.role === Role.ADMIN;
+    const isAdmin = this.isAdminLike(user.role);
 
     if (!isOwnerSales && !isAdmin) {
       throw new ForbiddenException(
@@ -1954,7 +1967,7 @@ export class DesignBoardService {
 
     const isOwnerSales =
       this.isSalesLike(user.role) && request.createdByUserId === user.userId;
-    const isAdmin = user.role === Role.ADMIN;
+    const isAdmin = this.isAdminLike(user.role);
 
     if (!isOwnerSales && !isAdmin) {
       throw new ForbiddenException(
@@ -2093,7 +2106,7 @@ export class DesignBoardService {
     // Mismo criterio que "Aprobados" (visibilityWhere): este modulo es
     // exclusivo de DESIGNER_MANAGER/ADMIN, SALES nunca ve bocetos
     // archivados aunque sean suyos.
-    if (user.role !== Role.DESIGNER_MANAGER && user.role !== Role.ADMIN) {
+    if (user.role !== Role.DESIGNER_MANAGER && !this.isAdminLike(user.role)) {
       throw new ForbiddenException(
         'Solo el Jefe de Diseño puede consultar el archivo histórico de bocetos',
       );
@@ -2210,7 +2223,7 @@ export class DesignBoardService {
   // -------------------------------------------------------------
 
   async archive(user: AuthUser, id: string) {
-    if (user.role !== Role.DESIGNER_MANAGER && user.role !== Role.ADMIN) {
+    if (user.role !== Role.DESIGNER_MANAGER && !this.isAdminLike(user.role)) {
       throw new ForbiddenException(
         'Solo el Jefe de Diseño puede archivar solicitudes',
       );
@@ -2246,7 +2259,7 @@ export class DesignBoardService {
   // -------------------------------------------------------------
 
   async pause(user: AuthUser, id: string) {
-    if (user.role !== Role.DESIGNER_MANAGER && user.role !== Role.ADMIN) {
+    if (user.role !== Role.DESIGNER_MANAGER && !this.isAdminLike(user.role)) {
       throw new ForbiddenException(
         'Solo el Jefe de Diseño puede pausar el plazo',
       );
@@ -2290,7 +2303,7 @@ export class DesignBoardService {
   }
 
   async resume(user: AuthUser, id: string) {
-    if (user.role !== Role.DESIGNER_MANAGER && user.role !== Role.ADMIN) {
+    if (user.role !== Role.DESIGNER_MANAGER && !this.isAdminLike(user.role)) {
       throw new ForbiddenException(
         'Solo el Jefe de Diseño puede reanudar el plazo',
       );
@@ -2367,7 +2380,7 @@ export class DesignBoardService {
     // que el guard del controller (@Roles en design-board.controller.ts).
     if (
       user.role !== Role.DESIGNER_MANAGER &&
-      user.role !== Role.ADMIN &&
+      !this.isAdminLike(user.role) &&
       user.role !== Role.SALES_MANAGER
     ) {
       throw new ForbiddenException(
@@ -2701,7 +2714,7 @@ export class DesignBoardService {
   ) {
     if (
       user.role !== Role.DESIGNER_MANAGER &&
-      user.role !== Role.ADMIN &&
+      !this.isAdminLike(user.role) &&
       user.role !== Role.SALES_MANAGER
     ) {
       throw new ForbiddenException(
