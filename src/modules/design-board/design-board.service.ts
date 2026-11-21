@@ -589,7 +589,7 @@ export class DesignBoardService {
 
     return {
       ...designRequest,
-      categories: designRequest.categories.map((assignment) => assignment.category),
+      categories: designRequest.categories.map((assignment) => ({ ...assignment.category, approved: assignment.approved })),
     };
   }
 
@@ -976,7 +976,7 @@ export class DesignBoardService {
             ? userDisplayMap.get(request.assignedUserId) ?? null
             : null,
           hasNewComments: hasNewCommentsByRequestId.get(request.id) ?? false,
-          categories: request.categories.map((assignment) => assignment.category),
+          categories: request.categories.map((assignment) => ({ ...assignment.category, approved: assignment.approved })),
         },
         holidaySet,
       ),
@@ -1118,7 +1118,7 @@ export class DesignBoardService {
           ...comment,
           author: userDisplayMap.get(comment.authorUserId) ?? null,
         })),
-        categories: request.categories.map((assignment) => assignment.category),
+        categories: request.categories.map((assignment) => ({ ...assignment.category, approved: assignment.approved })),
       },
       holidaySet,
     );
@@ -1198,7 +1198,14 @@ export class DesignBoardService {
   private async findOrThrow(id: string) {
     const request = await this.prisma.designRequest.findUnique({
       where: { id },
-      include: { column: true, board: { include: { columns: true } } },
+      // categories: necesario para approve() (ver rejectedCategoryIds,
+      // 21/nov/2026) -- el resto de los ~15 llamadores de findOrThrow
+      // simplemente ignoran este campo extra, no rompe nada.
+      include: {
+        column: true,
+        board: { include: { columns: true } },
+        categories: true,
+      },
     });
 
     // Eliminacion logica (23/oct/2026): una vez eliminada, ninguna accion
@@ -1690,6 +1697,7 @@ export class DesignBoardService {
     user: AuthUser,
     id: string,
     approvedAttachmentIds?: string[],
+    rejectedCategoryIds?: string[],
   ) {
     const request = await this.findOrThrow(id);
 
@@ -1727,6 +1735,23 @@ export class DesignBoardService {
     // antes desde el detalle (ver markApprovedVersionAttachment()). Se
     // valida que los ids mandados sean adjuntos reales de ESTA solicitud
     // antes de tocar nada.
+    // Pedido explicito del usuario, 21/nov/2026: el cliente puede aprobar
+    // la solicitud pero rechazar alguna de sus categorias en particular
+    // (ej. "cajas" en una solicitud de envio/vasos/bolsas/cajas) -- por
+    // defecto TODAS quedan aprobadas, aca solo llegan las rechazadas.
+    // Se valida que pertenezcan a esta solicitud antes de tocar nada,
+    // mismo criterio que approvedAttachmentIds.
+    const rejectedIds = [...new Set(rejectedCategoryIds ?? [])];
+    if (rejectedIds.length > 0) {
+      const requestCategoryIds = new Set(request.categories.map((a) => a.categoryId));
+      const invalidRejected = rejectedIds.filter((cid) => !requestCategoryIds.has(cid));
+      if (invalidRejected.length > 0) {
+        throw new BadRequestException(
+          'Alguna de las categorías indicadas como no aprobadas no pertenece a esta solicitud',
+        );
+      }
+    }
+
     const ids = [...new Set(approvedAttachmentIds ?? [])];
     if (ids.length > 0) {
       const matching = await this.prisma.designRequestAttachment.findMany({
@@ -1801,6 +1826,25 @@ export class DesignBoardService {
           where: { id: { in: ids } },
           data: { isApprovedVersion: true },
         });
+      }
+
+      // Pedido explicito del usuario, 21/nov/2026: re-escribe el estado
+      // `approved` de CADA categoria de la solicitud en esta misma
+      // aprobacion (no solo las rechazadas) -- asi, si la tarjeta vuelve
+      // a "Modificacion" y se re-aprueba despues, la decision de esta
+      // llamada manda y no quedan rechazos de un intento anterior
+      // pegados por error (mismo criterio que ya usaba approvedAttachmentIds
+      // arriba).
+      if (request.categories.length > 0) {
+        const rejectedSet = new Set(rejectedIds);
+        await Promise.all(
+          request.categories.map((assignment) =>
+            tx.designRequestCategoryAssignment.update({
+              where: { id: assignment.id },
+              data: { approved: !rejectedSet.has(assignment.categoryId) },
+            }),
+          ),
+        );
       }
 
       return result;
@@ -2200,7 +2244,7 @@ export class DesignBoardService {
       archivedByUser: request.archivedByUserId
         ? userDisplayMap.get(request.archivedByUserId) ?? null
         : null,
-      categories: request.categories.map((assignment) => assignment.category),
+      categories: request.categories.map((assignment) => ({ ...assignment.category, approved: assignment.approved })),
       // Atajo para el frontend: todos los adjuntos marcados como "version
       // aprobada" (tarjeta + comentarios), ya aplanados -- evita que cada
       // pantalla que consuma este buscador tenga que repetir la logica de
@@ -2619,7 +2663,15 @@ export class DesignBoardService {
       includeByCategory
         ? this.prisma.designRequestCategoryAssignment.groupBy({
             by: ['categoryId'],
-            where: { designRequest: approvedFromRangeCohort },
+            // Pedido explicito del usuario, 21/nov/2026: una categoria
+            // solo cuenta como "aprobada" si la solicitud entera se
+            // aprobo Y esa categoria en particular no fue rechazada al
+            // aprobar (approved: true, ver DesignBoardService.approve()
+            // y rejectedCategoryIds) -- antes heredaba el aprobado de
+            // approvedFromRangeCohort sin distinguir, asi que las 4
+            // categorias de una solicitud sumaban "aprobada" por igual
+            // aunque el cliente solo hubiera aceptado 2 de ellas.
+            where: { approved: true, designRequest: approvedFromRangeCohort },
             _count: { _all: true },
           })
         : Promise.resolve([]),

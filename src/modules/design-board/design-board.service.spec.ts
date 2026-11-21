@@ -55,6 +55,7 @@ describe('DesignBoardService', () => {
     };
     designRequestStatusEvent: { create: jest.Mock };
     designRequestComment: { create: jest.Mock; groupBy: jest.Mock };
+    designRequestCategoryAssignment: { groupBy: jest.Mock };
     designRequestCommentView: { findMany: jest.Mock; upsert: jest.Mock };
     designRequestAttachment: {
       findFirst: jest.Mock;
@@ -79,6 +80,7 @@ describe('DesignBoardService', () => {
     designRequest: { create: jest.Mock; update: jest.Mock };
     designRequestStatusEvent: { create: jest.Mock };
     designRequestAttachment: { updateMany: jest.Mock };
+    designRequestCategoryAssignment: { update: jest.Mock };
   };
 
   beforeEach(async () => {
@@ -86,6 +88,10 @@ describe('DesignBoardService', () => {
       designRequest: { create: jest.fn(), update: jest.fn() },
       designRequestStatusEvent: { create: jest.fn() },
       designRequestAttachment: { updateMany: jest.fn() },
+      // Pedido explicito del usuario, 21/nov/2026: approve() re-escribe
+      // el estado `approved` de cada categoria de la solicitud dentro de
+      // la misma transaccion -- ver describe('approve: categorias...').
+      designRequestCategoryAssignment: { update: jest.fn() },
     };
 
     prisma = {
@@ -1591,7 +1597,7 @@ describe('DesignBoardService', () => {
   // ---------------------------------------------------------------
 
   describe('approve', () => {
-    function doneRequest() {
+    function doneRequest(categories: Array<{ id: string; categoryId: string }> = []) {
       return {
         id: 'req-1',
         accountId: 'account-1',
@@ -1600,6 +1606,7 @@ describe('DesignBoardService', () => {
         assignedUserId: 'designer-1',
         column: COLUMNS[2],
         board: board(),
+        categories,
       };
     }
 
@@ -1719,6 +1726,103 @@ describe('DesignBoardService', () => {
         leadId: 'lead-1',
         label: SYSTEM_LABEL_CODES.BOCETO_APROBADO,
         changedByUserId: 'sales-1',
+      });
+    });
+
+    // Pedido explicito del usuario, 21/nov/2026: el cliente puede
+    // aprobar una solicitud pero rechazar alguna de sus categorias en
+    // particular (ej. una solicitud de envio/vasos/bolsas/cajas donde
+    // solo aprueba vasos y bolsas) -- ver DesignBoardService.approve()
+    // y ApproveDesignRequestDto.rejectedCategoryIds.
+    describe('categorias (aprobadas/rechazadas dentro de la misma solicitud)', () => {
+      it('marks every category of the request as approved=true when no rejectedCategoryIds are given (default: se aprueba todo)', async () => {
+        prisma.designRequest.findUnique.mockResolvedValue(
+          doneRequest([
+            { id: 'assign-envio', categoryId: 'cat-envio' },
+            { id: 'assign-vasos', categoryId: 'cat-vasos' },
+            { id: 'assign-bolsas', categoryId: 'cat-bolsas' },
+          ]),
+        );
+        tx.designRequest.update.mockResolvedValue({ id: 'req-1', columnId: 'col-approved' });
+
+        await service.approve(SALES, 'req-1');
+
+        expect(tx.designRequestCategoryAssignment.update).toHaveBeenCalledTimes(3);
+        for (const id of ['assign-envio', 'assign-vasos', 'assign-bolsas']) {
+          expect(tx.designRequestCategoryAssignment.update).toHaveBeenCalledWith({
+            where: { id },
+            data: { approved: true },
+          });
+        }
+      });
+
+      it('marks only the rejected categories as approved=false, keeping the rest approved=true', async () => {
+        prisma.designRequest.findUnique.mockResolvedValue(
+          doneRequest([
+            { id: 'assign-envio', categoryId: 'cat-envio' },
+            { id: 'assign-vasos', categoryId: 'cat-vasos' },
+            { id: 'assign-cajas', categoryId: 'cat-cajas' },
+            { id: 'assign-bolsas', categoryId: 'cat-bolsas' },
+          ]),
+        );
+        tx.designRequest.update.mockResolvedValue({ id: 'req-1', columnId: 'col-approved' });
+
+        await service.approve(SALES, 'req-1', undefined, ['cat-cajas']);
+
+        expect(tx.designRequestCategoryAssignment.update).toHaveBeenCalledWith({
+          where: { id: 'assign-cajas' },
+          data: { approved: false },
+        });
+        expect(tx.designRequestCategoryAssignment.update).toHaveBeenCalledWith({
+          where: { id: 'assign-vasos' },
+          data: { approved: true },
+        });
+        expect(tx.designRequestCategoryAssignment.update).toHaveBeenCalledWith({
+          where: { id: 'assign-bolsas' },
+          data: { approved: true },
+        });
+        expect(tx.designRequestCategoryAssignment.update).toHaveBeenCalledWith({
+          where: { id: 'assign-envio' },
+          data: { approved: true },
+        });
+      });
+
+      it('rejects a rejectedCategoryIds entry that does not belong to this request, without updating anything', async () => {
+        prisma.designRequest.findUnique.mockResolvedValue(
+          doneRequest([{ id: 'assign-vasos', categoryId: 'cat-vasos' }]),
+        );
+
+        await expect(
+          service.approve(SALES, 'req-1', undefined, ['cat-de-otra-solicitud']),
+        ).rejects.toBeInstanceOf(BadRequestException);
+
+        expect(tx.designRequest.update).not.toHaveBeenCalled();
+        expect(tx.designRequestCategoryAssignment.update).not.toHaveBeenCalled();
+      });
+
+      it('does not touch designRequestCategoryAssignment when the request has no categories', async () => {
+        prisma.designRequest.findUnique.mockResolvedValue(doneRequest([]));
+        tx.designRequest.update.mockResolvedValue({ id: 'req-1', columnId: 'col-approved' });
+
+        await service.approve(SALES, 'req-1');
+
+        expect(tx.designRequestCategoryAssignment.update).not.toHaveBeenCalled();
+      });
+
+      // Re-aprobacion tras un ciclo de "Modificacion": la decision de
+      // ESTA llamada debe mandar sobre cualquier rechazo anterior.
+      it('re-approves a previously rejected category when it is not in rejectedCategoryIds on a later approve() call', async () => {
+        prisma.designRequest.findUnique.mockResolvedValue(
+          doneRequest([{ id: 'assign-cajas', categoryId: 'cat-cajas' }]),
+        );
+        tx.designRequest.update.mockResolvedValue({ id: 'req-1', columnId: 'col-approved' });
+
+        await service.approve(SALES, 'req-1');
+
+        expect(tx.designRequestCategoryAssignment.update).toHaveBeenCalledWith({
+          where: { id: 'assign-cajas' },
+          data: { approved: true },
+        });
       });
     });
   });
@@ -2321,6 +2425,26 @@ describe('DesignBoardService', () => {
 
         const [{ where }] = prisma.designRequest.count.mock.calls[0];
         expect(where.categories).toBeUndefined();
+      });
+
+      // Pedido explicito del usuario, 21/nov/2026: "Por categoria" debe
+      // distinguir, DENTRO de una misma solicitud aprobada, cuales
+      // categorias aprobo el cliente y cuales no (antes todas sumaban
+      // "aprobada" por igual) -- ver DesignBoardService.approve() y
+      // ApproveDesignRequestDto.rejectedCategoryIds.
+      it('counts a category as approved only when its assignment is approved=true, not just because the request was approved', async () => {
+        prisma.designRequest.count.mockResolvedValue(0);
+        prisma.designRequest.groupBy.mockResolvedValue([]);
+        prisma.designRequestCategoryAssignment.groupBy.mockResolvedValue([]);
+
+        await service.getReportsSummary(MANAGER, { dateTo: '2026-03-10' });
+
+        const approvedCall = (
+          prisma.designRequestCategoryAssignment.groupBy as jest.Mock
+        ).mock.calls.find(([args]: any[]) => args.where?.designRequest?.approvedAt);
+        expect(approvedCall).toBeDefined();
+        const [{ where }] = approvedCall!;
+        expect(where.approved).toBe(true);
       });
     });
   });

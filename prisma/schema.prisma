@@ -1551,6 +1551,22 @@ model DesignRequestCategoryAssignment {
   categoryId String
   category   DesignRequestCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
+  // Pedido explicito del usuario, 21/nov/2026: el cliente puede aprobar
+  // una solicitud pero rechazar alguna de sus categorias en particular
+  // (ej. "vasos" y "bolsas" si, "cajas" no) -- ANTES, al aprobar la
+  // solicitud entera, las 4 categorias sumaban "aprobada" por igual en
+  // los reportes. Default true porque "por defecto se suelen aprobar
+  // todas"; DesignBoardService.approve() es el unico lugar que la
+  // cambia (ver rejectedCategoryIds), re-escribiendo TODAS las
+  // asignaciones de la solicitud en cada llamada (igual criterio que ya
+  // usaba para isApprovedVersion de los adjuntos) -- asi que una
+  // re-aprobacion tras un ciclo de "Modificacion" no deja rechazos
+  // viejos pegados. No dispara ningun flujo adicional (sin reapertura
+  // ni notificacion): es puramente el dato que usa el reporte "Por
+  // categoria" (byCategory) para separar aprobadas de no aprobadas
+  // dentro de una misma solicitud aprobada.
+  approved Boolean @default(true)
+
   createdAt DateTime @default(now())
 
   @@unique([designRequestId, categoryId])

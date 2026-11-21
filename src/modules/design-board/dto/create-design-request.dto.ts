@@ -187,6 +187,16 @@ export class ApproveDesignRequestDto {
   @ArrayMaxSize(20)
   @IsUUID('4', { each: true })
   approvedAttachmentIds?: string[];
+
+  // Pedido explicito del usuario, 21/nov/2026: por defecto se aprueban
+  // TODAS las categorias de la solicitud -- aca solo se mandan las que
+  // el cliente NO acepto (ej. "cajas" en una solicitud de envio/vasos/
+  // bolsas/cajas). Ver DesignBoardService.approve().
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsUUID('4', { each: true })
+  rejectedCategoryIds?: string[];
 }
 
 // Pedido explicito del usuario, 28/oct/2026: marcar/desmarcar un adjunto

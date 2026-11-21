@@ -168,7 +168,12 @@ export class DesignBoardController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ApproveDesignRequestDto,
   ) {
-    return this.designBoardService.approve(req.user, id, dto.approvedAttachmentIds);
+    return this.designBoardService.approve(
+      req.user,
+      id,
+      dto.approvedAttachmentIds,
+      dto.rejectedCategoryIds,
+    );
   }
 
   // Pedido explicito del usuario, 28/oct/2026: marcar/desmarcar despues
