@@ -2544,6 +2544,7 @@ export class DesignBoardService {
       completedCount,
       approvedCount,
       approvedByCountry,
+      completedByCountry,
       completedByCreator,
       approvedByCreator,
       completedByDesignerRequests,
@@ -2555,6 +2556,14 @@ export class DesignBoardService {
       this.prisma.designRequest.groupBy({
         by: ['country'],
         where: approvedFromRangeCohort,
+        _count: { _all: true },
+      }),
+      // Pedido explicito del usuario, 21/nov/2026: "Por pais" debe mostrar
+      // los mismos 4 datos que "Por comercial" (terminados, aprobados, sin
+      // aprobar, tasa) -- antes solo traia el conteo de aprobados.
+      this.prisma.designRequest.groupBy({
+        by: ['country'],
+        where: completedInRange,
         _count: { _all: true },
       }),
       this.prisma.designRequest.groupBy({
@@ -2618,6 +2627,24 @@ export class DesignBoardService {
 
     const approvalRate =
       completedCount > 0 ? (approvedCount / completedCount) * 100 : 0;
+
+    const approvedCountByCountry = new Map<string, number>(
+      approvedByCountry.map((row: any) => [row.country, row._count._all]),
+    );
+    const byCountry = completedByCountry.map((row: any) => {
+      const countryCompletedCount = row._count._all;
+      const countryApprovedCount = approvedCountByCountry.get(row.country) ?? 0;
+      return {
+        country: row.country,
+        completedCount: countryCompletedCount,
+        approvedCount: countryApprovedCount,
+        notApprovedCount: countryCompletedCount - countryApprovedCount,
+        approvalRate:
+          countryCompletedCount > 0
+            ? (countryApprovedCount / countryCompletedCount) * 100
+            : 0,
+      };
+    });
 
     const approvedCountByCreator = new Map<string, number>(
       approvedByCreator.map((row: any) => [row.createdByUserId, row._count._all]),
@@ -2689,10 +2716,7 @@ export class DesignBoardService {
       approvedCount,
       notApprovedCount: completedCount - approvedCount,
       approvalRate,
-      approvedByCountry: approvedByCountry.map((row: any) => ({
-        country: row.country,
-        count: row._count._all,
-      })),
+      byCountry,
       byCreator,
       byDesigner: Array.from(byDesignerMap.values()),
       byCategory,

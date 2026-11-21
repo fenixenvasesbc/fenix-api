@@ -2069,7 +2069,8 @@ describe('DesignBoardService', () => {
         '2025-11': {
           completed: 2,
           approved: 1,
-          country: [{ country: 'ES', _count: { _all: 1 } }],
+          completedByCountry: [{ country: 'ES', _count: { _all: 2 } }],
+          approvedByCountry: [{ country: 'ES', _count: { _all: 1 } }],
           completedByCreator: [{ createdByUserId: 'sales-1', _count: { _all: 2 } }],
           approvedByCreator: [{ createdByUserId: 'sales-1', _count: { _all: 1 } }],
           completedRequests: [
@@ -2080,7 +2081,8 @@ describe('DesignBoardService', () => {
         '2025-12': {
           completed: 0,
           approved: 0,
-          country: [],
+          completedByCountry: [],
+          approvedByCountry: [],
           completedByCreator: [],
           approvedByCreator: [],
           completedRequests: [],
@@ -2088,7 +2090,8 @@ describe('DesignBoardService', () => {
         '2026-01': {
           completed: 5,
           approved: 5,
-          country: [{ country: 'FR', _count: { _all: 5 } }],
+          completedByCountry: [{ country: 'FR', _count: { _all: 5 } }],
+          approvedByCountry: [{ country: 'FR', _count: { _all: 5 } }],
           completedByCreator: [{ createdByUserId: 'sales-2', _count: { _all: 5 } }],
           approvedByCreator: [{ createdByUserId: 'sales-2', _count: { _all: 5 } }],
           completedRequests: [
@@ -2105,7 +2108,9 @@ describe('DesignBoardService', () => {
       });
       prisma.designRequest.groupBy.mockImplementation(async ({ by, where }: any) => {
         const key = monthKeyFromGte(where.completedAt.gte);
-        if (by[0] === 'country') return dataByMonth[key].country;
+        if (by[0] === 'country') {
+          return where.approvedAt ? dataByMonth[key].approvedByCountry : dataByMonth[key].completedByCountry;
+        }
         return where.approvedAt ? dataByMonth[key].approvedByCreator : dataByMonth[key].completedByCreator;
       });
       prisma.designRequest.findMany.mockImplementation(async ({ where }: any) => {
@@ -2122,7 +2127,9 @@ describe('DesignBoardService', () => {
       expect(nov.completedCount).toBe(2);
       expect(nov.approvedCount).toBe(1);
       expect(nov.approvalRate).toBe(50);
-      expect(nov.approvedByCountry).toEqual([{ country: 'ES', count: 1 }]);
+      expect(nov.byCountry).toEqual([
+        { country: 'ES', completedCount: 2, approvedCount: 1, notApprovedCount: 1, approvalRate: 50 },
+      ]);
       expect(nov.byCreator).toEqual([
         { createdByUserId: 'sales-1', completedCount: 2, approvedCount: 1, notApprovedCount: 1, approvalRate: 50 },
       ]);
