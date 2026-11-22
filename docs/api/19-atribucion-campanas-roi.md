@@ -85,16 +85,18 @@ Estado de cada semana:
 
 ### Tiempos de conversión
 
-Dos tramos, con media, mediana, p80 y p90 (días), globales y por familia:
+**No dependen de la captación de n8n.** Se calculan sobre la primera solicitud BOCETO de **cada** lead creada en el rango (semana de creación del boceto; por defecto las últimas 26 semanas), venga o no de una campaña. Dos tramos, con media, mediana, p80 y p90 (días):
 
 | Tramo | Desde | Hasta |
 |---|---|---|
-| `daysReplyToBoceto` | Primera respuesta del lead: primer mensaje `INBOUND` (`Message.occurredAt`) entre el toque atribuido y la creación del boceto | Creación de la primera solicitud BOCETO |
+| `daysReplyToBoceto` | Primera respuesta del lead (primer mensaje `INBOUND`, `Message.occurredAt`) | Creación de la primera solicitud BOCETO |
 | `daysBocetoToApproval` | Creación de la solicitud | `approvedAt` |
 
-`replied` = bocetos con una respuesta del lead registrada antes de pedirlos (los que no la tienen quedan fuera del primer tramo). No se usa `Lead.firstInboundAt` porque se fija una sola vez en toda la vida del lead: en un lead que vuelve a entrar por otra campaña, o que escribió antes de que n8n lo contactara, sería una respuesta anterior a la campaña. Para un lead nuevo de n8n ambos valores coinciden.
+Primera respuesta: el primer mensaje entrante anterior al boceto y, si el lead tuvo un contacto de n8n antes del boceto, posterior al último de esos contactos (para no tomar una respuesta de una campaña anterior). Sin contacto de n8n equivale a `Lead.firstInboundAt`. `replied` = bocetos con respuesta previa (los que no la tienen quedan fuera del primer tramo).
 
-`daysEntryToApproval` y `curve` (aprobaciones acumuladas por semana desde la entrada, hasta 13 semanas) se mantienen solo para calcular la madurez de la cohorte.
+`byFamily` agrupa por la familia del último contacto de n8n; los leads sin contacto van en `__no_campaign__` ("Sin contacto de n8n").
+
+`curve`, `curveSample`, `maturityWeeks` y `daysEntryToApproval` salen de la cohorte de campañas (semana del contacto de n8n) y solo sirven para la madurez.
 
 ## UI (Fenix-SPA)
 

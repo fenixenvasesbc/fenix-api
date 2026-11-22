@@ -1,5 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
-import { AcquisitionReportService, UNASSIGNED_KEY } from './acquisition-report.service';
+import {
+  AcquisitionReportService,
+  NO_CAMPAIGN_KEY,
+  UNASSIGNED_KEY,
+} from './acquisition-report.service';
 
 /**
  * ADR-007. El SQL (bucket semanal en Europe/Madrid, primera BOCETO y ultimo
@@ -16,6 +20,7 @@ describe('AcquisitionReportService (ADR-007)', () => {
   let leadRows: any[];
   let bocetoRows: any[];
   let attributedRows: any[];
+  let timingRows: any[];
 
   const prisma = {
     investmentFamily: { findMany: jest.fn(), count: jest.fn() },
@@ -37,11 +42,13 @@ describe('AcquisitionReportService (ADR-007)', () => {
     leadRows = [];
     bocetoRows = [];
     attributedRows = [];
+    timingRows = [];
     prisma.investmentFamily.findMany.mockResolvedValue(families);
     prisma.familyWeeklySpend.findMany.mockResolvedValue([]);
     prisma.$queryRaw.mockImplementation(async (sql: { sql: string }) => {
       if (sql.sql.includes('COUNT(DISTINCT t."leadId")')) return leadRows;
       if (sql.sql.includes('COUNT(a."approvedAt")')) return bocetoRows;
+      if (sql.sql.includes('acquisition:timings')) return timingRows;
       return attributedRows;
     });
     service = new AcquisitionReportService(prisma as any);
@@ -169,6 +176,7 @@ describe('AcquisitionReportService (ADR-007)', () => {
         row('2026-10-05', 2, 30),
         row('2026-10-05', 1, null), // pedido sin aprobar
       ];
+      timingRows = attributedRows;
 
       const lag = await service.getConversionLag({ from: '2026-10-05', to: '2026-11-23' });
 
@@ -176,6 +184,7 @@ describe('AcquisitionReportService (ADR-007)', () => {
       expect(lag.approved).toBe(10);
       expect(lag.replied).toBe(11);
       expect(lag.daysEntryToApproval.p50).toBe(8);
+      expect(lag.curveSample).toBe(10);
       expect(lag.curve[0]).toEqual({ week: 0, cumulativeShare: 0.4 }); // <7 dias: 2,3,4,5
       expect(lag.curve[1]).toEqual({ week: 1, cumulativeShare: 0.8 });
       expect(lag.maturityWeeks).toBe(2);
@@ -188,7 +197,7 @@ describe('AcquisitionReportService (ADR-007)', () => {
     });
 
     it('tramos pedidos por el usuario: primera respuesta -> boceto y boceto -> aprobado (media y percentiles)', async () => {
-      attributedRows = [
+      timingRows = [
         // respuesta a las 12h, boceto al dia 1 -> 0.5 dias; aprobado al dia 3 -> 2 dias
         row('2026-11-02', 1, 3),
         // respuesta a las 12h, boceto al dia 2 -> 1.5 dias; aprobado al dia 6 -> 4 dias
@@ -211,10 +220,47 @@ describe('AcquisitionReportService (ADR-007)', () => {
           daysBocetoToApproval: expect.objectContaining({ p50: 2 }),
         }),
       );
+      // la curva/madurez sale de la cohorte de campañas (vacia aqui)
+      expect(lag.curve).toEqual([]);
+    });
+
+    it('los tiempos NO dependen de n8n: bocetos sin contacto de n8n cuentan en "Sin contacto de n8n"', async () => {
+      const bocetoAt = new Date('2026-11-10T10:00:00Z');
+      timingRows = [
+        {
+          leadId: 'lead-organico',
+          touchAt: null,
+          familyId: null,
+          firstReplyAt: new Date('2026-11-08T10:00:00Z'), // 2 dias antes
+          bocetoAt,
+          approvedAt: new Date('2026-11-13T10:00:00Z'), // 3 dias despues
+        },
+      ];
+      attributedRows = []; // ningun lead de campaña
+
+      const lag = await service.getConversionLag({ from: '2026-11-02', to: '2026-11-23' });
+
+      expect(lag.bocetos).toBe(1);
+      expect(lag.daysReplyToBoceto.mean).toBe(2);
+      expect(lag.daysBocetoToApproval.mean).toBe(3);
+      expect(lag.byFamily).toEqual([
+        expect.objectContaining({ key: NO_CAMPAIGN_KEY, name: 'Sin contacto de n8n', bocetos: 1, approved: 1 }),
+      ]);
+    });
+
+    it('filtra por la semana del boceto (no la del contacto)', async () => {
+      timingRows = [
+        { leadId: 'a', touchAt: null, familyId: null, firstReplyAt: null, bocetoAt: new Date('2026-10-20T10:00:00Z'), approvedAt: null },
+        { leadId: 'b', touchAt: null, familyId: null, firstReplyAt: null, bocetoAt: new Date('2026-11-10T10:00:00Z'), approvedAt: null },
+      ];
+      const lag = await service.getConversionLag({ from: '2026-11-02', to: '2026-11-23' });
+      expect(lag.bocetos).toBe(1);
+      expect(lag.replied).toBe(0);
     });
 
     it('sin aprobaciones devuelve estadisticas nulas y curva vacia', async () => {
       attributedRows = [row('2026-11-02', 1, null)];
+      timingRows = attributedRows;
       const lag = await service.getConversionLag({ from: '2026-11-02', to: '2026-11-23' });
       expect(lag.daysEntryToApproval).toEqual({ mean: null, p50: null, p80: null, p90: null });
       expect(lag.daysBocetoToApproval).toEqual({ mean: null, p50: null, p80: null, p90: null });

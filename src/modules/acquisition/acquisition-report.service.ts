@@ -12,6 +12,8 @@ import {
 } from './acquisition-week.util';
 
 export const UNASSIGNED_KEY = '__unassigned__';
+// Tiempos de conversion: bocetos de leads sin ningun contacto de n8n previo
+export const NO_CAMPAIGN_KEY = '__no_campaign__';
 const DEFAULT_WEEKS = 8;
 const MAX_WEEKS = 104;
 // Ventana para calcular la madurez (tiempos de conversion historicos)
@@ -27,6 +29,17 @@ type WeekCell = {
   bocetos: number;
   approved: number;
   spendCents: number | null;
+};
+
+// Fila del analisis de tiempos: TODA primera solicitud BOCETO de un lead,
+// venga o no de una campaña de n8n (touchAt/familyId null si no).
+type TimingRow = {
+  leadId: string;
+  touchAt: Date | null;
+  familyId: string | null;
+  firstReplyAt: Date | null;
+  bocetoAt: Date;
+  approvedAt: Date | null;
 };
 
 type AttributedRow = {
@@ -287,6 +300,14 @@ export class AcquisitionReportService {
   // Analisis de tiempos de conversion
   // ---------------------------------------------------------------------
 
+  /**
+   * Tiempos de conversion (pedido del usuario): (1) primera respuesta del
+   * lead -> boceto pedido y (2) boceto pedido -> boceto aprobado. NO dependen
+   * de la captacion de n8n: se calculan sobre TODA primera solicitud BOCETO
+   * de un lead pedida en el rango (semana de creacion del boceto). La curva
+   * y la madurez si salen de la cohorte de campañas (necesitan la semana de
+   * entrada del lead).
+   */
   async getConversionLag(query: { from?: string; to?: string }) {
     const { fromWeek, toWeek } = this.resolveWeekRange(
       query.from,
@@ -294,46 +315,111 @@ export class AcquisitionReportService {
       MATURITY_LOOKBACK_WEEKS,
     );
     const range = coarseUtcRange(fromWeek, toWeek);
-    const rows = await this.loadAttributed(range.start, range.end);
-    const inRange = rows.filter((r) => {
-      const w = this.weekOfInstant(r.touchAt);
+    const inWeeks = (instant: Date) => {
+      const w = this.weekOfInstant(instant);
       return w >= fromWeek && w <= toWeek;
-    });
+    };
 
-    const families = await this.prisma.investmentFamily.findMany({
-      select: { id: true, name: true },
-    });
+    const [timingRows, attributedRows, families] = await Promise.all([
+      this.loadTimings(range.start, range.end),
+      this.loadAttributed(range.start, range.end),
+      this.prisma.investmentFamily.findMany({ select: { id: true, name: true } }),
+    ]);
+    const timings = timingRows.filter((r) => inWeeks(r.bocetoAt));
+    const cohort = attributedRows.filter((r) => inWeeks(r.touchAt));
     const familyName = new Map(families.map((f) => [f.id, f.name]));
 
-    const summary = this.lagSummary(inRange);
-    const byFamilyMap = new Map<string, AttributedRow[]>();
-    for (const r of inRange) {
-      const key = r.familyId ?? UNASSIGNED_KEY;
-      const list = byFamilyMap.get(key) ?? [];
+    const cohortSummary = this.lagSummary(cohort);
+    const byGroup = new Map<string, TimingRow[]>();
+    for (const r of timings) {
+      const key = r.touchAt === null ? NO_CAMPAIGN_KEY : r.familyId ?? UNASSIGNED_KEY;
+      const list = byGroup.get(key) ?? [];
       list.push(r);
-      byFamilyMap.set(key, list);
+      byGroup.set(key, list);
     }
+    const groupName = (key: string) =>
+      key === NO_CAMPAIGN_KEY
+        ? 'Sin contacto de n8n'
+        : key === UNASSIGNED_KEY
+          ? 'Sin familia asignada'
+          : familyName.get(key) ?? key;
 
     return {
       from: fromWeek,
       to: toWeek,
-      ...summary,
+      ...this.timingSummary(timings),
+      // Cohorte de campañas (semana de entrada): solo para la madurez
+      curve: cohortSummary.curve,
+      curveSample: cohortSummary.approved,
+      maturityWeeks: cohortSummary.maturityWeeks,
+      daysEntryToApproval: cohortSummary.daysEntryToApproval,
       maturityThreshold: MATURITY_THRESHOLD,
-      byFamily: Array.from(byFamilyMap.entries())
-        .map(([key, list]) => {
-          const s = this.lagSummary(list);
-          return {
-            key,
-            name: key === UNASSIGNED_KEY ? 'Sin familia asignada' : familyName.get(key) ?? key,
-            bocetos: s.bocetos,
-            approved: s.approved,
-            daysReplyToBoceto: s.daysReplyToBoceto,
-            daysBocetoToApproval: s.daysBocetoToApproval,
-          };
-        })
+      byFamily: Array.from(byGroup.entries())
+        .map(([key, list]) => ({ key, name: groupName(key), ...this.timingSummary(list) }))
         .sort((a, b) => b.bocetos - a.bocetos),
     };
   }
+
+  private timingSummary(rows: TimingRow[]) {
+    const dayMs = 86_400_000;
+    const replied = rows.filter((r) => r.firstReplyAt);
+    const approved = rows.filter((r) => r.approvedAt);
+    return {
+      bocetos: rows.length,
+      approved: approved.length,
+      replied: replied.length,
+      daysReplyToBoceto: this.stats(
+        replied.map((r) => (r.bocetoAt.getTime() - r.firstReplyAt!.getTime()) / dayMs),
+      ),
+      daysBocetoToApproval: this.stats(
+        approved.map((r) => (r.approvedAt!.getTime() - r.bocetoAt.getTime()) / dayMs),
+      ),
+    };
+  }
+
+  /**
+   * Primera solicitud BOCETO de cada lead creada en el rango, con o sin
+   * contacto de n8n. Primera respuesta = primer mensaje INBOUND (hora real)
+   * anterior al boceto y, si hubo contacto de n8n antes, posterior al ultimo
+   * de esos contactos (para no tomar una respuesta de una campaña anterior).
+   * Sin contacto de n8n equivale a Lead.firstInboundAt.
+   */
+  private async loadTimings(start: Date, end: Date): Promise<TimingRow[]> {
+    return this.prisma.$queryRaw<TimingRow[]>(Prisma.sql`
+      -- acquisition:timings
+      WITH first_boceto AS (
+        SELECT DISTINCT ON (dr."leadId")
+               dr."leadId", dr."createdAt", dr."approvedAt"
+        FROM "DesignRequest" dr
+        WHERE dr."requestType" IS NULL OR dr."requestType" = 'BOCETO'
+        ORDER BY dr."leadId", dr."createdAt" ASC
+      )
+      SELECT fb."leadId",
+             t."occurredAt" AS "touchAt",
+             l."familyId" AS "familyId",
+             (
+               SELECT MIN(m."occurredAt")
+               FROM "Message" m
+               WHERE m."leadId" = fb."leadId"
+                 AND m."direction" = 'INBOUND'
+                 AND m."occurredAt" <= fb."createdAt"
+                 AND (t."occurredAt" IS NULL OR m."occurredAt" >= t."occurredAt")
+             ) AS "firstReplyAt",
+             fb."createdAt" AS "bocetoAt",
+             fb."approvedAt" AS "approvedAt"
+      FROM first_boceto fb
+      LEFT JOIN LATERAL (
+        SELECT t2."occurredAt", t2."landingId"
+        FROM "LeadAcquisitionTouch" t2
+        WHERE t2."leadId" = fb."leadId" AND t2."occurredAt" <= fb."createdAt"
+        ORDER BY t2."occurredAt" DESC
+        LIMIT 1
+      ) t ON TRUE
+      LEFT JOIN "Landing" l ON l."id" = t."landingId"
+      WHERE fb."createdAt" >= ${start} AND fb."createdAt" < ${end}
+    `);
+  }
+
 
   /** Semanas que hacen falta para que una semana se considere madura. */
   async computeMaturity() {
