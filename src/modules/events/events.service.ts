@@ -10,10 +10,14 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { normalizeLeadName } from '../../common/utils/lead-name';
 import { YCloudOutboundAcceptedDto } from './dto/ycloud-outbound-accepted.dto';
 import { YCloudInboundReceivedDto } from './dto/ycloud-inbound-received.dto';
+import { AcquisitionTouchService } from '../acquisition/acquisition-touch.service';
 
 @Injectable()
 export class EventsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly acquisitionTouches: AcquisitionTouchService,
+  ) {}
 
   // -------------------------
   // Helpers
@@ -196,6 +200,17 @@ export class EventsService {
         await this.prisma.lead.update({ where: { id: leadId }, data });
       }
     }
+
+    // ADR-007: captacion de n8n. Solo los envios que traen `producto` (slug de
+    // la landing por la que entro el lead en Meta) cuentan para el ROI de
+    // campañas. recordTouch nunca lanza ni bloquea el registro del mensaje, y
+    // es idempotente por el id de YCloud (reintentos de n8n).
+    await this.acquisitionTouches.recordTouch({
+      leadId,
+      producto: body.producto,
+      occurredAt: providerCreateTime ?? new Date(),
+      externalMessageId: body.id,
+    });
 
     const msgData: Prisma.MessageCreateInput = {
       account: { connect: { id: account.id } },

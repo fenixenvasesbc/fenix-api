@@ -1,4 +1,4 @@
-import { IsEmail, IsISO8601, IsNotEmpty, IsNumber, IsObject, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsISO8601, IsNotEmpty, IsNumber, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 
 class YCloudTemplateLanguageDto {
   @IsString()
@@ -27,6 +27,13 @@ export class YCloudOutboundAcceptedDto {
   @IsOptional()
   @IsEmail()
   leadEmail?: string;
+
+  // ADR-007: slug de la landing (columna "Producto" de la hoja de n8n, p. ej.
+  // "/landing-pizza"). Solo los envios que lo traen cuentan como captacion.
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  producto?: string;
 
   // ---- Payload YCloud ----
   @IsString()

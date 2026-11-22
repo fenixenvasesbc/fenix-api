@@ -57,6 +57,7 @@ import { GlobalTemplatesModule } from './modules/global-templates/global-templat
 import { CampaignTemplatesModule } from './modules/campaign-templates/campaign-templates.module';
 import { LeadLabelDefinitionsModule } from './modules/lead-label-definitions/lead-label-definitions.module';
 import { DesignRequestCategoriesModule } from './modules/design-request-categories/design-request-categories.module';
+import { AcquisitionModule } from './modules/acquisition/acquisition.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -105,6 +106,8 @@ import { HealthModule } from './modules/health/health.module';
     CampaignTemplatesModule,
     LeadLabelDefinitionsModule,
     DesignRequestCategoriesModule,
+    // ADR-007: atribucion de captacion (n8n) y ROI semanal de campañas
+    AcquisitionModule,
     DesignBoardModule,
     DesignRequestSlaSchedulerModule,
   ],

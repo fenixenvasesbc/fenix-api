@@ -288,6 +288,7 @@ model Account {
   webhookEvents       WebhookEvent[]
   providerCredentials AccountProviderCredential[]
   designRequests      DesignRequest[] // ADR-004
+  acquisitionTouches  LeadAcquisitionTouch[] // ADR-007
 
   leadCampaigns             LeadCampaign[]
   campaignTemplates         AccountCampaignTemplate[]
@@ -1387,6 +1388,7 @@ enum DesignRequestCountry {
   FR
   IT
   DE
+  CH // Suiza (ADR-007, 22/nov/2026)
 }
 
 enum DesignAttachmentKind {
@@ -1666,4 +1668,79 @@ model DesignRequestStatusEvent {
   changedAt       DateTime @default(now())
 
   @@index([designRequestId, changedAt])
+}
+
+
+// ---------------------------------------------------------------------------
+// ADR-007: atribucion de leads a familias de inversion (ROI semanal de
+// campañas). n8n contacta cada lead captado en Meta pasando por
+// POST /events/outbound/accepted con `producto` (slug de la landing). Cada
+// envio con `producto` es un LeadAcquisitionTouch; la familia se resuelve por
+// join (touch -> landing -> familia) al consultar, asi que reasignar una
+// landing a otra familia reclasifica todo el historico.
+// ---------------------------------------------------------------------------
+
+// Unidad de inversion: "LANDING PIZZA FRANCIA". Editable solo por SUPPORT.
+model InvestmentFamily {
+  id        String               @id @default(uuid())
+  name      String               @unique
+  country   DesignRequestCountry
+  sortOrder Int                  @default(0)
+  active    Boolean              @default(true)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  landings Landing[]
+  spends   FamilyWeeklySpend[]
+
+  @@index([active, sortOrder])
+}
+
+// Slug de la columna "Producto" de la hoja de n8n ("/landing-pizza").
+// familyId null = pendiente de asignar (p. ej. slug nuevo auto-registrado).
+model Landing {
+  id          String            @id @default(uuid())
+  slug        String            @unique
+  familyId    String?
+  family      InvestmentFamily? @relation(fields: [familyId], references: [id], onDelete: SetNull)
+  autoCreated Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  touches LeadAcquisitionTouch[]
+
+  @@index([familyId])
+}
+
+// Cada contacto de captacion de n8n a un lead (append-only).
+model LeadAcquisitionTouch {
+  id                String   @id @default(uuid())
+  leadId            String
+  lead              Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  landingId         String
+  landing           Landing  @relation(fields: [landingId], references: [id], onDelete: Restrict)
+  rawProducto       String
+  occurredAt        DateTime
+  // id de YCloud del envio -> idempotente ante reintentos de n8n
+  externalMessageId String?  @unique
+  createdAt         DateTime @default(now())
+
+  @@index([landingId, occurredAt])
+  @@index([leadId, occurredAt])
+  @@index([occurredAt])
+}
+
+// Inversion semanal por familia (semana lunes-domingo, Europe/Madrid).
+model FamilyWeeklySpend {
+  id              String           @id @default(uuid())
+  familyId        String
+  family          InvestmentFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  weekStart       DateTime         @db.Date
+  amountCents     Int
+  updatedByUserId String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@unique([familyId, weekStart])
+  @@index([weekStart])
 }
