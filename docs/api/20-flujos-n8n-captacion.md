@@ -89,6 +89,8 @@ No se envía `leadEmail` ni `producto`. La campaña llega a Fenix **solo a trav�
 | Fenix responde con error (400/500) en `Post Fenix` | La fila sigue `Enviado = No`, aunque el WhatsApp **sí salió** | El nodo **no tiene `onError`**: la ejecución de ese comercial se corta (salta la alerta) y **los leads siguientes de su lista ese día no se envían**. Al día siguiente el filtro de fecha los excluye. |
 | Fila con la misma `Teléfono` repetida | Las actualizaciones se hacen por `Teléfono` (`matchingColumns`), así que pueden pisarse entre sí | Un lead por número y cuenta. |
 
+Caso real (LANDING COMBO, lunes 16/11/2026): 32 leads repartidos, 1 con `Estado = Fallido` y error de YCloud `400 PARAM_MISSING "Either 'to' or 'recipient' must be provided"`, y 31 en Fenix. Ese error significa que `Formatear Número` no pudo normalizar el teléfono (`phoneFormatted = null`) y el envío salió sin destinatario. El lead **no se registró en Fenix**, que es el comportamiento esperado del flujo.
+
 Consecuencias para conciliar con el Excel:
 
 - **Diferencias "Excel > Fenix"** en un día: buscar en la pestaña de cada comercial de "Envío Plantillas" las filas de ese día (`Fecha`) con la campaña en cuestión y **`Estado = Fallido`**. La columna `Error` dice el motivo.
