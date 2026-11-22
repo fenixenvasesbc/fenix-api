@@ -4,7 +4,6 @@ import {
   Delete,
   Get,
   Param,
-  ParseUUIDPipe,
   Patch,
   Post,
   Put,
@@ -16,6 +15,7 @@ import { Role } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { ParseEntityIdPipe } from './parse-entity-id.pipe';
 import { AcquisitionCatalogService } from './acquisition-catalog.service';
 import { AcquisitionReportService } from './acquisition-report.service';
 import {
@@ -63,7 +63,7 @@ export class AcquisitionController {
   @Roles(Role.SUPPORT)
   @Patch('families/:id')
   updateFamily(
-    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('id', new ParseEntityIdPipe()) id: string,
     @Body() body: UpdateInvestmentFamilyDto,
   ) {
     return this.catalog.updateFamily(id, body);
@@ -84,7 +84,7 @@ export class AcquisitionController {
   @Roles(Role.SUPPORT)
   @Patch('templates/:id')
   updateTemplate(
-    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('id', new ParseEntityIdPipe()) id: string,
     @Body() body: UpdateAcquisitionTemplateDto,
   ) {
     return this.catalog.updateTemplate(id, body);
@@ -92,7 +92,7 @@ export class AcquisitionController {
 
   @Roles(Role.SUPPORT)
   @Delete('templates/:id')
-  deleteTemplate(@Param('id', new ParseUUIDPipe()) id: string) {
+  deleteTemplate(@Param('id', new ParseEntityIdPipe()) id: string) {
     return this.catalog.deleteTemplate(id);
   }
 
