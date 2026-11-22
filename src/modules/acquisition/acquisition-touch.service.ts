@@ -58,14 +58,18 @@ export class AcquisitionTouchService {
   }
 
   /**
-   * Reconstruye los toques historicos de una plantilla desde Message
-   * (envios que entraron por POST /events/outbound/accepted). Mismo criterio
-   * que la migracion 20261122180000: rawPayload plano de n8n (wabaId +
-   * template), sin externalId, sin "source" (envios manuales de Fenix) ni
-   * "whatsappMessage" (reconstruidos desde webhooks). Idempotente.
+   * Reconstruye los toques historicos de una plantilla. Mismo criterio que
+   * la migracion 20261122180000, en dos pasos (idempotente):
+   * 1. Envios exactos desde Message que entraron por
+   *    POST /events/outbound/accepted: rawPayload plano de n8n (wabaId +
+   *    template), sin externalId, sin "source" (envios manuales de Fenix) ni
+   *    "whatsappMessage" (reconstruidos desde webhooks).
+   * 2. Para los leads que siguen sin ningun toque: Lead.firstOutboundTemplateName
+   *    + firstOutboundAt (cubre los leads antiguos, cuyo primer envio llego
+   *    reconstruido desde el webhook de YCloud).
    */
   async backfillTemplate(templateId: string, templateName: string): Promise<number> {
-    return this.prisma.$executeRaw(Prisma.sql`
+    const fromMessages = await this.prisma.$executeRaw(Prisma.sql`
       INSERT INTO "LeadAcquisitionTouch"
         ("id", "leadId", "templateId", "templateName", "occurredAt", "externalMessageId", "source")
       SELECT md5('touch:' || m."id")::uuid::text,
@@ -85,6 +89,23 @@ export class AcquisitionTouchService {
         AND NOT jsonb_exists(m."rawPayload", 'source')
       ON CONFLICT DO NOTHING
     `);
+    const fromLeads = await this.prisma.$executeRaw(Prisma.sql`
+      INSERT INTO "LeadAcquisitionTouch"
+        ("id", "leadId", "templateId", "templateName", "occurredAt", "externalMessageId", "source")
+      SELECT md5('lead-touch:' || l."id")::uuid::text,
+             l."id",
+             ${templateId},
+             l."firstOutboundTemplateName",
+             l."firstOutboundAt",
+             NULL,
+             'BACKFILL_LEAD'
+      FROM "Lead" l
+      WHERE l."firstOutboundTemplateName" = ${templateName}
+        AND l."firstOutboundAt" IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM "LeadAcquisitionTouch" t WHERE t."leadId" = l."id")
+      ON CONFLICT DO NOTHING
+    `);
+    return fromMessages + fromLeads;
   }
 
   private async findOrCreateTemplate(templateName: string) {

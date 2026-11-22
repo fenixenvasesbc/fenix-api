@@ -1724,7 +1724,7 @@ model LeadAcquisitionTouch {
   occurredAt        DateTime
   // id de YCloud del envio -> idempotente ante reintentos de n8n y backfill
   externalMessageId String?             @unique
-  // LIVE (recibido en el endpoint) | BACKFILL (reconstruido de Message)
+  // LIVE (endpoint de n8n) | BACKFILL (de Message) | BACKFILL_LEAD (de Lead.firstOutbound*)
   source            String              @default("LIVE")
   createdAt         DateTime            @default(now())
 

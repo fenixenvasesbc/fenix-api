@@ -93,3 +93,25 @@ WHERE m."direction" = 'OUTBOUND'
   AND NOT (m."rawPayload" ? 'whatsappMessage')
   AND NOT (m."rawPayload" ? 'source')
 ON CONFLICT DO NOTHING;
+
+-- Historico (2): la mayoria de los leads antiguos no tienen su primer envio
+-- de n8n en Message con ese formato (llegaron reconstruidos desde el webhook
+-- de YCloud), pero si tienen Lead.firstOutboundTemplateName/firstOutboundAt
+-- (se rellenan en los dos caminos al crear el lead). Para los leads que
+-- siguen sin ningun toque, se usa ese dato si la plantilla es de campaña.
+-- Aproximacion: si n8n volvio a contactar al lead, firstOutboundTemplateName
+-- es la ULTIMA plantilla y firstOutboundAt la PRIMERA fecha.
+INSERT INTO "LeadAcquisitionTouch"
+  ("id", "leadId", "templateId", "templateName", "occurredAt", "externalMessageId", "source")
+SELECT md5('lead-touch:' || l."id")::uuid::text,
+       l."id",
+       at."id",
+       l."firstOutboundTemplateName",
+       l."firstOutboundAt",
+       NULL,
+       'BACKFILL_LEAD'
+FROM "Lead" l
+JOIN "AcquisitionTemplate" at ON at."templateName" = l."firstOutboundTemplateName"
+WHERE l."firstOutboundAt" IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM "LeadAcquisitionTouch" t WHERE t."leadId" = l."id")
+ON CONFLICT DO NOTHING;

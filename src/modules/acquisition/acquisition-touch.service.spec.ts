@@ -97,18 +97,25 @@ describe('AcquisitionTouchService (ADR-007, por plantilla)', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('backfillTemplate solo toma envios de n8n (sin externalId, sin source, sin whatsappMessage)', async () => {
-    prisma.$executeRaw.mockResolvedValue(7);
+  it('backfillTemplate: primero envios exactos de n8n, luego el dato del lead para los que no tienen toque', async () => {
+    prisma.$executeRaw.mockResolvedValueOnce(7).mockResolvedValueOnce(30);
 
     const inserted = await service.backfillTemplate('tpl-pizza', 'cajas_pizza_es');
 
-    expect(inserted).toBe(7);
-    const sql = prisma.$executeRaw.mock.calls[0][0] as { sql: string; values: unknown[] };
-    expect(sql.sql).toContain('m."externalId" IS NULL');
-    expect(sql.sql).toContain(`jsonb_exists(m."rawPayload", 'wabaId')`);
-    expect(sql.sql).toContain(`NOT jsonb_exists(m."rawPayload", 'source')`);
-    expect(sql.sql).toContain(`NOT jsonb_exists(m."rawPayload", 'whatsappMessage')`);
-    expect(sql.sql).toContain('ON CONFLICT DO NOTHING');
-    expect(sql.values).toEqual(['tpl-pizza', 'cajas_pizza_es']);
+    expect(inserted).toBe(37);
+    const fromMessages = prisma.$executeRaw.mock.calls[0][0] as { sql: string; values: unknown[] };
+    expect(fromMessages.sql).toContain('FROM "Message" m');
+    expect(fromMessages.sql).toContain('m."externalId" IS NULL');
+    expect(fromMessages.sql).toContain(`jsonb_exists(m."rawPayload", 'wabaId')`);
+    expect(fromMessages.sql).toContain(`NOT jsonb_exists(m."rawPayload", 'source')`);
+    expect(fromMessages.sql).toContain(`NOT jsonb_exists(m."rawPayload", 'whatsappMessage')`);
+    expect(fromMessages.values).toEqual(['tpl-pizza', 'cajas_pizza_es']);
+
+    const fromLeads = prisma.$executeRaw.mock.calls[1][0] as { sql: string; values: unknown[] };
+    expect(fromLeads.sql).toContain('FROM "Lead" l');
+    expect(fromLeads.sql).toContain('l."firstOutboundAt" IS NOT NULL');
+    expect(fromLeads.sql).toContain('NOT EXISTS (SELECT 1 FROM "LeadAcquisitionTouch" t WHERE t."leadId" = l."id")');
+    expect(fromLeads.sql).toContain("'BACKFILL_LEAD'");
+    expect(fromLeads.values).toEqual(['tpl-pizza', 'cajas_pizza_es']);
   });
 });

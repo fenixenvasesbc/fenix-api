@@ -33,7 +33,7 @@ Todo se calcula al consultar (sin snapshot): reasignar plantillas, borrar solici
 |---|---|
 | `InvestmentFamily` | Unidad de inversión: `name` único, `country` (`DesignRequestCountry`: ES/FR/IT/DE/CH), `sortOrder`, `active`. |
 | `AcquisitionTemplate` | Plantilla de captación (`templateName` único, tal como en YCloud) → `familyId` (null = pendiente de asignar). `autoCreated` si la registró la captura. |
-| `LeadAcquisitionTouch` | Toque de captación: `leadId`, `templateId`, `templateName`, `occurredAt` (hora del proveedor), `externalMessageId` único (id de YCloud), `source` (`LIVE` \| `BACKFILL`). Append-only. |
+| `LeadAcquisitionTouch` | Toque de captación: `leadId`, `templateId`, `templateName`, `occurredAt` (hora del proveedor), `externalMessageId` único (id de YCloud), `source` (`LIVE` \| `BACKFILL` \| `BACKFILL_LEAD`). Append-only. |
 | `FamilyWeeklySpend` | Inversión por familia y semana: `weekStart` (lunes, `date`), `amountCents`. Único por `(familyId, weekStart)`. |
 
 ## Captura (`POST /events/outbound/accepted`)
@@ -52,6 +52,8 @@ Los toques anteriores se reconstruyen desde `Message`, con los envíos que entra
 - `direction = OUTBOUND`, `templateName` en el catálogo y `externalId` nulo;
 - `rawPayload` con las claves `wabaId` y `template` (body plano de n8n);
 - sin `source` (envíos manuales de Fenix) ni `whatsappMessage` (mensajes reconstruidos desde webhooks).
+
+Después, para los leads que siguen **sin ningún toque**, se usa `Lead.firstOutboundTemplateName` + `firstOutboundAt` si la plantilla está en el catálogo (`source = BACKFILL_LEAD`). Cubre los leads antiguos, cuyo primer envío llegó reconstruido desde el webhook de YCloud. Es una aproximación: si n8n volvió a contactar al lead, la plantilla es la última y la fecha, la primera.
 
 Se ejecuta en la migración `20261122180000_acquisition_by_template` para las plantillas sembradas, y al crear o renombrar una plantilla desde Configuración (`AcquisitionTouchService.backfillTemplate`). Es idempotente.
 
