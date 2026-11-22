@@ -91,6 +91,8 @@ No se envía `leadEmail` ni `producto`. La campaña llega a Fenix **solo a trav�
 
 Caso real (LANDING COMBO, lunes 16/11/2026): 32 leads repartidos, 1 con `Estado = Fallido` y error de YCloud `400 PARAM_MISSING "Either 'to' or 'recipient' must be provided"`, y 31 en Fenix. Ese error significa que `Formatear Número` no pudo normalizar el teléfono (`phoneFormatted = null`) y el envío salió sin destinatario. El lead **no se registró en Fenix**, que es el comportamiento esperado del flujo.
 
+Conciliación verificada por el usuario (LANDING COMBO, 16 y 17/11/2026): **leads repartidos − filas `Fallido` = leads en Fenix**, exacto los dos días (32 − 1 = 31; 9 − 1 = 8). Las diferencias con el Excel de estadísticas (33 y 11) venían de ese Excel, no del flujo ni de Fenix. Para conciliar, la referencia es la hoja "Envío Plantillas" (que no se borra), no la pestaña Leads del reparto (que se vacía a diario).
+
 Consecuencias para conciliar con el Excel:
 
 - **Diferencias "Excel > Fenix"** en un día: buscar en la pestaña de cada comercial de "Envío Plantillas" las filas de ese día (`Fecha`) con la campaña en cuestión y **`Estado = Fallido`**. La columna `Error` dice el motivo.
