@@ -18,6 +18,7 @@ Esta carpeta documenta la API backend de Fenix CRM desde el punto de vista funci
 12. [Asistente interno con Dify](./16-asistente-interno-dify.md)
 13. [Bocetos: tablero de solicitudes de diseño](./17-bocetos-design-board.md)
 14. [Fichaje y horas extra](./18-fichaje-horas-extra.md)
+15. [Atribución de captación y ROI semanal de campañas](./19-atribucion-campanas-roi.md)
 
 ## Alcance
 

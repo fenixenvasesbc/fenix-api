@@ -6,6 +6,8 @@ Tablero Kanban (tipo Jira) para que una comercial (`SALES`) pida un boceto a Dis
 
 Módulo: `src/modules/design-board/`. Endpoints: ver doc 09.
 
+Países de una solicitud (`DesignRequestCountry`): `ES` (por defecto), `FR`, `IT`, `DE` y `CH` (Suiza, desde el 22/nov/2026; también lo usan las familias de inversión del doc 19).
+
 ## Roles
 
 | Rol | Alcance |
