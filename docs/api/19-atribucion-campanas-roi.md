@@ -8,60 +8,64 @@ Decisión de arquitectura: `claude/adr-007-atribucion-landings-roi.md` (proyecto
 
 ## Flujo de captación
 
-1. Meta → hoja "Reparto de leads" (pestaña Leads: `Nombre`, `WhastApp`, `Mensaje`, `Producto`).
-2. n8n reparte el lead y lo contacta pasando por Fenix: `POST /events/outbound/accepted` con `producto` = valor de la columna Producto (slug de la landing).
-3. Fenix guarda un `LeadAcquisitionTouch` por cada envío con `producto`.
+1. Meta → hoja "Reparto de leads" de n8n.
+2. n8n reparte el lead y lo contacta con la **plantilla de WhatsApp de su campaña** (p. ej. `cajas_pizza_es`), pasando por Fenix: `POST /events/outbound/accepted`.
+3. Fenix guarda un `LeadAcquisitionTouch` por cada envío con plantilla.
 
-Solo cuentan como captación los envíos que traen `producto`. Quien escribe por su cuenta no cuenta.
+Ese endpoint solo lo usa n8n. Los envíos manuales desde Fenix (OutboundService + webhook de estado) **no** pasan por él y no cuentan como captación. Tampoco cuenta quien escribe por su cuenta. No hace falta ningún cambio en n8n.
 
 ## Reglas de negocio
 
 | Regla | Detalle |
 |---|---|
-| Mensajes (leads) | Leads distintos con un toque en la semana, en la familia de esa landing. |
+| Mensajes (leads) | Leads distintos con un toque en la semana, en la familia de la plantilla de ese envío. |
 | Boceto pedido | La **primera** solicitud de boceto del lead con `requestType = 'BOCETO'` (o `null` en solicitudes antiguas). |
-| Atribución | Esa solicitud se atribuye al **último toque del lead anterior a su creación** (si el lead re-entró por otra landing, cuenta la última). |
+| Atribución | Esa solicitud se atribuye al **último toque del lead anterior a su creación** (si el lead re-entró por otra campaña, cuenta la última). |
 | Aprobado | Esa misma solicitud con `approvedAt` no nulo, aunque tenga varias categorías. |
 | Semana | Semana (lunes–domingo, `Europe/Madrid`) del toque atribuido = semana de entrada del lead. |
 | Sin toque previo | Si el lead no tiene ningún toque anterior a su primera BOCETO, no se atribuye. |
 
-Todo se calcula al consultar (sin snapshot): reasignar landings, borrar solicitudes o cambiar su tipo se refleja en el histórico.
+Todo se calcula al consultar (sin snapshot): reasignar plantillas, borrar solicitudes o cambiar su tipo se refleja en el histórico.
 
 ## Entidades
 
 | Modelo | Descripción |
 |---|---|
 | `InvestmentFamily` | Unidad de inversión: `name` único, `country` (`DesignRequestCountry`: ES/FR/IT/DE/CH), `sortOrder`, `active`. |
-| `Landing` | Slug normalizado (`/landing-pizza`) → `familyId` (null = pendiente de asignar). `autoCreated` si la registró la captura. |
-| `LeadAcquisitionTouch` | Toque de captación: `leadId`, `landingId`, `rawProducto`, `occurredAt` (hora del proveedor), `externalMessageId` único (id de YCloud). Append-only. |
+| `AcquisitionTemplate` | Plantilla de captación (`templateName` único, tal como en YCloud) → `familyId` (null = pendiente de asignar). `autoCreated` si la registró la captura. |
+| `LeadAcquisitionTouch` | Toque de captación: `leadId`, `templateId`, `templateName`, `occurredAt` (hora del proveedor), `externalMessageId` único (id de YCloud), `source` (`LIVE` \| `BACKFILL`). Append-only. |
 | `FamilyWeeklySpend` | Inversión por familia y semana: `weekStart` (lunes, `date`), `amountCents`. Único por `(familyId, weekStart)`. |
-
-Normalización del slug: minúsculas, sin protocolo/dominio, sin query ni `#`, con `/` inicial y sin `/` final.
 
 ## Captura (`POST /events/outbound/accepted`)
 
-| Campo nuevo | Tipo | Descripción |
-|---|---|---|
-| `producto` | string opcional (≤500) | Slug de la landing. |
-
-- Slug conocido → toque en esa landing.
-- Slug desconocido → se crea una `Landing` sin familia (aparece como **Pendiente** en Configuración) y el toque se guarda igual.
+- Usa `template.name` del envío.
+- Plantilla en el catálogo → toque con esa plantilla.
+- Plantilla desconocida → se crea un `AcquisitionTemplate` sin familia (aparece como **Pendiente** en Configuración) y el toque se guarda igual.
 - Idempotente por `externalMessageId`.
 - Nunca bloquea el registro del mensaje: los errores se registran en log.
+- El campo `producto` del DTO (de la primera versión) se sigue aceptando pero se ignora.
 
-> Importante: la API valida con `forbidNonWhitelisted`. Desplegar `fenix-api` antes de añadir `producto` en n8n, o la API devolverá 400.
+## Histórico (backfill)
+
+Los toques anteriores se reconstruyen desde `Message`, con los envíos que entraron por el endpoint de n8n:
+
+- `direction = OUTBOUND`, `templateName` en el catálogo y `externalId` nulo;
+- `rawPayload` con las claves `wabaId` y `template` (body plano de n8n);
+- sin `source` (envíos manuales de Fenix) ni `whatsappMessage` (mensajes reconstruidos desde webhooks).
+
+Se ejecuta en la migración `20261122180000_acquisition_by_template` para las plantillas sembradas, y al crear o renombrar una plantilla desde Configuración (`AcquisitionTouchService.backfillTemplate`). Es idempotente.
 
 ## Endpoints
 
 | Método | Ruta | Roles | Descripción |
 |---|---|---|---|
-| GET | `/acquisition/families` | ADMIN, SUPPORT | Familias con sus landings. |
+| GET | `/acquisition/families` | ADMIN, SUPPORT | Familias con sus plantillas. |
 | POST | `/acquisition/families` | SUPPORT | Crear familia (`name`, `country`, `sortOrder?`). |
 | PATCH | `/acquisition/families/:id` | SUPPORT | Editar nombre, país, orden o `active`. |
-| GET | `/acquisition/landings` | SUPPORT | Landings (pendientes primero) con `touchCount`. |
-| POST | `/acquisition/landings` | SUPPORT | Crear landing (`slug`, `familyId?`). |
-| PATCH | `/acquisition/landings/:id` | SUPPORT | Asignar/mover familia (`familyId`, `null` = sin familia) o cambiar slug (solo si no tiene toques). |
-| DELETE | `/acquisition/landings/:id` | SUPPORT | Solo si no tiene toques. |
+| GET | `/acquisition/templates` | SUPPORT | Plantillas (pendientes primero) con `touchCount`. |
+| POST | `/acquisition/templates` | SUPPORT | Añadir plantilla (`templateName`, `familyId?`); reconstruye su histórico y devuelve `backfilled`. |
+| PATCH | `/acquisition/templates/:id` | SUPPORT | Asignar/mover familia (`familyId`, `null` = sin familia) o renombrar (solo si no tiene toques). |
+| DELETE | `/acquisition/templates/:id` | SUPPORT | Solo si no tiene toques. |
 | GET | `/acquisition/spend?weekStart=YYYY-MM-DD` | ADMIN, SUPPORT | Inversión de la semana (normaliza al lunes) para las familias activas. |
 | PUT | `/acquisition/spend` | ADMIN, SUPPORT | `{ weekStart, items: [{ familyId, amountCents \| null }] }`; `null` borra. |
 | GET | `/acquisition/report/weekly?from&to&groupBy=family\|country` | ADMIN, SUPPORT | Embudo por semana y familia/país. Por defecto las últimas 8 semanas; máx. 104. |
@@ -101,4 +105,4 @@ Primera respuesta: el primer mensaje entrante anterior al boceto y, si el lead t
 ## UI (Fenix-SPA)
 
 - **Dashboard > Campañas / ROI** (ADMIN y SUPPORT): detalle de una semana (o del rango) por familia o país con mensajes, inversión, €/mensaje, bocetos, % msg→boceto, €/boceto, aprobados, % boceto→aprobado y €/aprobado; evolución semana a semana de la métrica elegida; diálogo "Cargar inversión"; tiempos de conversión (primera respuesta → boceto y boceto → aprobado).
-- **Configuración > Campañas y familias** (solo SUPPORT): familias (crear, editar, activar) y equivalencias landing → familia (crear, asignar pendientes, mover, borrar si no tiene datos).
+- **Configuración > Campañas y familias** (solo SUPPORT): familias (crear, editar, activar) y equivalencias plantilla → familia (añadir con recuperación del histórico, asignar pendientes, mover, borrar si no tiene datos).

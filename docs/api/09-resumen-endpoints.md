@@ -142,7 +142,7 @@ Ver doc 17 para el detalle funcional completo (columnas, SLA, roles, reportes).
 
 | Método | Endpoint | Uso |
 |---|---|---|
-| `POST` | `/events/outbound/accepted` | Procesar evento outbound aceptado legacy/manual. Lo usa n8n en el primer contacto; con `producto` registra la captación (ver [19](./19-atribucion-campanas-roi.md)). |
+| `POST` | `/events/outbound/accepted` | Procesar evento outbound aceptado legacy/manual. Lo usa n8n en el primer contacto; la plantilla del envío registra la captación (ver [19](./19-atribucion-campanas-roi.md)). |
 | `POST` | `/events/inbound/received` | Procesar evento inbound legacy/manual. |
 
 ## Atribución de captación y ROI de campañas
@@ -151,10 +151,10 @@ Detalle en [Atribución de captación y ROI semanal de campañas](./19-atribucio
 
 | Método | Endpoint | Roles | Uso |
 |---|---|---|---|
-| `GET` | `/acquisition/families` | `ADMIN`, `SUPPORT` | Familias de inversión con sus landings. |
+| `GET` | `/acquisition/families` | `ADMIN`, `SUPPORT` | Familias de inversión con sus plantillas. |
 | `POST`/`PATCH` | `/acquisition/families[/:id]` | `SUPPORT` | Crear/editar familias. |
-| `GET`/`POST` | `/acquisition/landings` | `SUPPORT` | Listar/crear equivalencias landing → familia. |
-| `PATCH`/`DELETE` | `/acquisition/landings/:id` | `SUPPORT` | Mover/asignar familia; borrar si no tiene toques. |
+| `GET`/`POST` | `/acquisition/templates` | `SUPPORT` | Listar/añadir equivalencias plantilla → familia (añadir reconstruye el histórico). |
+| `PATCH`/`DELETE` | `/acquisition/templates/:id` | `SUPPORT` | Mover/asignar familia; borrar si no tiene toques. |
 | `GET`/`PUT` | `/acquisition/spend` | `ADMIN`, `SUPPORT` | Inversión semanal por familia. |
 | `GET` | `/acquisition/report/weekly` | `ADMIN`, `SUPPORT` | Embudo semanal por familia o país. |
 | `GET` | `/acquisition/report/conversion-lag` | `ADMIN`, `SUPPORT` | Tiempos de conversión y madurez. |
