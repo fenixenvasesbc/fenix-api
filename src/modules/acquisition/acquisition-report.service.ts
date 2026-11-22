@@ -32,6 +32,9 @@ type WeekCell = {
 type AttributedRow = {
   leadId: string;
   touchAt: Date;
+  // Primer mensaje entrante del lead entre el toque atribuido y la creacion
+  // del boceto (null si no contesto antes de pedirlo).
+  firstReplyAt: Date | null;
   bocetoAt: Date;
   approvedAt: Date | null;
   familyId: string | null;
@@ -324,8 +327,8 @@ export class AcquisitionReportService {
             name: key === UNASSIGNED_KEY ? 'Sin familia asignada' : familyName.get(key) ?? key,
             bocetos: s.bocetos,
             approved: s.approved,
-            daysEntryToBoceto: s.daysEntryToBoceto,
-            daysEntryToApproval: s.daysEntryToApproval,
+            daysReplyToBoceto: s.daysReplyToBoceto,
+            daysBocetoToApproval: s.daysBocetoToApproval,
           };
         })
         .sort((a, b) => b.bocetos - a.bocetos),
@@ -354,7 +357,11 @@ export class AcquisitionReportService {
 
   private lagSummary(rows: AttributedRow[]) {
     const dayMs = 86_400_000;
-    const entryToBoceto = rows.map((r) => (r.bocetoAt.getTime() - r.touchAt.getTime()) / dayMs);
+    // Tramo 1 (pedido del usuario): primera respuesta del lead -> boceto pedido.
+    const repliedRows = rows.filter((r) => r.firstReplyAt);
+    const replyToBoceto = repliedRows.map(
+      (r) => (r.bocetoAt.getTime() - r.firstReplyAt!.getTime()) / dayMs,
+    );
     const approvedRows = rows.filter((r) => r.approvedAt);
     const bocetoToApproval = approvedRows.map(
       (r) => (r.approvedAt!.getTime() - r.bocetoAt.getTime()) / dayMs,
@@ -379,35 +386,44 @@ export class AcquisitionReportService {
     return {
       bocetos: rows.length,
       approved: approvedRows.length,
-      daysEntryToBoceto: this.percentiles(entryToBoceto),
-      daysBocetoToApproval: this.percentiles(bocetoToApproval),
-      daysEntryToApproval: this.percentiles(entryToApproval),
+      // bocetos con una respuesta del lead registrada antes de pedirlo
+      replied: repliedRows.length,
+      daysReplyToBoceto: this.stats(replyToBoceto),
+      // Tramo 2: boceto pedido -> boceto aprobado.
+      daysBocetoToApproval: this.stats(bocetoToApproval),
+      // Solo para la madurez de la cohorte (semana de entrada del lead).
+      daysEntryToApproval: this.stats(entryToApproval),
       curve,
       maturityWeeks,
     };
   }
 
-  private percentiles(values: number[]) {
-    if (!values.length) return { p50: null, p80: null, p90: null };
+  /** Media y percentiles (nearest-rank), en dias con 1 decimal. */
+  private stats(values: number[]) {
+    if (!values.length) return { mean: null, p50: null, p80: null, p90: null };
+    const round = (n: number) => Math.round(n * 10) / 10;
     const sorted = [...values].sort((a, b) => a - b);
     const at = (p: number) => {
       const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1));
-      return Math.round(sorted[idx] * 10) / 10;
+      return round(sorted[idx]);
     };
-    return { p50: at(0.5), p80: at(0.8), p90: at(0.9) };
+    const mean = values.reduce((acc, v) => acc + v, 0) / values.length;
+    return { mean: round(mean), p50: at(0.5), p80: at(0.8), p90: at(0.9) };
   }
 
   private async loadAttributed(start: Date, end: Date): Promise<AttributedRow[]> {
     return this.prisma.$queryRaw<AttributedRow[]>(Prisma.sql`
       ${this.attributedCteSql(start, end)}
-      SELECT a."leadId", a."touchAt", a."bocetoAt", a."approvedAt", a."familyId"
+      SELECT a."leadId", a."touchAt", a."firstReplyAt", a."bocetoAt", a."approvedAt", a."familyId"
       FROM attributed a
     `);
   }
 
   /**
    * CTE "attributed": primera solicitud BOCETO de cada lead + ultimo toque de
-   * captacion anterior a ella (LATERAL), con la familia actual de la landing.
+   * captacion anterior a ella (LATERAL), con la familia actual de la landing y
+   * la primera respuesta del lead (mensaje INBOUND, hora real `occurredAt`)
+   * entre ese toque y la creacion del boceto.
    * Filtra por el instante del toque (rango holgado; el bucket exacto lo
    * aplica quien consume).
    */
@@ -423,6 +439,14 @@ export class AcquisitionReportService {
       attributed AS (
         SELECT fb."leadId",
                t."occurredAt" AS "touchAt",
+               (
+                 SELECT MIN(m."occurredAt")
+                 FROM "Message" m
+                 WHERE m."leadId" = fb."leadId"
+                   AND m."direction" = 'INBOUND'
+                   AND m."occurredAt" >= t."occurredAt"
+                   AND m."occurredAt" <= fb."createdAt"
+               ) AS "firstReplyAt",
                fb."createdAt" AS "bocetoAt",
                fb."approvedAt" AS "approvedAt",
                l."familyId" AS "familyId"

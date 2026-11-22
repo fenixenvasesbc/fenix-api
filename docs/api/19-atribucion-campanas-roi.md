@@ -85,9 +85,18 @@ Estado de cada semana:
 
 ### Tiempos de conversión
 
-Percentiles p50/p80/p90 (días) de entrada→boceto, boceto→aprobación y entrada→aprobación; curva acumulada de aprobaciones por semana desde la entrada (hasta 13 semanas); desglose por familia.
+Dos tramos, con media, mediana, p80 y p90 (días), globales y por familia:
+
+| Tramo | Desde | Hasta |
+|---|---|---|
+| `daysReplyToBoceto` | Primera respuesta del lead: primer mensaje `INBOUND` (`Message.occurredAt`) entre el toque atribuido y la creación del boceto | Creación de la primera solicitud BOCETO |
+| `daysBocetoToApproval` | Creación de la solicitud | `approvedAt` |
+
+`replied` = bocetos con una respuesta del lead registrada antes de pedirlos (los que no la tienen quedan fuera del primer tramo). No se usa `Lead.firstInboundAt` porque se fija una sola vez en toda la vida del lead: en un lead que vuelve a entrar por otra campaña, o que escribió antes de que n8n lo contactara, sería una respuesta anterior a la campaña. Para un lead nuevo de n8n ambos valores coinciden.
+
+`daysEntryToApproval` y `curve` (aprobaciones acumuladas por semana desde la entrada, hasta 13 semanas) se mantienen solo para calcular la madurez de la cohorte.
 
 ## UI (Fenix-SPA)
 
-- **Dashboard > Campañas / ROI** (ADMIN y SUPPORT): detalle de una semana (o del rango) por familia o país con mensajes, inversión, €/mensaje, bocetos, % msg→boceto, €/boceto, aprobados, % boceto→aprobado y €/aprobado; evolución semana a semana de la métrica elegida; diálogo "Cargar inversión"; tiempos de conversión.
+- **Dashboard > Campañas / ROI** (ADMIN y SUPPORT): detalle de una semana (o del rango) por familia o país con mensajes, inversión, €/mensaje, bocetos, % msg→boceto, €/boceto, aprobados, % boceto→aprobado y €/aprobado; evolución semana a semana de la métrica elegida; diálogo "Cargar inversión"; tiempos de conversión (primera respuesta → boceto y boceto → aprobado).
 - **Configuración > Campañas y familias** (solo SUPPORT): familias (crear, editar, activar) y equivalencias landing → familia (crear, asignar pendientes, mover, borrar si no tiene datos).

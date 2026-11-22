@@ -142,11 +142,18 @@ describe('AcquisitionReportService (ADR-007)', () => {
   });
 
   describe('tiempos de conversion y madurez', () => {
-    const row = (touch: string, bocetoDays: number, approvalDays: number | null, familyId = 'f-pizza') => {
+    const row = (
+      touch: string,
+      bocetoDays: number,
+      approvalDays: number | null,
+      familyId = 'f-pizza',
+      replyDays: number | null = 0.5,
+    ) => {
       const touchAt = new Date(`${touch}T10:00:00Z`);
       return {
         leadId: `${touch}-${bocetoDays}-${approvalDays}`,
         touchAt,
+        firstReplyAt: replyDays === null ? null : new Date(touchAt.getTime() + replyDays * 86_400_000),
         bocetoAt: new Date(touchAt.getTime() + bocetoDays * 86_400_000),
         approvedAt:
           approvalDays === null ? null : new Date(touchAt.getTime() + approvalDays * 86_400_000),
@@ -167,6 +174,7 @@ describe('AcquisitionReportService (ADR-007)', () => {
 
       expect(lag.bocetos).toBe(11);
       expect(lag.approved).toBe(10);
+      expect(lag.replied).toBe(11);
       expect(lag.daysEntryToApproval.p50).toBe(8);
       expect(lag.curve[0]).toEqual({ week: 0, cumulativeShare: 0.4 }); // <7 dias: 2,3,4,5
       expect(lag.curve[1]).toEqual({ week: 1, cumulativeShare: 0.8 });
@@ -179,10 +187,37 @@ describe('AcquisitionReportService (ADR-007)', () => {
       expect(maturity).toEqual({ weeks: 2, threshold: 0.8, sampleSize: 10, estimated: false });
     });
 
-    it('sin aprobaciones devuelve percentiles nulos y curva vacia', async () => {
+    it('tramos pedidos por el usuario: primera respuesta -> boceto y boceto -> aprobado (media y percentiles)', async () => {
+      attributedRows = [
+        // respuesta a las 12h, boceto al dia 1 -> 0.5 dias; aprobado al dia 3 -> 2 dias
+        row('2026-11-02', 1, 3),
+        // respuesta a las 12h, boceto al dia 2 -> 1.5 dias; aprobado al dia 6 -> 4 dias
+        row('2026-11-02', 2, 6),
+        // respuesta al dia 1, boceto al dia 4 -> 3 dias; sin aprobar
+        row('2026-11-02', 4, null, 'f-pizza', 1),
+        // no contesto antes de pedir el boceto: fuera del tramo 1, dentro del tramo 2
+        row('2026-11-02', 1, 2, 'f-pizza', null),
+      ];
+
+      const lag = await service.getConversionLag({ from: '2026-11-02', to: '2026-11-23' });
+
+      expect(lag.replied).toBe(3);
+      expect(lag.daysReplyToBoceto).toEqual({ mean: 1.7, p50: 1.5, p80: 3, p90: 3 });
+      // boceto -> aprobado: 2, 4, 1
+      expect(lag.daysBocetoToApproval).toEqual({ mean: 2.3, p50: 2, p80: 4, p90: 4 });
+      expect(lag.byFamily[0]).toEqual(
+        expect.objectContaining({
+          daysReplyToBoceto: expect.objectContaining({ p50: 1.5 }),
+          daysBocetoToApproval: expect.objectContaining({ p50: 2 }),
+        }),
+      );
+    });
+
+    it('sin aprobaciones devuelve estadisticas nulas y curva vacia', async () => {
       attributedRows = [row('2026-11-02', 1, null)];
       const lag = await service.getConversionLag({ from: '2026-11-02', to: '2026-11-23' });
-      expect(lag.daysEntryToApproval).toEqual({ p50: null, p80: null, p90: null });
+      expect(lag.daysEntryToApproval).toEqual({ mean: null, p50: null, p80: null, p90: null });
+      expect(lag.daysBocetoToApproval).toEqual({ mean: null, p50: null, p80: null, p90: null });
       expect(lag.curve).toEqual([]);
       expect(lag.maturityWeeks).toBeNull();
     });
