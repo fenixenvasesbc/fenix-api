@@ -288,7 +288,6 @@ model Account {
   webhookEvents       WebhookEvent[]
   providerCredentials AccountProviderCredential[]
   designRequests      DesignRequest[] // ADR-004
-  acquisitionTouches  LeadAcquisitionTouch[] // ADR-007
 
   leadCampaigns             LeadCampaign[]
   campaignTemplates         AccountCampaignTemplate[]
@@ -367,6 +366,7 @@ model Lead {
   notifications       AppNotification[]
   assistantSessions   AssistantSession[]
   designRequests      DesignRequest[] // ADR-004
+  acquisitionTouches  LeadAcquisitionTouch[] // ADR-007
 
   @@unique([accountId, phoneE164])
   @@index([accountId])
