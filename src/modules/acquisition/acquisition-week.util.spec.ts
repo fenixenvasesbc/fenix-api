@@ -4,31 +4,10 @@ import {
   isDateKey,
   madridDateKey,
   mondayOf,
-  normalizeLandingSlug,
   weeksBetween,
 } from './acquisition-week.util';
 
 describe('acquisition-week.util (ADR-007)', () => {
-  describe('normalizeLandingSlug', () => {
-    it.each([
-      ['/landing-pizza', '/landing-pizza'],
-      ['  /Landing-Pizza/ ', '/landing-pizza'],
-      ['landing-pizza', '/landing-pizza'],
-      ['https://web.example.com/landing-pizza?utm_source=meta#top', '/landing-pizza'],
-      ['/pizza.italia', '/pizza.italia'],
-      ['//caja-envio-con-asa//', '/caja-envio-con-asa'],
-    ])('%p -> %p', (raw, expected) => {
-      expect(normalizeLandingSlug(raw)).toBe(expected);
-    });
-
-    it.each([[''], ['   '], ['/'], [null], [undefined], ['https://web.example.com/']])(
-      'devuelve null para %p',
-      (raw) => {
-        expect(normalizeLandingSlug(raw as any)).toBeNull();
-      },
-    );
-  });
-
   describe('semanas', () => {
     it('mondayOf devuelve el lunes de la semana (domingo pertenece a la semana anterior)', () => {
       expect(mondayOf('2026-11-23')).toBe('2026-11-23'); // lunes

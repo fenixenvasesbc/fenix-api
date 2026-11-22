@@ -1673,11 +1673,12 @@ model DesignRequestStatusEvent {
 
 // ---------------------------------------------------------------------------
 // ADR-007: atribucion de leads a familias de inversion (ROI semanal de
-// campañas). n8n contacta cada lead captado en Meta pasando por
-// POST /events/outbound/accepted con `producto` (slug de la landing). Cada
-// envio con `producto` es un LeadAcquisitionTouch; la familia se resuelve por
-// join (touch -> landing -> familia) al consultar, asi que reasignar una
-// landing a otra familia reclasifica todo el historico.
+// campañas). n8n contacta cada lead captado en Meta con la plantilla de su
+// campaña pasando por POST /events/outbound/accepted (solo n8n usa ese
+// endpoint; los envios manuales de Fenix no pasan por ahi). Cada uno de esos
+// envios es un LeadAcquisitionTouch; la familia se resuelve por join
+// (touch -> plantilla -> familia) al consultar, asi que reasignar una
+// plantilla a otra familia reclasifica todo el historico.
 // ---------------------------------------------------------------------------
 
 // Unidad de inversion: "LANDING PIZZA FRANCIA". Editable solo por SUPPORT.
@@ -1690,22 +1691,22 @@ model InvestmentFamily {
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 
-  landings Landing[]
-  spends   FamilyWeeklySpend[]
+  templates AcquisitionTemplate[]
+  spends    FamilyWeeklySpend[]
 
   @@index([active, sortOrder])
 }
 
-// Slug de la columna "Producto" de la hoja de n8n ("/landing-pizza").
-// familyId null = pendiente de asignar (p. ej. slug nuevo auto-registrado).
-model Landing {
-  id          String            @id @default(uuid())
-  slug        String            @unique
-  familyId    String?
-  family      InvestmentFamily? @relation(fields: [familyId], references: [id], onDelete: SetNull)
-  autoCreated Boolean           @default(false)
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+// Plantilla de WhatsApp con la que n8n abre una campaña ("cajas_pizza_es").
+// familyId null = pendiente de asignar (p. ej. plantilla nueva auto-registrada).
+model AcquisitionTemplate {
+  id           String            @id @default(uuid())
+  templateName String            @unique
+  familyId     String?
+  family       InvestmentFamily? @relation(fields: [familyId], references: [id], onDelete: SetNull)
+  autoCreated  Boolean           @default(false)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 
   touches LeadAcquisitionTouch[]
 
@@ -1714,18 +1715,20 @@ model Landing {
 
 // Cada contacto de captacion de n8n a un lead (append-only).
 model LeadAcquisitionTouch {
-  id                String   @id @default(uuid())
+  id                String              @id @default(uuid())
   leadId            String
-  lead              Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  landingId         String
-  landing           Landing  @relation(fields: [landingId], references: [id], onDelete: Restrict)
-  rawProducto       String
+  lead              Lead                @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  templateId        String
+  template          AcquisitionTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  templateName      String
   occurredAt        DateTime
-  // id de YCloud del envio -> idempotente ante reintentos de n8n
-  externalMessageId String?  @unique
-  createdAt         DateTime @default(now())
+  // id de YCloud del envio -> idempotente ante reintentos de n8n y backfill
+  externalMessageId String?             @unique
+  // LIVE (recibido en el endpoint) | BACKFILL (reconstruido de Message)
+  source            String              @default("LIVE")
+  createdAt         DateTime            @default(now())
 
-  @@index([landingId, occurredAt])
+  @@index([templateId, occurredAt])
   @@index([leadId, occurredAt])
   @@index([occurredAt])
 }

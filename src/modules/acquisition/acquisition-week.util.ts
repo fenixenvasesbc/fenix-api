@@ -66,23 +66,3 @@ export function coarseUtcRange(fromWeek: string, toWeek: string) {
     end: new Date(`${addDays(toWeek, 8)}T00:00:00Z`),
   };
 }
-
-/**
- * Normaliza el `Producto` que manda n8n a un slug estable: sin dominio,
- * query ni fragmento, en minusculas, con "/" inicial y sin "/" final.
- * "https://web.com/Landing-Pizza/?utm=x" -> "/landing-pizza".
- * Devuelve null si no queda nada util.
- */
-export function normalizeLandingSlug(raw: string | null | undefined): string | null {
-  if (raw === null || raw === undefined) return null;
-  let value = String(raw).trim();
-  if (!value) return null;
-
-  value = value.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, ''); // protocolo + host
-  value = value.split('#')[0].split('?')[0];
-  value = value.trim().toLowerCase().replace(/\s+/g, '-');
-  value = value.replace(/\/{2,}/g, '/').replace(/\/+$/, '');
-  if (!value) return null;
-  if (!value.startsWith('/')) value = `/${value}`;
-  return value === '/' ? null : value;
-}

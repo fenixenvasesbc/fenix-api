@@ -6,33 +6,36 @@ import {
 } from '@nestjs/common';
 import { DesignRequestCountry, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { normalizeLandingSlug } from './acquisition-week.util';
+import { AcquisitionTouchService } from './acquisition-touch.service';
+
+const TEMPLATE_NAME_RE = /^[A-Za-z0-9_.-]{1,120}$/;
 
 /**
- * ADR-007: catalogo de familias de inversion y equivalencias landing->familia
- * (Configuracion > Campañas y familias, solo SUPPORT). Nada se borra si ya
- * tiene datos: las familias se desactivan y las landings con toques solo se
- * pueden reasignar, para no perder historico.
+ * ADR-007: catalogo de familias de inversion y equivalencias
+ * plantilla -> familia (Configuracion > Campañas y familias, solo SUPPORT).
+ * Nada con datos se borra: las familias se desactivan y las plantillas con
+ * toques solo se pueden reasignar, para no perder historico.
  */
 @Injectable()
 export class AcquisitionCatalogService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly touches: AcquisitionTouchService,
+  ) {}
 
   async listFamilies() {
-    const families = await this.prisma.investmentFamily.findMany({
+    return this.prisma.investmentFamily.findMany({
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       include: {
-        landings: { select: { id: true, slug: true }, orderBy: { slug: 'asc' } },
+        templates: {
+          select: { id: true, templateName: true },
+          orderBy: { templateName: 'asc' },
+        },
       },
     });
-    return families;
   }
 
-  async createFamily(input: {
-    name: string;
-    country: DesignRequestCountry;
-    sortOrder?: number;
-  }) {
+  async createFamily(input: { name: string; country: DesignRequestCountry; sortOrder?: number }) {
     const name = input.name.trim();
     if (!name) throw new BadRequestException('El nombre es obligatorio');
     try {
@@ -46,12 +49,7 @@ export class AcquisitionCatalogService {
 
   async updateFamily(
     id: string,
-    input: {
-      name?: string;
-      country?: DesignRequestCountry;
-      sortOrder?: number;
-      active?: boolean;
-    },
+    input: { name?: string; country?: DesignRequestCountry; sortOrder?: number; active?: boolean },
   ) {
     await this.findFamilyOrThrow(id);
     const name = input.name?.trim();
@@ -61,100 +59,112 @@ export class AcquisitionCatalogService {
     try {
       return await this.prisma.investmentFamily.update({
         where: { id },
-        data: {
-          name,
-          country: input.country,
-          sortOrder: input.sortOrder,
-          active: input.active,
-        },
+        data: { name, country: input.country, sortOrder: input.sortOrder, active: input.active },
       });
     } catch (e) {
       this.rethrowUnique(e, 'Ya existe una familia con ese nombre');
     }
   }
 
-  async listLandings() {
-    const landings = await this.prisma.landing.findMany({
-      orderBy: [{ slug: 'asc' }],
+  async listTemplates() {
+    const templates = await this.prisma.acquisitionTemplate.findMany({
+      orderBy: [{ templateName: 'asc' }],
       include: {
         family: { select: { id: true, name: true, country: true } },
         _count: { select: { touches: true } },
       },
     });
     // Pendientes de asignar primero
-    return landings
-      .map(({ _count, ...landing }) => ({ ...landing, touchCount: _count.touches }))
+    return templates
+      .map(({ _count, ...template }) => ({ ...template, touchCount: _count.touches }))
       .sort((a, b) => Number(a.familyId !== null) - Number(b.familyId !== null));
   }
 
-  async createLanding(input: { slug: string; familyId?: string }) {
-    const slug = this.requireSlug(input.slug);
+  /**
+   * Alta manual de una plantilla. Reconstruye en el acto los envios
+   * historicos de n8n con esa plantilla, para que el reporte la incluya
+   * desde el principio.
+   */
+  async createTemplate(input: { templateName: string; familyId?: string }) {
+    const templateName = this.requireTemplateName(input.templateName);
     if (input.familyId) await this.findFamilyOrThrow(input.familyId);
+    let created;
     try {
-      return await this.prisma.landing.create({
-        data: { slug, familyId: input.familyId ?? null },
+      created = await this.prisma.acquisitionTemplate.create({
+        data: { templateName, familyId: input.familyId ?? null },
         include: { family: { select: { id: true, name: true, country: true } } },
       });
     } catch (e) {
-      this.rethrowUnique(e, 'Ya existe una landing con ese producto');
+      this.rethrowUnique(e, 'Esa plantilla ya está en el catálogo');
     }
+    const backfilled = await this.touches.backfillTemplate(created.id, created.templateName);
+    return { ...created, backfilled };
   }
 
-  async updateLanding(id: string, input: { slug?: string; familyId?: string | null }) {
-    const landing = await this.prisma.landing.findUnique({
+  async updateTemplate(id: string, input: { templateName?: string; familyId?: string | null }) {
+    const template = await this.prisma.acquisitionTemplate.findUnique({
       where: { id },
       include: { _count: { select: { touches: true } } },
     });
-    if (!landing) throw new NotFoundException('Landing no encontrada');
+    if (!template) throw new NotFoundException('Plantilla no encontrada');
 
-    let slug: string | undefined;
-    if (input.slug !== undefined) {
-      slug = this.requireSlug(input.slug);
-      // Con toques ya registrados, el slug es la clave con la que n8n la
-      // identifica: cambiarlo haria que los proximos envios creen otra.
-      if (slug !== landing.slug && landing._count.touches > 0) {
+    let templateName: string | undefined;
+    if (input.templateName !== undefined) {
+      templateName = this.requireTemplateName(input.templateName);
+      // Con toques ya registrados el nombre es la clave con la que llegan
+      // los envios: cambiarlo haria que los proximos creen otra plantilla.
+      if (templateName !== template.templateName && template._count.touches > 0) {
         throw new BadRequestException(
-          'Esta landing ya tiene leads registrados: no se puede cambiar su producto. Crea una landing nueva y asígnala a la familia que corresponda.',
+          'Esta plantilla ya tiene leads registrados: no se puede renombrar. Añade la plantilla nueva y asígnala a la familia que corresponda.',
         );
       }
     }
     if (input.familyId) await this.findFamilyOrThrow(input.familyId);
 
     try {
-      return await this.prisma.landing.update({
+      const updated = await this.prisma.acquisitionTemplate.update({
         where: { id },
         data: {
-          slug,
+          templateName,
           familyId: input.familyId === undefined ? undefined : input.familyId,
-          // asignada a mano: deja de figurar como auto-registrada
           autoCreated: input.familyId ? false : undefined,
         },
         include: { family: { select: { id: true, name: true, country: true } } },
       });
+      // Si cambio el nombre (plantilla sin datos), traer su historico
+      const backfilled =
+        templateName && templateName !== template.templateName
+          ? await this.touches.backfillTemplate(updated.id, updated.templateName)
+          : 0;
+      return { ...updated, backfilled };
     } catch (e) {
-      this.rethrowUnique(e, 'Ya existe una landing con ese producto');
+      this.rethrowUnique(e, 'Esa plantilla ya está en el catálogo');
     }
   }
 
-  async deleteLanding(id: string) {
-    const landing = await this.prisma.landing.findUnique({
+  async deleteTemplate(id: string) {
+    const template = await this.prisma.acquisitionTemplate.findUnique({
       where: { id },
       include: { _count: { select: { touches: true } } },
     });
-    if (!landing) throw new NotFoundException('Landing no encontrada');
-    if (landing._count.touches > 0) {
+    if (!template) throw new NotFoundException('Plantilla no encontrada');
+    if (template._count.touches > 0) {
       throw new BadRequestException(
-        'Esta landing ya tiene leads registrados y no se puede borrar. Puedes moverla a otra familia.',
+        'Esta plantilla ya tiene leads registrados y no se puede borrar. Puedes moverla a otra familia.',
       );
     }
-    await this.prisma.landing.delete({ where: { id } });
+    await this.prisma.acquisitionTemplate.delete({ where: { id } });
     return { ok: true };
   }
 
-  private requireSlug(raw: string): string {
-    const slug = normalizeLandingSlug(raw);
-    if (!slug) throw new BadRequestException('El producto (slug) no es válido');
-    return slug;
+  private requireTemplateName(raw: string): string {
+    const name = raw.trim();
+    if (!TEMPLATE_NAME_RE.test(name)) {
+      throw new BadRequestException(
+        'Nombre de plantilla no válido (letras, números, "_", "-" o "."; tal como está en YCloud)',
+      );
+    }
+    return name;
   }
 
   private async findFamilyOrThrow(id: string) {

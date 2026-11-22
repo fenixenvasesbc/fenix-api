@@ -201,13 +201,14 @@ export class EventsService {
       }
     }
 
-    // ADR-007: captacion de n8n. Solo los envios que traen `producto` (slug de
-    // la landing por la que entro el lead en Meta) cuentan para el ROI de
-    // campañas. recordTouch nunca lanza ni bloquea el registro del mensaje, y
-    // es idempotente por el id de YCloud (reintentos de n8n).
+    // ADR-007: captacion de n8n. Este endpoint solo lo usa n8n (los envios
+    // manuales de Fenix van por OutboundService + webhook), asi que la
+    // plantilla del envio identifica la campaña por la que entro el lead.
+    // recordTouch nunca lanza ni bloquea el registro del mensaje, y es
+    // idempotente por el id de YCloud (reintentos de n8n).
     await this.acquisitionTouches.recordTouch({
       leadId,
-      producto: body.producto,
+      templateName: body.template?.name,
       occurredAt: providerCreateTime ?? new Date(),
       externalMessageId: body.id,
     });

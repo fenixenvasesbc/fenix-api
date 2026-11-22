@@ -28,8 +28,9 @@ export class YCloudOutboundAcceptedDto {
   @IsEmail()
   leadEmail?: string;
 
-  // ADR-007: slug de la landing (columna "Producto" de la hoja de n8n, p. ej.
-  // "/landing-pizza"). Solo los envios que lo traen cuentan como captacion.
+  // ADR-007 (version inicial, sin uso): slug de la landing. La atribucion pasa
+  // por la plantilla del envio; se sigue aceptando para no responder 400 si
+  // algun flujo de n8n llegara a mandarlo (forbidNonWhitelisted).
   @IsOptional()
   @IsString()
   @MaxLength(500)

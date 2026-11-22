@@ -21,9 +21,9 @@ import { AcquisitionReportService } from './acquisition-report.service';
 import {
   AcquisitionReportQueryDto,
   CreateInvestmentFamilyDto,
-  CreateLandingDto,
+  CreateAcquisitionTemplateDto,
   UpdateInvestmentFamilyDto,
-  UpdateLandingDto,
+  UpdateAcquisitionTemplateDto,
   UpsertWeeklySpendDto,
   WeeklySpendQueryDto,
 } from './dto/acquisition.dto';
@@ -31,7 +31,7 @@ import {
 /**
  * ADR-007: atribucion de captacion y ROI semanal de campañas.
  *
- * - Catalogo (familias y equivalencias landing->familia): SOLO SUPPORT
+ * - Catalogo (familias y equivalencias plantilla->familia): SOLO SUPPORT
  *   (@Roles(Role.SUPPORT) sin ADMIN: la herencia SUPPORT->ADMIN es
  *   unidireccional, mismo criterio que LabelMessageRule, ADR-002).
  * - Reportes e inversion semanal: ADMIN (y SUPPORT por herencia), que son
@@ -70,30 +70,30 @@ export class AcquisitionController {
   }
 
   @Roles(Role.SUPPORT)
-  @Get('landings')
-  async listLandings() {
-    return { data: await this.catalog.listLandings() };
+  @Get('templates')
+  async listTemplates() {
+    return { data: await this.catalog.listTemplates() };
   }
 
   @Roles(Role.SUPPORT)
-  @Post('landings')
-  createLanding(@Body() body: CreateLandingDto) {
-    return this.catalog.createLanding(body);
+  @Post('templates')
+  createTemplate(@Body() body: CreateAcquisitionTemplateDto) {
+    return this.catalog.createTemplate(body);
   }
 
   @Roles(Role.SUPPORT)
-  @Patch('landings/:id')
-  updateLanding(
+  @Patch('templates/:id')
+  updateTemplate(
     @Param('id', new ParseUUIDPipe()) id: string,
-    @Body() body: UpdateLandingDto,
+    @Body() body: UpdateAcquisitionTemplateDto,
   ) {
-    return this.catalog.updateLanding(id, body);
+    return this.catalog.updateTemplate(id, body);
   }
 
   @Roles(Role.SUPPORT)
-  @Delete('landings/:id')
-  deleteLanding(@Param('id', new ParseUUIDPipe()) id: string) {
-    return this.catalog.deleteLanding(id);
+  @Delete('templates/:id')
+  deleteTemplate(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.catalog.deleteTemplate(id);
   }
 
   // ---- Inversion semanal -----------------------------------------------------

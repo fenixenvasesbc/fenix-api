@@ -56,25 +56,25 @@ export class UpdateInvestmentFamilyDto {
   active?: boolean;
 }
 
-export class CreateLandingDto {
+export class CreateAcquisitionTemplateDto {
   @IsString()
   @MinLength(1)
-  @MaxLength(200)
-  slug: string;
+  @MaxLength(120)
+  templateName: string;
 
   @IsOptional()
   @IsUUID()
   familyId?: string;
 }
 
-export class UpdateLandingDto {
+export class UpdateAcquisitionTemplateDto {
   @IsOptional()
   @IsString()
   @MinLength(1)
-  @MaxLength(200)
-  slug?: string;
+  @MaxLength(120)
+  templateName?: string;
 
-  // null = dejar la landing sin familia (pendiente de asignar)
+  // null = dejar la plantilla sin familia (pendiente de asignar)
   @IsOptional()
   @IsUUID()
   familyId?: string | null;

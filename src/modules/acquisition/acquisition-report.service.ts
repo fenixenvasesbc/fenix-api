@@ -57,14 +57,14 @@ type AttributedRow = {
  * ADR-007: inversion semanal y reportes de ROI por familia.
  *
  * Reglas (confirmadas por el usuario 22/nov/2026):
- * - Leads: leads distintos con un toque de captacion (envio de n8n con
- *   `producto`) en la semana, por la familia de esa landing.
+ * - Leads: leads distintos con un toque de captacion (envio de n8n)
+ *   en la semana, por la familia de la plantilla de ese envio.
  * - Bocetos: la PRIMERA solicitud BOCETO de cada lead (requestType 'BOCETO'
  *   o null en solicitudes antiguas) se atribuye al ULTIMO toque del lead
  *   anterior a su creacion; cuenta en la semana y familia de ese toque.
  * - Aprobados: esa misma solicitud con approvedAt no nulo (aunque tenga
  *   varias categorias).
- * Todo se resuelve al consultar (sin snapshot): reasignar landings,
+ * Todo se resuelve al consultar (sin snapshot): reasignar plantillas,
  * borrar solicitudes o cambiar su tipo se refleja solo.
  */
 @Injectable()
@@ -160,7 +160,7 @@ export class AcquisitionReportService {
                l."familyId" AS "familyId",
                COUNT(DISTINCT t."leadId")::int AS "leads"
         FROM "LeadAcquisitionTouch" t
-        JOIN "Landing" l ON l."id" = t."landingId"
+        JOIN "AcquisitionTemplate" l ON l."id" = t."templateId"
         WHERE t."occurredAt" >= ${range.start} AND t."occurredAt" < ${range.end}
         GROUP BY 1, 2
       `),
@@ -409,13 +409,13 @@ export class AcquisitionReportService {
              fb."approvedAt" AS "approvedAt"
       FROM first_boceto fb
       LEFT JOIN LATERAL (
-        SELECT t2."occurredAt", t2."landingId"
+        SELECT t2."occurredAt", t2."templateId"
         FROM "LeadAcquisitionTouch" t2
         WHERE t2."leadId" = fb."leadId" AND t2."occurredAt" <= fb."createdAt"
         ORDER BY t2."occurredAt" DESC
         LIMIT 1
       ) t ON TRUE
-      LEFT JOIN "Landing" l ON l."id" = t."landingId"
+      LEFT JOIN "AcquisitionTemplate" l ON l."id" = t."templateId"
       WHERE fb."createdAt" >= ${start} AND fb."createdAt" < ${end}
     `);
   }
@@ -507,7 +507,7 @@ export class AcquisitionReportService {
 
   /**
    * CTE "attributed": primera solicitud BOCETO de cada lead + ultimo toque de
-   * captacion anterior a ella (LATERAL), con la familia actual de la landing y
+   * captacion anterior a ella (LATERAL), con la familia actual de la plantilla y
    * la primera respuesta del lead (mensaje INBOUND, hora real `occurredAt`)
    * entre ese toque y la creacion del boceto.
    * Filtra por el instante del toque (rango holgado; el bucket exacto lo
@@ -538,13 +538,13 @@ export class AcquisitionReportService {
                l."familyId" AS "familyId"
         FROM first_boceto fb
         JOIN LATERAL (
-          SELECT t2."occurredAt", t2."landingId"
+          SELECT t2."occurredAt", t2."templateId"
           FROM "LeadAcquisitionTouch" t2
           WHERE t2."leadId" = fb."leadId" AND t2."occurredAt" <= fb."createdAt"
           ORDER BY t2."occurredAt" DESC
           LIMIT 1
         ) t ON TRUE
-        JOIN "Landing" l ON l."id" = t."landingId"
+        JOIN "AcquisitionTemplate" l ON l."id" = t."templateId"
         WHERE t."occurredAt" >= ${start} AND t."occurredAt" < ${end}
       )
     `;

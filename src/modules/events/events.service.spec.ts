@@ -47,23 +47,23 @@ describe('EventsService', () => {
       prisma.message.create.mockResolvedValue({ id: 'msg-1' });
     });
 
-    it('registra el toque con el producto, la hora del proveedor y el id de YCloud', async () => {
-      await service.registerOutboundAccepted({ ...baseBody, producto: '/landing-pizza' } as any);
+    it('registra el toque con la plantilla, la hora del proveedor y el id de YCloud', async () => {
+      await service.registerOutboundAccepted(baseBody as any);
 
       expect(acquisitionTouches.recordTouch).toHaveBeenCalledWith({
         leadId: 'lead-1',
-        producto: '/landing-pizza',
+        templateName: 'cajas_pizza_es',
         occurredAt: new Date('2026-11-23T09:00:00.000Z'),
         externalMessageId: 'ycloud-msg-1',
       });
       expect(prisma.message.create).toHaveBeenCalled();
     });
 
-    it('sin producto delega igual (el servicio lo ignora) y el mensaje se guarda', async () => {
-      await service.registerOutboundAccepted(baseBody as any);
+    it('sin plantilla delega igual (el servicio lo ignora) y el mensaje se guarda', async () => {
+      await service.registerOutboundAccepted({ ...baseBody, template: undefined, type: 'text' } as any);
 
       expect(acquisitionTouches.recordTouch).toHaveBeenCalledWith(
-        expect.objectContaining({ producto: undefined }),
+        expect.objectContaining({ templateName: undefined }),
       );
       expect(prisma.message.create).toHaveBeenCalled();
     });
