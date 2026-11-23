@@ -155,6 +155,7 @@ Detalle en [Atribución de captación y ROI semanal de campañas](./19-atribucio
 | `POST`/`PATCH` | `/acquisition/families[/:id]` | `SUPPORT` | Crear/editar familias. |
 | `GET`/`POST` | `/acquisition/templates` | `SUPPORT` | Listar/añadir equivalencias plantilla → familia (añadir reconstruye el histórico). |
 | `PATCH`/`DELETE` | `/acquisition/templates/:id` | `SUPPORT` | Mover/asignar familia; borrar si no tiene toques. |
-| `GET`/`PUT` | `/acquisition/spend` | `ADMIN`, `SUPPORT` | Inversión semanal por familia. |
-| `GET` | `/acquisition/report/weekly` | `ADMIN`, `SUPPORT` | Embudo semanal por familia o país. |
+| `GET`/`PUT` | `/acquisition/spend` | `ADMIN`, `SUPPORT` | Inversión diaria y objetivo €/mensaje por familia (vigentes desde una fecha). |
+| `GET`/`PATCH` | `/acquisition/settings` | `ADMIN`, `SUPPORT` / `SUPPORT` | Etiqueta de presupuesto enviado. |
+| `GET` | `/acquisition/report` | `ADMIN`, `SUPPORT` | Embudo por semana (martes–lunes) o día, por familia o país. |
 | `GET` | `/acquisition/report/conversion-lag` | `ADMIN`, `SUPPORT` | Tiempos de conversión y madurez. |
