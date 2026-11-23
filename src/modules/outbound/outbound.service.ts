@@ -148,11 +148,23 @@ export class OutboundService {
 
     const lead = await this.getLead(accountId, leadId);
     const finalLanguage = languageCode ?? lead.preferredLanguage ?? 'es_ES';
+    // Pedido explicito del usuario, 23/nov/2026: "Reenviar al lead" de un
+    // boceto terminado, cuando la ventana de 24h de WhatsApp ya esta
+    // cerrada, pasa por aca con headerMediaOverride (el jpg/pdf REAL de la
+    // solicitud, ver forwardAttachmentViaTemplate() en DesignBoardService).
+    // La plantilla en si (ej. "boceto_jpg2") es UNA SOLA, reutilizada para
+    // reenviar bocetos distintos -- si la idempotencia solo mira
+    // templateName+templateLang, un reintento del MISMO clientRequestId con
+    // OTRO archivo pasaria el chequeo de "replay" igual, devolviendo datos
+    // de un envio anterior. Se incluye mediaUrl/fileName del override para
+    // que el chequeo detecte correctamente un cambio real.
     const expectation: IdempotencyExpectation = {
       leadId,
       type: MessageType.TEMPLATE,
       templateName,
       templateLang: finalLanguage,
+      mediaUrl: headerMediaOverride?.url ?? null,
+      fileName: headerMediaOverride?.fileName ?? null,
     };
     const existing = await this.getIdempotentReplay(
       accountId,
@@ -185,6 +197,27 @@ export class OutboundService {
         templateName,
         templateLang: finalLanguage,
         providerCreateTime: outboundAt,
+        // Bug reportado por el usuario, 23/nov/2026: el boceto se reenviaba
+        // bien a WhatsApp (headerMediaOverride SI viajaba en
+        // templateComponents, ver resolveTemplateComponentsForSend()) pero
+        // en la bandeja de Fenix siempre se veia la MISMA imagen para
+        // cualquier boceto reenviado por plantilla -- la causa es que
+        // MessageService.getLeadMessages() arma el preview de un mensaje
+        // TEMPLATE a partir del payload GENERICO de la plantilla
+        // (GlobalWhatsappTemplate.payload, el "ejemplo" que Meta guarda al
+        // aprobarla), igual para TODOS los mensajes de esa plantilla.
+        // Guardando aca el archivo real (mediaUrl/fileName) en el propio
+        // Message, MessageService puede detectarlo y pisar el header_url
+        // generico con el real al armar la respuesta (ver
+        // applyHeaderMediaOverride() en message.service.ts). Sin
+        // headerMediaOverride (plantillas "normales", sin reenvio de
+        // bocetos) esto queda null y el comportamiento no cambia.
+        ...(headerMediaOverride
+          ? {
+              mediaUrl: headerMediaOverride.url,
+              fileName: headerMediaOverride.fileName ?? null,
+            }
+          : {}),
         rawPayload: {
           source: 'outbound-message-service',
           type: 'template.send.requested',

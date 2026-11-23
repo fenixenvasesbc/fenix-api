@@ -142,6 +142,17 @@ UI (`Fenix-SPA`): el textarea de comentario nuevo y el de edición de un comenta
 - Marca `forwardedToLeadAt` en el adjunto.
 - Si `column.isFinal`, aplica la label `BOCETO_ENVIADO` (ver arriba).
 
+### Bug corregido: la bandeja de Fenix mostraba siempre la misma imagen (23/nov/2026)
+
+Reporte del usuario: al reenviar un boceto terminado, WhatsApp recibía el archivo correcto, pero en la bandeja de mensajes de Fenix **siempre se veía la misma imagen**, sin importar cuál adjunto se hubiera reenviado.
+
+**Causa**: solo pasaba cuando la ventana de 24h ya estaba cerrada (camino de plantilla, `forwardAttachmentViaTemplate()`). `boceto_jpg2`/`boceto_pdf` son plantillas únicas, reutilizadas para reenviar bocetos distintos -- el archivo real sí viaja a WhatsApp vía `headerMediaOverride` (eso nunca falló), pero `MessageService.getLeadMessages()` armaba el *preview* de cualquier mensaje `TEMPLATE` leyendo el `payload` genérico guardado en `GlobalWhatsappTemplate` -- el "ejemplo" que Meta guarda al aprobar la plantilla, igual para **todos** los mensajes que usan esa plantilla. El `Message` en sí nunca guardaba el archivo real (`mediaUrl`/`fileName` quedaban `null` para mensajes `TEMPLATE`), así que no había forma de distinguir un reenvío de otro en la bandeja.
+
+**Fix**:
+- `OutboundService.sendTemplateMessage()`: cuando el caller pasa `headerMediaOverride`, ahora también se guarda `mediaUrl`/`fileName` en el propio `Message` (antes solo se usaba para armar el `components` que se manda a YCloud). El `expectation` de idempotencia (`clientRequestId`) también incluye estos campos, para que un reintento con el **mismo** `clientRequestId` pero un archivo **distinto** se detecte como conflicto en vez de reusar el mensaje anterior.
+- `MessageService.getLeadMessages()`: nuevo helper privado `applyHeaderMediaOverride(payload, message)` -- si el `Message` tiene `mediaUrl` propio, reemplaza `header.example.header_url` del payload genérico de la plantilla por ese archivo real (nunca toca un header `TEXT`, que no tiene media). Sin `mediaUrl` propio (plantillas normales, sin reenvío de bocetos) es un no-op: se sigue devolviendo el ejemplo genérico, como antes de este fix -- sin regresión para el resto de los usos de plantillas (campañas, etc.).
+- Tests: `outbound.service.spec.ts` (guarda el archivo real en el `Message`, no pisa el comportamiento de plantillas sin override, detecta reintento con archivo distinto) y `message.service.spec.ts` (el preview usa el archivo real, dos bocetos reenviados por la misma plantilla muestran cada uno su propia imagen, plantillas sin reenvío de boceto no cambian, headers `TEXT` no se tocan).
+
 ## Reportes
 
 `GET /design-board/reports/summary?dateFrom&dateTo&createdByUserId&categoryId&mode` (`ADMIN`, `DESIGNER_MANAGER`, `SALES_MANAGER`): por defecto (`mode` ausente o `"months"`) devuelve los **últimos 3 meses separados** (el mes de `dateTo` es el más reciente de los 3), cada uno con `completedCount`, `approvedCount`, `notApprovedCount`, `approvalRate`, `byCountry`, `byCreator` (por comercial) y `byDesigner` (por diseñador asignado, con el detalle de títulos). `byDesigner`/`byCategory` se omiten (`[]`) cuando el rol es `SALES_MANAGER` — esas pestañas de la SPA no son para ese rol.

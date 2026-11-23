@@ -206,12 +206,16 @@ export class MessageService {
     const templatePayloadByKey = await this.getTemplatePayloadsForMessages(pageMessages);
     const orderedMessages = [...pageMessages].reverse().map((message) => {
       const { rawPayload, ...publicMessage } = message;
-      const templatePayload =
+      const genericTemplatePayload =
         message.type === 'TEMPLATE' && message.templateName
           ? (templatePayloadByKey.get(
               this.templatePayloadKey(message.templateName, message.templateLang),
             ) ?? null)
           : null;
+      const templatePayload = this.applyHeaderMediaOverride(
+        genericTemplatePayload,
+        message,
+      );
       return {
         ...publicMessage,
         templatePayload,
@@ -255,6 +259,48 @@ export class MessageService {
 
   private templatePayloadKey(name: string, language: string | null) {
     return `${name}\u0000${language ?? ''}`;
+  }
+
+  // Bug reportado por el usuario, 23/nov/2026: "Reenviar al lead" (ver
+  // forwardAttachmentViaTemplate() en DesignBoardService) manda el boceto
+  // real por WhatsApp via headerMediaOverride, pero el preview que arma
+  // getLeadMessages() venia SIEMPRE de GlobalWhatsappTemplate.payload -- el
+  // "ejemplo" generico que Meta guarda al aprobar la plantilla, igual para
+  // TODOS los mensajes de esa plantilla ("boceto_jpg2"/"boceto_pdf" son UNA
+  // sola plantilla reutilizada para reenviar bocetos distintos). Resultado:
+  // la bandeja de Fenix mostraba siempre la misma imagen sin importar que
+  // archivo se hubiera reenviado en realidad, aunque el lead si recibia el
+  // correcto. OutboundService.sendTemplateMessage() ahora guarda el archivo
+  // real en el propio Message (mediaUrl/fileName) cuando hay
+  // headerMediaOverride -- aca se usa eso para pisar el header_url generico
+  // por el real, SOLO en el header de media (IMAGE/VIDEO/DOCUMENT; un
+  // header TEXT no tiene media que pisar). Sin mediaUrl propio (plantillas
+  // normales, sin reenvio de bocetos) esto es un no-op y se devuelve el
+  // payload generico tal cual, como antes de este fix.
+  private applyHeaderMediaOverride(
+    payload: unknown,
+    message: { mediaUrl: string | null; fileName: string | null },
+  ): unknown {
+    if (!message.mediaUrl || !Array.isArray(payload)) return payload;
+
+    return payload.map((component) => {
+      if (!component || typeof component !== 'object') return component;
+
+      const header = component as {
+        type?: unknown;
+        format?: unknown;
+        example?: { header_url?: unknown[] };
+      };
+
+      if (header.type !== 'HEADER' || header.format === 'TEXT') {
+        return component;
+      }
+
+      return {
+        ...header,
+        example: { ...header.example, header_url: [message.mediaUrl] },
+      };
+    });
   }
 
   private async getTemplatePayloadsForMessages(
