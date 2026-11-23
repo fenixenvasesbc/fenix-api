@@ -1,13 +1,18 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DesignRequestCountry, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AcquisitionSpendService, valueOn } from './acquisition-spend.service';
 import {
   ACQUISITION_TIME_ZONE,
   addDays,
   coarseUtcRange,
   currentWeekStart,
+  daysBetween,
   isDateKey,
-  mondayOf,
+  isSendDay,
+  madridDateKey,
+  sendDayOf,
+  weekStartOf,
   weeksBetween,
 } from './acquisition-week.util';
 
@@ -16,6 +21,7 @@ export const UNASSIGNED_KEY = '__unassigned__';
 export const NO_CAMPAIGN_KEY = '__no_campaign__';
 const DEFAULT_WEEKS = 8;
 const MAX_WEEKS = 104;
+const MAX_DAYS = 92;
 // Ventana para calcular la madurez (tiempos de conversion historicos)
 const MATURITY_LOOKBACK_WEEKS = 26;
 const MATURITY_THRESHOLD = 0.8;
@@ -23,12 +29,22 @@ const MATURITY_MIN_SAMPLE = 10;
 const MATURITY_FALLBACK_WEEKS = 4;
 const CURVE_MAX_WEEKS = 12;
 
-type WeekCell = {
-  weekStart: string;
+export type Granularity = 'week' | 'day';
+
+// Acumulador interno de un periodo (semana martes-lunes o dia de envio).
+type Acc = {
+  key: string;
   leads: number;
   bocetos: number;
   approved: number;
+  quotes: number;
   spendCents: number | null;
+  // Objetivo: coste esperado (objetivo vigente el dia de entrada x cada lead)
+  targetCostCents: number;
+  targetLeads: number;
+  // Respaldo sin leads: media de los objetivos diarios vigentes
+  targetDaySum: number;
+  targetDays: number;
 };
 
 // Fila del analisis de tiempos: TODA primera solicitud BOCETO de un lead,
@@ -54,188 +70,155 @@ type AttributedRow = {
 };
 
 /**
- * ADR-007: inversion semanal y reportes de ROI por familia.
+ * ADR-007: reporte de ROI por familia, por semana (martes-lunes) o por dia de
+ * envio (sab/dom se agregan al lunes).
  *
- * Reglas (confirmadas por el usuario 22/nov/2026):
- * - Leads: leads distintos con un toque de captacion (envio de n8n)
- *   en la semana, por la familia de la plantilla de ese envio.
+ * Reglas (confirmadas por el usuario 22-23/nov/2026):
+ * - Mensajes: leads distintos con un toque de captacion (envio de n8n) en el
+ *   periodo, por la familia de la plantilla de ese envio.
  * - Bocetos: la PRIMERA solicitud BOCETO de cada lead (requestType 'BOCETO'
  *   o null en solicitudes antiguas) se atribuye al ULTIMO toque del lead
- *   anterior a su creacion; cuenta en la semana y familia de ese toque.
- * - Aprobados: esa misma solicitud con approvedAt no nulo (aunque tenga
- *   varias categorias).
- * Todo se resuelve al consultar (sin snapshot): reasignar plantillas,
- * borrar solicitudes o cambiar su tipo se refleja solo.
+ *   anterior a su creacion; cuenta en el periodo y familia de ese toque.
+ * - Aprobados: esa misma solicitud con approvedAt no nulo.
+ * - Presupuestos: primera asignacion de la etiqueta configurada como
+ *   "Presupuesto enviado", atribuida igual (ultimo toque anterior); cuenta en
+ *   el periodo de entrada del lead.
+ * - Inversion: suma de los importes diarios vigentes de cada dia natural del
+ *   periodo (el lunes incluye sabado y domingo).
+ * - Objetivo €/mensaje: el vigente el dia de entrada de cada lead (media
+ *   ponderada por mensajes); sin mensajes, media de los objetivos diarios.
+ * Todo se resuelve al consultar (sin snapshot).
  */
 @Injectable()
 export class AcquisitionReportService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly spend: AcquisitionSpendService,
+  ) {}
 
   // ---------------------------------------------------------------------
-  // Inversion semanal
+  // Reporte por periodo (semana martes-lunes o dia de envio)
   // ---------------------------------------------------------------------
 
-  async getWeeklySpend(weekStartRaw: string) {
-    const weekStart = this.requireMonday(weekStartRaw);
-    const [families, spends] = await Promise.all([
-      this.prisma.investmentFamily.findMany({
-        where: { active: true },
-        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-        select: { id: true, name: true, country: true },
-      }),
-      this.prisma.familyWeeklySpend.findMany({
-        where: { weekStart: new Date(`${weekStart}T00:00:00Z`) },
-        select: { familyId: true, amountCents: true },
-      }),
-    ]);
-    const byFamily = new Map(spends.map((s) => [s.familyId, s.amountCents]));
-    return {
-      weekStart,
-      items: families.map((f) => ({
-        familyId: f.id,
-        name: f.name,
-        country: f.country,
-        amountCents: byFamily.get(f.id) ?? null,
-      })),
-    };
-  }
-
-  async upsertWeeklySpend(
-    weekStartRaw: string,
-    items: { familyId: string; amountCents?: number | null }[],
-    userId: string,
-  ) {
-    const weekStart = this.requireMonday(weekStartRaw);
-    const weekDate = new Date(`${weekStart}T00:00:00Z`);
-
-    const familyIds = Array.from(new Set(items.map((i) => i.familyId)));
-    const existing = await this.prisma.investmentFamily.count({
-      where: { id: { in: familyIds } },
-    });
-    if (existing !== familyIds.length) {
-      throw new BadRequestException('Alguna familia no existe');
-    }
-
-    await this.prisma.$transaction(
-      items.map((item) =>
-        item.amountCents === null || item.amountCents === undefined
-          ? this.prisma.familyWeeklySpend.deleteMany({
-              where: { familyId: item.familyId, weekStart: weekDate },
-            })
-          : this.prisma.familyWeeklySpend.upsert({
-              where: {
-                familyId_weekStart: { familyId: item.familyId, weekStart: weekDate },
-              },
-              create: {
-                familyId: item.familyId,
-                weekStart: weekDate,
-                amountCents: item.amountCents,
-                updatedByUserId: userId,
-              },
-              update: { amountCents: item.amountCents, updatedByUserId: userId },
-            }),
-      ),
-    );
-
-    return this.getWeeklySpend(weekStart);
-  }
-
-  // ---------------------------------------------------------------------
-  // Reporte semanal por familia / pais
-  // ---------------------------------------------------------------------
-
-  async getWeeklyReport(query: { from?: string; to?: string; groupBy?: 'family' | 'country' }) {
-    const { fromWeek, toWeek } = this.resolveWeekRange(query.from, query.to);
-    const weeks = weeksBetween(fromWeek, toWeek);
-    const range = coarseUtcRange(fromWeek, toWeek);
+  async getReport(query: {
+    granularity?: Granularity;
+    from?: string;
+    to?: string;
+    groupBy?: 'family' | 'country';
+  }) {
+    const granularity: Granularity = query.granularity ?? 'week';
     const groupBy = query.groupBy ?? 'family';
+    const { periods, calendarDays, fromDay, toDay } = this.resolvePeriods(granularity, query.from, query.to);
+    const periodOf = (day: string) => (granularity === 'week' ? weekStartOf(day) : sendDayOf(day));
+    const periodSet = new Set(periods);
+    const range = coarseUtcRange(calendarDays[0], toDay);
 
-    const [families, leadRows, bocetoRows, spendRows, maturity] = await Promise.all([
+    const [families, touchRows, attributedRows, settings, schedules, maturity] = await Promise.all([
       this.prisma.investmentFamily.findMany({
         orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
         select: { id: true, name: true, country: true, active: true, sortOrder: true },
       }),
-      this.prisma.$queryRaw<{ week: Date; familyId: string | null; leads: number }[]>(Prisma.sql`
-        SELECT ${this.weekBucketSql(Prisma.sql`t."occurredAt"`)} AS "week",
+      this.prisma.$queryRaw<{ leadId: string; familyId: string | null; day: Date }[]>(Prisma.sql`
+        SELECT DISTINCT t."leadId" AS "leadId",
                l."familyId" AS "familyId",
-               COUNT(DISTINCT t."leadId")::int AS "leads"
+               ${this.localDateSql(Prisma.sql`t."occurredAt"`)} AS "day"
         FROM "LeadAcquisitionTouch" t
         JOIN "AcquisitionTemplate" l ON l."id" = t."templateId"
         WHERE t."occurredAt" >= ${range.start} AND t."occurredAt" < ${range.end}
-        GROUP BY 1, 2
       `),
-      this.prisma.$queryRaw<
-        { week: Date; familyId: string | null; bocetos: number; approved: number }[]
-      >(Prisma.sql`
-        ${this.attributedCteSql(range.start, range.end)}
-        SELECT ${this.weekBucketSql(Prisma.sql`a."touchAt"`)} AS "week",
-               a."familyId" AS "familyId",
-               COUNT(*)::int AS "bocetos",
-               COUNT(a."approvedAt")::int AS "approved"
-        FROM attributed a
-        GROUP BY 1, 2
-      `),
-      this.prisma.familyWeeklySpend.findMany({
-        where: {
-          weekStart: {
-            gte: new Date(`${fromWeek}T00:00:00Z`),
-            lte: new Date(`${toWeek}T00:00:00Z`),
-          },
-        },
-        select: { familyId: true, weekStart: true, amountCents: true },
-      }),
+      this.loadAttributed(range.start, range.end),
+      this.spend.getSettings(),
+      this.spend.loadSchedules(),
       this.computeMaturity(),
     ]);
+    const quoteRows = settings.quoteLabelCode
+      ? await this.loadQuotes(settings.quoteLabelCode, range.start, range.end)
+      : [];
 
-    const weekSet = new Set(weeks);
-
-    // Acumulador por familia (o UNASSIGNED_KEY)
-    const cells = new Map<string, Map<string, WeekCell>>();
-    const cell = (familyKey: string, week: string): WeekCell | null => {
-      if (!weekSet.has(week)) return null;
-      let perWeek = cells.get(familyKey);
-      if (!perWeek) {
-        perWeek = new Map();
-        cells.set(familyKey, perWeek);
+    const cells = new Map<string, Map<string, Acc>>();
+    const cell = (familyKey: string, period: string): Acc | null => {
+      if (!periodSet.has(period)) return null;
+      let perPeriod = cells.get(familyKey);
+      if (!perPeriod) {
+        perPeriod = new Map();
+        cells.set(familyKey, perPeriod);
       }
-      let c = perWeek.get(week);
+      let c = perPeriod.get(period);
       if (!c) {
-        c = { weekStart: week, leads: 0, bocetos: 0, approved: 0, spendCents: null };
-        perWeek.set(week, c);
+        c = emptyAcc(period);
+        perPeriod.set(period, c);
       }
       return c;
     };
 
-    for (const r of leadRows) {
-      const c = cell(r.familyId ?? UNASSIGNED_KEY, this.dateKey(r.week));
-      if (c) c.leads += r.leads;
+    // Mensajes: leads distintos por familia y periodo; el objetivo se toma del
+    // primer dia de entrada del lead dentro del periodo.
+    const firstDay = new Map<string, Map<string, string>>(); // fam|period -> lead -> dia
+    for (const r of touchRows) {
+      const day = toKey(r.day);
+      const period = periodOf(day);
+      if (!periodSet.has(period)) continue;
+      const famKey = r.familyId ?? UNASSIGNED_KEY;
+      const k = `${famKey}|${period}`;
+      const leads = firstDay.get(k) ?? new Map<string, string>();
+      const prev = leads.get(r.leadId);
+      if (!prev || day < prev) leads.set(r.leadId, day);
+      firstDay.set(k, leads);
     }
-    for (const r of bocetoRows) {
-      const c = cell(r.familyId ?? UNASSIGNED_KEY, this.dateKey(r.week));
-      if (c) {
-        c.bocetos += r.bocetos;
-        c.approved += r.approved;
+    for (const [k, leads] of firstDay) {
+      const [famKey, period] = k.split('|');
+      const c = cell(famKey, period)!;
+      c.leads += leads.size;
+      if (famKey === UNASSIGNED_KEY) continue;
+      for (const day of leads.values()) {
+        const t = valueOn(schedules.target.get(famKey), day)?.value ?? null;
+        if (t !== null) {
+          c.targetCostCents += t;
+          c.targetLeads += 1;
+        }
       }
     }
-    for (const s of spendRows) {
-      const c = cell(s.familyId, this.dateKey(s.weekStart));
-      if (c) c.spendCents = (c.spendCents ?? 0) + s.amountCents;
+
+    for (const r of attributedRows) {
+      const c = cell(r.familyId ?? UNASSIGNED_KEY, periodOf(madridDateKey(r.touchAt)));
+      if (c) {
+        c.bocetos += 1;
+        if (r.approvedAt) c.approved += 1;
+      }
+    }
+    for (const r of quoteRows) {
+      const c = cell(r.familyId ?? UNASSIGNED_KEY, periodOf(madridDateKey(r.touchAt)));
+      if (c) c.quotes += 1;
     }
 
-    // Filas: familias activas siempre; inactivas solo si tienen datos; y
-    // "Sin familia" solo si tiene datos.
+    // Inversion diaria (todos los dias naturales) y respaldo del objetivo
+    for (const f of families) {
+      const rates = schedules.spend.get(f.id);
+      const targets = schedules.target.get(f.id);
+      if (!rates && !targets) continue;
+      for (const day of calendarDays) {
+        const period = periodOf(day);
+        if (!periodSet.has(period)) continue;
+        const amount = valueOn(rates, day)?.value ?? null;
+        const target = isSendDay(day) ? valueOn(targets, day)?.value ?? null : null;
+        if (amount === null && target === null) continue;
+        const c = cell(f.id, period)!;
+        if (amount !== null) c.spendCents = (c.spendCents ?? 0) + amount;
+        if (target !== null) {
+          c.targetDaySum += target;
+          c.targetDays += 1;
+        }
+      }
+    }
+
     type Row = {
       key: string;
       name: string;
       country: DesignRequestCountry | null;
       active: boolean;
-      weeks: WeekCell[];
+      periods: Acc[];
     };
-    const emptyWeeks = (perWeek?: Map<string, WeekCell>) =>
-      weeks.map(
-        (w) =>
-          perWeek?.get(w) ?? { weekStart: w, leads: 0, bocetos: 0, approved: 0, spendCents: null },
-      );
+    const filled = (perPeriod?: Map<string, Acc>) => periods.map((p) => perPeriod?.get(p) ?? emptyAcc(p));
 
     let rows: Row[] = families
       .filter((f) => f.active || cells.has(f.id))
@@ -244,7 +227,7 @@ export class AcquisitionReportService {
         name: f.name,
         country: f.country,
         active: f.active,
-        weeks: emptyWeeks(cells.get(f.id)),
+        periods: filled(cells.get(f.id)),
       }));
     if (cells.has(UNASSIGNED_KEY)) {
       rows.push({
@@ -252,7 +235,7 @@ export class AcquisitionReportService {
         name: 'Sin familia asignada',
         country: null,
         active: true,
-        weeks: emptyWeeks(cells.get(UNASSIGNED_KEY)),
+        periods: filled(cells.get(UNASSIGNED_KEY)),
       });
     }
 
@@ -267,32 +250,42 @@ export class AcquisitionReportService {
             name: row.country ?? 'Sin familia asignada',
             country: row.country,
             active: true,
-            weeks: emptyWeeks(),
+            periods: filled(),
           };
           byCountry.set(key, target);
         }
-        row.weeks.forEach((w, i) => this.addInto(target!.weeks[i], w));
+        row.periods.forEach((p, i) => addInto(target!.periods[i], p));
       }
       rows = Array.from(byCountry.values());
     }
 
-    const totals = emptyWeeks();
-    for (const row of rows) row.weeks.forEach((w, i) => this.addInto(totals[i], w));
+    const totals = filled();
+    for (const row of rows) row.periods.forEach((p, i) => addInto(totals[i], p));
 
-    const thisWeek = currentWeekStart();
-    const weekStatus = weeks.map((w) => ({
-      weekStart: w,
-      status: this.weekStatus(w, thisWeek, maturity.weeks),
-    }));
-
+    const today = madridDateKey(new Date());
     return {
-      from: fromWeek,
-      to: toWeek,
+      granularity,
+      from: fromDay,
+      to: toDay,
       groupBy,
-      weeks: weekStatus,
+      periods: periods.map((p) => ({
+        key: p,
+        // el lunes (vista diaria) incluye la inversion de sabado y domingo
+        start: granularity === 'week' ? p : addDays(p, -(isMonday(p) ? 2 : 0)),
+        end: granularity === 'week' ? addDays(p, 6) : p,
+        status: this.periodStatus(granularity, p, today, maturity.weeks),
+      })),
       maturity,
-      rows: rows.map((r) => ({ ...r, totals: this.sumWeeks(r.weeks) })),
-      totals: { weeks: totals, totals: this.sumWeeks(totals) },
+      quoteLabel: settings.quoteLabel,
+      rows: rows.map((r) => ({
+        key: r.key,
+        name: r.name,
+        country: r.country,
+        active: r.active,
+        periods: r.periods.map(finalize),
+        totals: finalize(sumAcc(r.periods)),
+      })),
+      totals: { periods: totals.map(finalize), totals: finalize(sumAcc(totals)) },
     };
   }
 
@@ -314,7 +307,7 @@ export class AcquisitionReportService {
       query.to,
       MATURITY_LOOKBACK_WEEKS,
     );
-    const range = coarseUtcRange(fromWeek, toWeek);
+    const range = coarseUtcRange(fromWeek, addDays(toWeek, 6));
     const inWeeks = (instant: Date) => {
       const w = this.weekOfInstant(instant);
       return w >= fromWeek && w <= toWeek;
@@ -425,7 +418,7 @@ export class AcquisitionReportService {
   async computeMaturity() {
     const toWeek = currentWeekStart();
     const fromWeek = addDays(toWeek, -7 * MATURITY_LOOKBACK_WEEKS);
-    const range = coarseUtcRange(fromWeek, toWeek);
+    const range = coarseUtcRange(fromWeek, addDays(toWeek, 6));
     const rows = await this.loadAttributed(range.start, range.end);
     const s = this.lagSummary(rows);
     const estimated = s.approved < MATURITY_MIN_SAMPLE || s.maturityWeeks === null;
@@ -550,30 +543,67 @@ export class AcquisitionReportService {
     `;
   }
 
-  /** Lunes local (Europe/Madrid) del instante, como date. */
-  private weekBucketSql(column: Prisma.Sql) {
-    return Prisma.sql`(date_trunc('week', (${column} AT TIME ZONE 'UTC') AT TIME ZONE ${ACQUISITION_TIME_ZONE}))::date`;
+  /**
+   * Primera asignacion de la etiqueta de presupuesto de cada lead, atribuida
+   * al ultimo toque de captacion anterior a ella (mismo criterio que bocetos).
+   */
+  private async loadQuotes(labelCode: string, start: Date, end: Date) {
+    return this.prisma.$queryRaw<{ leadId: string; touchAt: Date; familyId: string | null }[]>(Prisma.sql`
+      -- acquisition:quotes
+      WITH first_quote AS (
+        SELECT a."leadId", MIN(a."assignedAt") AS "quotedAt"
+        FROM "LeadLabelAssignment" a
+        WHERE a."label" = ${labelCode}
+        GROUP BY a."leadId"
+      )
+      SELECT fq."leadId", t."occurredAt" AS "touchAt", l."familyId" AS "familyId"
+      FROM first_quote fq
+      JOIN LATERAL (
+        SELECT t2."occurredAt", t2."templateId"
+        FROM "LeadAcquisitionTouch" t2
+        WHERE t2."leadId" = fq."leadId" AND t2."occurredAt" <= fq."quotedAt"
+        ORDER BY t2."occurredAt" DESC
+        LIMIT 1
+      ) t ON TRUE
+      JOIN "AcquisitionTemplate" l ON l."id" = t."templateId"
+      WHERE t."occurredAt" >= ${start} AND t."occurredAt" < ${end}
+    `);
+  }
+
+  /** Fecha local (Europe/Madrid) de un timestamp guardado en UTC. */
+  private localDateSql(column: Prisma.Sql) {
+    return Prisma.sql`((${column} AT TIME ZONE 'UTC') AT TIME ZONE ${ACQUISITION_TIME_ZONE})::date`;
   }
 
   private weekOfInstant(instant: Date): string {
-    const local = new Intl.DateTimeFormat('en-CA', {
-      timeZone: ACQUISITION_TIME_ZONE,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(instant);
-    return mondayOf(local);
+    return weekStartOf(madridDateKey(instant));
   }
 
-  private dateKey(value: Date | string): string {
-    return value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10);
+  private resolvePeriods(granularity: Granularity, from?: string, to?: string) {
+    if (from && !isDateKey(from)) throw new BadRequestException('from no es una fecha válida');
+    if (to && !isDateKey(to)) throw new BadRequestException('to no es una fecha válida');
+    if (granularity === 'week') {
+      const { fromWeek, toWeek } = this.resolveWeekRange(from, to);
+      const periods = weeksBetween(fromWeek, toWeek);
+      const toDay = addDays(toWeek, 6);
+      return { periods, fromDay: fromWeek, toDay, calendarDays: daysBetween(fromWeek, toDay) };
+    }
+    const fromDay = from ?? currentWeekStart();
+    const toDay = to ?? addDays(fromDay, 6);
+    if (fromDay > toDay) throw new BadRequestException('from debe ser anterior a to');
+    const all = daysBetween(fromDay, toDay);
+    if (all.length > MAX_DAYS) throw new BadRequestException(`El rango no puede superar ${MAX_DAYS} días`);
+    const periods = all.filter(isSendDay);
+    // sab/dom anteriores a un lunes del rango suman a ese lunes
+    const calendarDays = daysBetween(addDays(fromDay, -2), toDay);
+    return { periods, fromDay, toDay, calendarDays };
   }
 
   private resolveWeekRange(from?: string, to?: string, defaultWeeks = DEFAULT_WEEKS) {
     if (from && !isDateKey(from)) throw new BadRequestException('from no es una fecha válida');
     if (to && !isDateKey(to)) throw new BadRequestException('to no es una fecha válida');
-    const toWeek = to ? mondayOf(to) : currentWeekStart();
-    const fromWeek = from ? mondayOf(from) : addDays(toWeek, -7 * (defaultWeeks - 1));
+    const toWeek = to ? weekStartOf(to) : currentWeekStart();
+    const fromWeek = from ? weekStartOf(from) : addDays(toWeek, -7 * (defaultWeeks - 1));
     if (fromWeek > toWeek) throw new BadRequestException('from debe ser anterior a to');
     if (weeksBetween(fromWeek, toWeek).length > MAX_WEEKS) {
       throw new BadRequestException(`El rango no puede superar ${MAX_WEEKS} semanas`);
@@ -581,35 +611,74 @@ export class AcquisitionReportService {
     return { fromWeek, toWeek };
   }
 
-  private requireMonday(value: string): string {
-    if (!isDateKey(value)) throw new BadRequestException('weekStart no es una fecha válida');
-    return mondayOf(value);
-  }
-
   /**
-   * CURRENT: semana en curso. IN_PROGRESS: cerrada pero todavia pueden
-   * llegar aprobaciones. MATURE: ya pasaron `maturityWeeks` semanas.
+   * CURRENT: periodo en curso (o futuro). IN_PROGRESS: cerrado pero todavia
+   * pueden llegar aprobaciones. MATURE: ya pasaron `maturityWeeks` semanas.
    */
-  private weekStatus(week: string, thisWeek: string, maturityWeeks: number) {
-    if (week >= thisWeek) return 'CURRENT' as const;
-    return addDays(week, 7 * maturityWeeks) <= thisWeek ? ('MATURE' as const) : ('IN_PROGRESS' as const);
+  private periodStatus(granularity: Granularity, period: string, today: string, maturityWeeks: number) {
+    const current = granularity === 'week' ? weekStartOf(today) : sendDayOf(today);
+    if (period >= current) return 'CURRENT' as const;
+    const reference = granularity === 'week' ? current : today;
+    return addDays(period, 7 * maturityWeeks) <= reference ? ('MATURE' as const) : ('IN_PROGRESS' as const);
   }
+}
 
-  private addInto(target: WeekCell, source: WeekCell) {
-    target.leads += source.leads;
-    target.bocetos += source.bocetos;
-    target.approved += source.approved;
-    if (source.spendCents !== null) target.spendCents = (target.spendCents ?? 0) + source.spendCents;
-  }
+function emptyAcc(key: string): Acc {
+  return {
+    key,
+    leads: 0,
+    bocetos: 0,
+    approved: 0,
+    quotes: 0,
+    spendCents: null,
+    targetCostCents: 0,
+    targetLeads: 0,
+    targetDaySum: 0,
+    targetDays: 0,
+  };
+}
 
-  private sumWeeks(weeks: WeekCell[]) {
-    const total = { leads: 0, bocetos: 0, approved: 0, spendCents: null as number | null };
-    for (const w of weeks) {
-      total.leads += w.leads;
-      total.bocetos += w.bocetos;
-      total.approved += w.approved;
-      if (w.spendCents !== null) total.spendCents = (total.spendCents ?? 0) + w.spendCents;
-    }
-    return total;
-  }
+function addInto(target: Acc, source: Acc) {
+  target.leads += source.leads;
+  target.bocetos += source.bocetos;
+  target.approved += source.approved;
+  target.quotes += source.quotes;
+  if (source.spendCents !== null) target.spendCents = (target.spendCents ?? 0) + source.spendCents;
+  target.targetCostCents += source.targetCostCents;
+  target.targetLeads += source.targetLeads;
+  target.targetDaySum += source.targetDaySum;
+  target.targetDays += source.targetDays;
+}
+
+function sumAcc(list: Acc[]): Acc {
+  const total = emptyAcc('total');
+  for (const item of list) addInto(total, item);
+  return total;
+}
+
+/** Celda publica: objetivo de €/mensaje ya resuelto (en centimos). */
+function finalize(acc: Acc) {
+  const targetCentsPerLead =
+    acc.targetLeads > 0
+      ? Math.round(acc.targetCostCents / acc.targetLeads)
+      : acc.targetDays > 0
+        ? Math.round(acc.targetDaySum / acc.targetDays)
+        : null;
+  return {
+    key: acc.key,
+    leads: acc.leads,
+    bocetos: acc.bocetos,
+    approved: acc.approved,
+    quotes: acc.quotes,
+    spendCents: acc.spendCents,
+    targetCentsPerLead,
+  };
+}
+
+function isMonday(day: string) {
+  return new Date(`${day}T00:00:00Z`).getUTCDay() === 1;
+}
+
+function toKey(value: Date | string): string {
+  return value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10);
 }

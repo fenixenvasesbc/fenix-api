@@ -4,11 +4,13 @@ import {
   NO_CAMPAIGN_KEY,
   UNASSIGNED_KEY,
 } from './acquisition-report.service';
+import { AcquisitionSpendService } from './acquisition-spend.service';
 
 /**
- * ADR-007. El SQL (bucket semanal en Europe/Madrid, primera BOCETO y ultimo
- * toque anterior via LATERAL) se valida contra Postgres real; aqui se prueba
- * la agregacion, las reglas de filas, la madurez y la inversion.
+ * ADR-007. El SQL (fecha local en Europe/Madrid, primera BOCETO / primera
+ * etiqueta de presupuesto y ultimo toque anterior via LATERAL) se valida contra
+ * Postgres real; aqui se prueba la agregacion por semana martes-lunes y por dia
+ * de envio, la inversion diaria, el objetivo y la madurez.
  */
 describe('AcquisitionReportService (ADR-007)', () => {
   const families = [
@@ -17,134 +19,233 @@ describe('AcquisitionReportService (ADR-007)', () => {
     { id: 'f-old', name: 'LANDING VIEJA', country: 'ES', active: false, sortOrder: 900 },
   ];
 
-  let leadRows: any[];
-  let bocetoRows: any[];
+  let touchRows: any[];
   let attributedRows: any[];
   let timingRows: any[];
+  let quoteRows: any[];
+  let rates: any[];
+  let targets: any[];
+  let quoteLabelCode: string | null;
 
   const prisma = {
     investmentFamily: { findMany: jest.fn(), count: jest.fn() },
-    familyWeeklySpend: {
-      findMany: jest.fn(),
-      deleteMany: jest.fn(),
-      upsert: jest.fn(),
-    },
+    familySpendRate: { findMany: jest.fn(), upsert: jest.fn() },
+    familyLeadTarget: { findMany: jest.fn(), upsert: jest.fn() },
+    acquisitionSettings: { findUnique: jest.fn(), upsert: jest.fn() },
+    leadLabelDefinition: { findUnique: jest.fn(), count: jest.fn() },
     $queryRaw: jest.fn(),
     $transaction: jest.fn(),
   };
   let service: AcquisitionReportService;
 
   const d = (key: string) => new Date(`${key}T00:00:00Z`);
+  const touch = (leadId: string, day: string, familyId: string | null = 'f-pizza') => ({
+    leadId,
+    familyId,
+    day: d(day),
+  });
+  const attributed = (touchAt: string, approved = false, familyId: string | null = 'f-pizza') => ({
+    leadId: `${touchAt}-${familyId}`,
+    touchAt: new Date(touchAt),
+    firstReplyAt: null,
+    bocetoAt: new Date(touchAt),
+    approvedAt: approved ? new Date(touchAt) : null,
+    familyId,
+  });
 
   beforeEach(() => {
     jest.resetAllMocks();
     jest.useFakeTimers().setSystemTime(new Date('2026-11-25T10:00:00Z')); // miercoles
-    leadRows = [];
-    bocetoRows = [];
+    touchRows = [];
     attributedRows = [];
     timingRows = [];
+    quoteRows = [];
+    rates = [];
+    targets = [];
+    quoteLabelCode = 'presupuesto-enviado';
     prisma.investmentFamily.findMany.mockResolvedValue(families);
-    prisma.familyWeeklySpend.findMany.mockResolvedValue([]);
+    prisma.familySpendRate.findMany.mockImplementation(async () => rates);
+    prisma.familyLeadTarget.findMany.mockImplementation(async () => targets);
+    prisma.acquisitionSettings.findUnique.mockImplementation(async () => ({ quoteLabelCode }));
+    prisma.leadLabelDefinition.findUnique.mockImplementation(async () =>
+      quoteLabelCode ? { code: quoteLabelCode, name: 'Presupuesto enviado', color: null } : null,
+    );
     prisma.$queryRaw.mockImplementation(async (sql: { sql: string }) => {
-      if (sql.sql.includes('COUNT(DISTINCT t."leadId")')) return leadRows;
-      if (sql.sql.includes('COUNT(a."approvedAt")')) return bocetoRows;
+      if (sql.sql.includes('SELECT DISTINCT t."leadId"')) return touchRows;
+      if (sql.sql.includes('acquisition:quotes')) return quoteRows;
       if (sql.sql.includes('acquisition:timings')) return timingRows;
       return attributedRows;
     });
-    service = new AcquisitionReportService(prisma as any);
+    service = new AcquisitionReportService(prisma as any, new AcquisitionSpendService(prisma as any));
   });
 
   afterEach(() => jest.useRealTimers());
 
-  describe('getWeeklyReport', () => {
-    it('por defecto devuelve 8 semanas terminando en la semana actual', async () => {
-      const report = await service.getWeeklyReport({});
-      expect(report.from).toBe('2026-10-05');
-      expect(report.to).toBe('2026-11-23');
-      expect(report.weeks).toHaveLength(8);
-      expect(report.weeks[7]).toEqual({ weekStart: '2026-11-23', status: 'CURRENT' });
+  const rate = (familyId: string, from: string, cents: number) => ({
+    familyId,
+    effectiveFrom: d(from),
+    dailyAmountCents: cents,
+  });
+  const target = (familyId: string, from: string, cents: number | null) => ({
+    familyId,
+    effectiveFrom: d(from),
+    targetCentsPerLead: cents,
+  });
+
+  describe('vista semanal (martes-lunes)', () => {
+    it('por defecto devuelve 8 semanas terminando en la semana actual (martes 24 - lunes 30)', async () => {
+      const report = await service.getReport({});
+      expect(report.granularity).toBe('week');
+      expect(report.from).toBe('2026-10-06');
+      expect(report.to).toBe('2026-11-30');
+      expect(report.periods).toHaveLength(8);
+      expect(report.periods[7]).toEqual({
+        key: '2026-11-24',
+        start: '2026-11-24',
+        end: '2026-11-30',
+        status: 'CURRENT',
+      });
     });
 
-    it('agrega leads, bocetos, aprobados e inversion por familia y semana', async () => {
-      leadRows = [
-        { week: d('2026-11-16'), familyId: 'f-pizza', leads: 50 },
-        { week: d('2026-11-16'), familyId: 'f-pizza-fr', leads: 20 },
+    it('el lunes cierra la semana del martes anterior; leads distintos, bocetos, presupuestos e inversion diaria x 7', async () => {
+      touchRows = [
+        touch('a', '2026-11-17'),
+        touch('b', '2026-11-17'),
+        touch('a', '2026-11-20'), // mismo lead otra vez en la semana: cuenta 1
+        touch('c', '2026-11-23'), // lunes: semana del 17
+        touch('d', '2026-11-24'), // martes: semana siguiente (fuera del rango pedido)
       ];
-      bocetoRows = [{ week: d('2026-11-16'), familyId: 'f-pizza', bocetos: 6, approved: 2 }];
-      prisma.familyWeeklySpend.findMany.mockResolvedValue([
-        { familyId: 'f-pizza', weekStart: d('2026-11-16'), amountCents: 29400 },
-      ]);
+      attributedRows = [attributed('2026-11-23T09:00:00Z', true), attributed('2026-11-18T09:00:00Z')];
+      quoteRows = [{ leadId: 'b', touchAt: new Date('2026-11-17T09:00:00Z'), familyId: 'f-pizza' }];
+      rates = [rate('f-pizza', '2026-11-01', 1000)];
+      targets = [target('f-pizza', '2026-11-01', 3000)];
 
-      const report = await service.getWeeklyReport({ from: '2026-11-16', to: '2026-11-22' });
+      const report = await service.getReport({ from: '2026-11-17', to: '2026-11-23' });
 
-      expect(report.weeks).toEqual([{ weekStart: '2026-11-16', status: 'IN_PROGRESS' }]);
+      expect(report.periods.map((p) => p.key)).toEqual(['2026-11-17']);
       const pizza = report.rows.find((r) => r.key === 'f-pizza')!;
-      expect(pizza.weeks[0]).toEqual({
-        weekStart: '2026-11-16',
-        leads: 50,
-        bocetos: 6,
-        approved: 2,
-        spendCents: 29400,
+      expect(pizza.periods[0]).toEqual({
+        key: '2026-11-17',
+        leads: 3,
+        bocetos: 2,
+        approved: 1,
+        quotes: 1,
+        spendCents: 7000,
+        targetCentsPerLead: 3000,
       });
-      const pizzaFr = report.rows.find((r) => r.key === 'f-pizza-fr')!;
-      expect(pizzaFr.weeks[0].spendCents).toBeNull(); // sin inversion cargada != 0
-      expect(report.totals.totals).toEqual({ leads: 70, bocetos: 6, approved: 2, spendCents: 29400 });
+      expect(report.quoteLabel).toEqual(expect.objectContaining({ name: 'Presupuesto enviado' }));
+      expect(report.totals.totals).toEqual(expect.objectContaining({ leads: 3, spendCents: 7000 }));
+    });
+
+    it('la inversion es "vigente hasta que la cambies": un cambio a mitad de semana suma cada dia con su importe', async () => {
+      rates = [rate('f-pizza', '2026-11-01', 1000), rate('f-pizza', '2026-11-20', 2000)];
+      const report = await service.getReport({ from: '2026-11-17', to: '2026-11-23' });
+      // mar-jue 3 x 10 € + vie-lun 4 x 20 €
+      expect(report.rows.find((r) => r.key === 'f-pizza')!.periods[0].spendCents).toBe(3 * 1000 + 4 * 2000);
+      // sin inversion cargada -> null (no 0)
+      expect(report.rows.find((r) => r.key === 'f-pizza-fr')!.periods[0].spendCents).toBeNull();
+    });
+
+    it('objetivo: ponderado por los mensajes de cada dia; sin mensajes, media de los objetivos diarios', async () => {
+      touchRows = [touch('a', '2026-11-17'), touch('b', '2026-11-20')];
+      targets = [
+        target('f-pizza', '2026-11-01', 3000),
+        target('f-pizza', '2026-11-19', 2000),
+        target('f-pizza-fr', '2026-11-01', 1000),
+      ];
+      const report = await service.getReport({ from: '2026-11-17', to: '2026-11-23' });
+      expect(report.rows.find((r) => r.key === 'f-pizza')!.periods[0].targetCentsPerLead).toBe(2500);
+      expect(report.rows.find((r) => r.key === 'f-pizza-fr')!.periods[0].targetCentsPerLead).toBe(1000);
+    });
+
+    it('un objetivo null lo quita desde esa fecha', async () => {
+      touchRows = [touch('a', '2026-11-24')];
+      targets = [target('f-pizza', '2026-11-01', 3000), target('f-pizza', '2026-11-24', null)];
+      const report = await service.getReport({ from: '2026-11-24', to: '2026-11-30' });
+      expect(report.rows.find((r) => r.key === 'f-pizza')!.periods[0].targetCentsPerLead).toBeNull();
     });
 
     it('familias inactivas solo aparecen si tienen datos; "Sin familia" solo si hay datos', async () => {
-      let report = await service.getWeeklyReport({ from: '2026-11-16', to: '2026-11-22' });
+      let report = await service.getReport({ from: '2026-11-17', to: '2026-11-23' });
       expect(report.rows.map((r) => r.key)).toEqual(['f-pizza', 'f-pizza-fr']);
 
-      leadRows = [
-        { week: d('2026-11-16'), familyId: 'f-old', leads: 3 },
-        { week: d('2026-11-16'), familyId: null, leads: 4 },
-      ];
-      report = await service.getWeeklyReport({ from: '2026-11-16', to: '2026-11-22' });
+      touchRows = [touch('x', '2026-11-18', 'f-old'), touch('y', '2026-11-18', null)];
+      report = await service.getReport({ from: '2026-11-17', to: '2026-11-23' });
       expect(report.rows.map((r) => r.key)).toEqual(['f-pizza', 'f-pizza-fr', 'f-old', UNASSIGNED_KEY]);
-      expect(report.rows.find((r) => r.key === UNASSIGNED_KEY)!.totals.leads).toBe(4);
     });
 
-    it('ignora filas fuera de las semanas pedidas (rango holgado del SQL)', async () => {
-      leadRows = [
-        { week: d('2026-11-09'), familyId: 'f-pizza', leads: 99 },
-        { week: d('2026-11-16'), familyId: 'f-pizza', leads: 5 },
-      ];
-      const report = await service.getWeeklyReport({ from: '2026-11-16', to: '2026-11-16' });
-      expect(report.totals.totals.leads).toBe(5);
+    it('groupBy=country suma las familias de cada pais (y el objetivo se pondera)', async () => {
+      touchRows = [touch('a', '2026-11-17'), touch('b', '2026-11-17', 'f-old')];
+      targets = [target('f-pizza', '2026-11-01', 3000), target('f-old', '2026-11-01', 1000)];
+      rates = [rate('f-pizza', '2026-11-01', 1000), rate('f-pizza-fr', '2026-11-01', 500)];
+      const report = await service.getReport({ from: '2026-11-17', to: '2026-11-23', groupBy: 'country' });
+      const es = report.rows.find((r) => r.key === 'ES')!;
+      const fr = report.rows.find((r) => r.key === 'FR')!;
+      expect(es.periods[0]).toEqual(expect.objectContaining({ leads: 2, spendCents: 7000, targetCentsPerLead: 2000 }));
+      expect(fr.periods[0]).toEqual(expect.objectContaining({ leads: 0, spendCents: 3500 }));
     });
 
-    it('groupBy=country suma las familias de cada pais', async () => {
-      leadRows = [
-        { week: d('2026-11-16'), familyId: 'f-pizza', leads: 10 },
-        { week: d('2026-11-16'), familyId: 'f-pizza-fr', leads: 7 },
-      ];
-      const report = await service.getWeeklyReport({
-        from: '2026-11-16',
-        to: '2026-11-16',
-        groupBy: 'country',
-      });
-      expect(report.rows.map((r) => [r.key, r.totals.leads])).toEqual([
-        ['ES', 10],
-        ['FR', 7],
-      ]);
+    it('marca como MADURA una semana cuando ya pasaron las semanas de madurez (4 por defecto)', async () => {
+      const report = await service.getReport({ from: '2026-10-20', to: '2026-11-25' });
+      const status = Object.fromEntries(report.periods.map((p) => [p.key, p.status]));
+      expect(status['2026-10-20']).toBe('MATURE');
+      expect(status['2026-10-27']).toBe('MATURE');
+      expect(status['2026-11-03']).toBe('IN_PROGRESS');
+      expect(status['2026-11-24']).toBe('CURRENT');
     });
 
-    it('marca como MADURA una semana cuando ya pasaron las semanas de madurez', async () => {
-      // Sin muestra suficiente -> madurez estimada de 4 semanas
-      const report = await service.getWeeklyReport({ from: '2026-10-19', to: '2026-11-23' });
-      expect(report.maturity).toEqual({ weeks: 4, threshold: 0.8, sampleSize: 0, estimated: true });
-      const status = Object.fromEntries(report.weeks.map((w) => [w.weekStart, w.status]));
-      expect(status['2026-10-19']).toBe('MATURE');
-      expect(status['2026-10-26']).toBe('MATURE');
-      expect(status['2026-11-02']).toBe('IN_PROGRESS');
-      expect(status['2026-11-23']).toBe('CURRENT');
+    it('sin etiqueta de presupuesto configurada no consulta presupuestos', async () => {
+      quoteLabelCode = null;
+      const report = await service.getReport({ from: '2026-11-17', to: '2026-11-23' });
+      expect(report.quoteLabel).toBeNull();
+      const sqls = prisma.$queryRaw.mock.calls.map((c) => c[0].sql as string);
+      expect(sqls.some((s) => s.includes('acquisition:quotes'))).toBe(false);
     });
 
     it('rechaza rangos invertidos o fechas invalidas', async () => {
-      await expect(service.getWeeklyReport({ from: '2026-11-23', to: '2026-11-01' })).rejects.toBeInstanceOf(
+      await expect(service.getReport({ from: '2026-11-30', to: '2026-11-01' })).rejects.toBeInstanceOf(
         BadRequestException,
       );
-      await expect(service.getWeeklyReport({ from: '2026-13-01' })).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.getReport({ from: '2026-13-01' })).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('vista diaria (dias de envio)', () => {
+    it('muestra mar-vie y lunes; el lunes suma la inversion y los leads de sabado y domingo', async () => {
+      touchRows = [
+        touch('a', '2026-11-17'),
+        touch('b', '2026-11-21'), // sabado -> lunes 23
+        touch('c', '2026-11-23'),
+      ];
+      rates = [rate('f-pizza', '2026-11-01', 1000)];
+      const report = await service.getReport({ granularity: 'day', from: '2026-11-17', to: '2026-11-23' });
+
+      expect(report.periods.map((p) => p.key)).toEqual([
+        '2026-11-17',
+        '2026-11-18',
+        '2026-11-19',
+        '2026-11-20',
+        '2026-11-23',
+      ]);
+      expect(report.periods[4]).toEqual(expect.objectContaining({ start: '2026-11-21', end: '2026-11-23' }));
+      const cells = report.rows.find((r) => r.key === 'f-pizza')!.periods;
+      expect(cells[0]).toEqual(expect.objectContaining({ leads: 1, spendCents: 1000 }));
+      expect(cells[4]).toEqual(expect.objectContaining({ leads: 2, spendCents: 3000 }));
+      // la suma de los dias = la semana
+      expect(report.rows.find((r) => r.key === 'f-pizza')!.totals.spendCents).toBe(7000);
+    });
+
+    it('por defecto es la semana actual (martes a lunes)', async () => {
+      const report = await service.getReport({ granularity: 'day' });
+      expect(report.from).toBe('2026-11-24');
+      expect(report.to).toBe('2026-11-30');
+      expect(report.periods.map((p) => p.status)).toEqual(['IN_PROGRESS', 'CURRENT', 'CURRENT', 'CURRENT', 'CURRENT']);
+    });
+
+    it('limita el rango diario', async () => {
+      await expect(
+        service.getReport({ granularity: 'day', from: '2026-01-01', to: '2026-11-23' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 
@@ -269,53 +370,4 @@ describe('AcquisitionReportService (ADR-007)', () => {
     });
   });
 
-  describe('inversion semanal', () => {
-    it('normaliza la semana al lunes y devuelve null donde no hay inversion', async () => {
-      prisma.investmentFamily.findMany.mockResolvedValue([
-        { id: 'f-pizza', name: 'LANDING PIZZA', country: 'ES' },
-        { id: 'f-pizza-fr', name: 'LANDING PIZZA FRANCIA', country: 'FR' },
-      ]);
-      prisma.familyWeeklySpend.findMany.mockResolvedValue([{ familyId: 'f-pizza', amountCents: 29400 }]);
-
-      const res = await service.getWeeklySpend('2026-11-19'); // jueves
-
-      expect(res.weekStart).toBe('2026-11-16');
-      expect(prisma.familyWeeklySpend.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { weekStart: d('2026-11-16') } }),
-      );
-      expect(res.items.map((i) => i.amountCents)).toEqual([29400, null]);
-    });
-
-    it('upsert por familia/semana; null borra; familia inexistente se rechaza', async () => {
-      prisma.investmentFamily.count.mockResolvedValue(2);
-      prisma.familyWeeklySpend.upsert.mockReturnValue('UPSERT');
-      prisma.familyWeeklySpend.deleteMany.mockReturnValue('DELETE');
-      prisma.$transaction.mockResolvedValue([]);
-      prisma.investmentFamily.findMany.mockResolvedValue([]);
-
-      await service.upsertWeeklySpend(
-        '2026-11-16',
-        [
-          { familyId: 'f-pizza', amountCents: 29400 },
-          { familyId: 'f-pizza-fr', amountCents: null },
-        ],
-        'user-1',
-      );
-
-      expect(prisma.familyWeeklySpend.upsert).toHaveBeenCalledWith({
-        where: { familyId_weekStart: { familyId: 'f-pizza', weekStart: d('2026-11-16') } },
-        create: { familyId: 'f-pizza', weekStart: d('2026-11-16'), amountCents: 29400, updatedByUserId: 'user-1' },
-        update: { amountCents: 29400, updatedByUserId: 'user-1' },
-      });
-      expect(prisma.familyWeeklySpend.deleteMany).toHaveBeenCalledWith({
-        where: { familyId: 'f-pizza-fr', weekStart: d('2026-11-16') },
-      });
-      expect(prisma.$transaction).toHaveBeenCalledWith(['UPSERT', 'DELETE']);
-
-      prisma.investmentFamily.count.mockResolvedValue(0);
-      await expect(
-        service.upsertWeeklySpend('2026-11-16', [{ familyId: 'x', amountCents: 1 }], 'user-1'),
-      ).rejects.toBeInstanceOf(BadRequestException);
-    });
-  });
 });

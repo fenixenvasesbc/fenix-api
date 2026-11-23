@@ -88,34 +88,51 @@ export class UpdateAcquisitionTemplateDto {
   familyId?: string | null;
 }
 
-export class SpendItemDto {
+export class SpendFormItemDto {
   @IsString()
   @Matches(ENTITY_ID_PATTERN, { message: ENTITY_ID_MESSAGE })
   familyId: string;
 
-  // null = borrar la inversion cargada para esa familia y semana
+  // Importe DIARIO desde `date` (0 = deja de invertir). Omitido = sin cambios.
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
   @Max(100_000_000)
-  amountCents?: number | null;
+  dailyAmountCents?: number;
+
+  // Objetivo de €/mensaje desde `date`. null = sin objetivo. Omitido = sin cambios.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(10_000_000)
+  targetCentsPerLead?: number | null;
 }
 
-export class UpsertWeeklySpendDto {
+export class SaveSpendFormDto {
   @Matches(DATE_KEY)
-  weekStart: string;
+  date: string;
 
   @IsArray()
   @ArrayMaxSize(500)
   @ValidateNested({ each: true })
-  @Type(() => SpendItemDto)
-  items: SpendItemDto[];
+  @Type(() => SpendFormItemDto)
+  items: SpendFormItemDto[];
 }
 
-export class WeeklySpendQueryDto {
+export class SpendFormQueryDto {
+  @IsOptional()
   @Matches(DATE_KEY)
-  weekStart: string;
+  date?: string;
+}
+
+export class UpdateAcquisitionSettingsDto {
+  // null = sin etiqueta de presupuesto
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  quoteLabelCode?: string | null;
 }
 
 export class AcquisitionReportQueryDto {
@@ -130,4 +147,8 @@ export class AcquisitionReportQueryDto {
   @IsOptional()
   @IsIn(['family', 'country'])
   groupBy?: 'family' | 'country';
+
+  @IsOptional()
+  @IsIn(['week', 'day'])
+  granularity?: 'week' | 'day';
 }

@@ -422,6 +422,8 @@ model LeadLabelAssignment {
   @@index([accountId, label, removedAt, assignedAt])
   @@index([leadId, removedAt])
   @@index([leadId, label])
+  // ADR-007: presupuestos por campaña (primera asignacion de una label)
+  @@index([label, assignedAt])
 }
 
 model LeadRepetitionReminder {
@@ -1691,8 +1693,9 @@ model InvestmentFamily {
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 
-  templates AcquisitionTemplate[]
-  spends    FamilyWeeklySpend[]
+  templates   AcquisitionTemplate[]
+  spendRates  FamilySpendRate[]
+  leadTargets FamilyLeadTarget[]
 
   @@index([active, sortOrder])
 }
@@ -1734,16 +1737,45 @@ model LeadAcquisitionTouch {
 }
 
 // Inversion semanal por familia (semana lunes-domingo, Europe/Madrid).
-model FamilyWeeklySpend {
-  id              String           @id @default(uuid())
-  familyId        String
-  family          InvestmentFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  weekStart       DateTime         @db.Date
-  amountCents     Int
-  updatedByUserId String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+// Inversion diaria por familia, "vigente hasta que la cambies" (como el
+// presupuesto diario de Meta): el importe de un dia es el de la fila con el
+// effectiveFrom mas reciente <= ese dia. Se aplica a TODOS los dias naturales
+// (tambien sabado y domingo). 0 = deja de invertir desde esa fecha.
+model FamilySpendRate {
+  id                String           @id @default(uuid())
+  familyId          String
+  family            InvestmentFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  effectiveFrom     DateTime         @db.Date
+  dailyAmountCents  Int
+  updatedByUserId   String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
-  @@unique([familyId, weekStart])
-  @@index([weekStart])
+  @@unique([familyId, effectiveFrom])
+}
+
+// Objetivo de coste por mensaje (lead) por familia, con historial por fecha:
+// cada periodo se compara con el objetivo vigente entonces.
+// targetCentsPerLead null = sin objetivo desde esa fecha.
+model FamilyLeadTarget {
+  id                 String           @id @default(uuid())
+  familyId           String
+  family             InvestmentFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  effectiveFrom      DateTime         @db.Date
+  targetCentsPerLead Int?
+  updatedByUserId    String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@unique([familyId, effectiveFrom])
+}
+
+// Ajustes del modulo (fila unica id = 'default').
+// quoteLabelCode: code de la LeadLabelDefinition que marca "Presupuesto
+// enviado" (es una label personalizada, su code es un slug).
+model AcquisitionSettings {
+  id              String   @id @default("default")
+  quoteLabelCode  String?
+  updatedByUserId String?
+  updatedAt       DateTime @updatedAt
 }

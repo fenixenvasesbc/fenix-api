@@ -18,14 +18,16 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { ParseEntityIdPipe } from './parse-entity-id.pipe';
 import { AcquisitionCatalogService } from './acquisition-catalog.service';
 import { AcquisitionReportService } from './acquisition-report.service';
+import { AcquisitionSpendService } from './acquisition-spend.service';
 import {
   AcquisitionReportQueryDto,
   CreateInvestmentFamilyDto,
   CreateAcquisitionTemplateDto,
   UpdateInvestmentFamilyDto,
   UpdateAcquisitionTemplateDto,
-  UpsertWeeklySpendDto,
-  WeeklySpendQueryDto,
+  SaveSpendFormDto,
+  SpendFormQueryDto,
+  UpdateAcquisitionSettingsDto,
 } from './dto/acquisition.dto';
 
 /**
@@ -34,7 +36,7 @@ import {
  * - Catalogo (familias y equivalencias plantilla->familia): SOLO SUPPORT
  *   (@Roles(Role.SUPPORT) sin ADMIN: la herencia SUPPORT->ADMIN es
  *   unidireccional, mismo criterio que LabelMessageRule, ADR-002).
- * - Reportes e inversion semanal: ADMIN (y SUPPORT por herencia), que son
+ * - Reportes, inversion diaria y objetivos: ADMIN (y SUPPORT por herencia), que son
  *   los roles con acceso al Dashboard en la SPA.
  */
 @Controller('acquisition')
@@ -43,6 +45,7 @@ export class AcquisitionController {
   constructor(
     private readonly catalog: AcquisitionCatalogService,
     private readonly reports: AcquisitionReportService,
+    private readonly spend: AcquisitionSpendService,
   ) {}
 
   // ---- Catalogo -----------------------------------------------------------
@@ -96,29 +99,43 @@ export class AcquisitionController {
     return this.catalog.deleteTemplate(id);
   }
 
-  // ---- Inversion semanal -----------------------------------------------------
+  // ---- Inversion diaria y objetivo €/mensaje ---------------------------------
 
+  /** Valores vigentes en `date` (por defecto hoy) para precargar el formulario. */
   @Roles(Role.ADMIN)
   @Get('spend')
-  getSpend(@Query() query: WeeklySpendQueryDto) {
-    return this.reports.getWeeklySpend(query.weekStart);
+  getSpend(@Query() query: SpendFormQueryDto) {
+    return this.spend.getForm(query.date);
   }
 
+  /** Guarda desde `date` solo los importes/objetivos que cambian. */
   @Roles(Role.ADMIN)
   @Put('spend')
-  upsertSpend(
-    @Req() req: { user: { userId: string } },
-    @Body() body: UpsertWeeklySpendDto,
-  ) {
-    return this.reports.upsertWeeklySpend(body.weekStart, body.items, req.user.userId);
+  saveSpend(@Req() req: { user: { userId: string } }, @Body() body: SaveSpendFormDto) {
+    return this.spend.saveForm(body.date, body.items, req.user.userId);
+  }
+
+  // ---- Ajustes (etiqueta "Presupuesto enviado") ------------------------------
+
+  @Roles(Role.ADMIN)
+  @Get('settings')
+  getSettings() {
+    return this.spend.getSettings();
+  }
+
+  @Roles(Role.SUPPORT)
+  @Patch('settings')
+  updateSettings(@Req() req: { user: { userId: string } }, @Body() body: UpdateAcquisitionSettingsDto) {
+    return this.spend.updateSettings(body, req.user.userId);
   }
 
   // ---- Reportes --------------------------------------------------------------
 
+  /** granularity=week (martes-lunes, por defecto) o day (dias de envio). */
   @Roles(Role.ADMIN)
-  @Get('report/weekly')
-  weeklyReport(@Query() query: AcquisitionReportQueryDto) {
-    return this.reports.getWeeklyReport(query);
+  @Get('report')
+  report(@Query() query: AcquisitionReportQueryDto) {
+    return this.reports.getReport(query);
   }
 
   @Roles(Role.ADMIN)
