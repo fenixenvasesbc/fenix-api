@@ -40,6 +40,7 @@ import {
   DesignRequestType,
   ListDesignRequestsQueryDto,
   MoveDesignRequestDto,
+  QuickSearchDesignRequestsQueryDto,
   SearchArchivedDesignRequestsQueryDto,
   UpdateDesignRequestDto,
 } from './dto/create-design-request.dto';
@@ -2260,6 +2261,79 @@ export class DesignBoardService {
     }));
 
     return { items, total, page, limit };
+  }
+
+  // -------------------------------------------------------------
+  // Buscador GLOBAL de bocetos (pedido explicito del usuario, 24/nov/2026)
+  // -------------------------------------------------------------
+
+  // Tope fijo de resultados: este metodo alimenta un dropdown mientras se
+  // escribe, no una pantalla de listado -- sin paginacion a proposito
+  // (ver comentario de QuickSearchDesignRequestsQueryDto). 20 coincide con
+  // "unos pocos resultados para elegir y abrir", igual de holgado que el
+  // limite por defecto de searchArchive() pero sin exponer pagina alguna.
+  private static readonly QUICK_SEARCH_RESULT_LIMIT = 20;
+
+  async quickSearchRequests(user: AuthUser, query: QuickSearchDesignRequestsQueryDto) {
+    const search = query.search?.trim();
+    if (!search) return [];
+
+    const where: Prisma.DesignRequestWhereInput = {
+      // Mismas reglas de visibilidad por rol que el tablero (listRequests)
+      // -- SALES solo busca entre sus propias solicitudes, DESIGNER solo
+      // entre las suyas asignadas, DESIGNER_MANAGER/ADMIN sin restriccion.
+      // Sin query aqui: este buscador no admite los filtros adicionales
+      // (assignedUserId/unassignedOnly/createdByUserId) del tablero, solo
+      // texto libre.
+      ...this.visibilityWhere(user),
+      deletedAt: null,
+      // A proposito SIN `archivedAt: null` ni filtro de mes/fecha: el
+      // pedido explicito del usuario fue buscar "por todas las
+      // solicitudes que esten en el sistema", a diferencia del filtro de
+      // titulo del tablero (listRequests), que solo mira el mes/estado
+      // visible ahi. Mismo criterio que searchArchive() en eso, pero sin
+      // su restriccion de "solo archivadas".
+      OR: [
+        { title: { contains: search, mode: 'insensitive' } },
+        { instructions: { contains: search, mode: 'insensitive' } },
+      ],
+    };
+
+    const requests = await this.prisma.designRequest.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: DesignBoardService.QUICK_SEARCH_RESULT_LIMIT,
+      // Seleccion deliberadamente ligera (sin attachments/comments/SLA):
+      // esto es un resultado de busqueda para elegir-y-abrir, el detalle
+      // completo se carga aparte al abrir la tarjeta (mismo mecanismo
+      // ?requestId= que ya usa el archivo historico).
+      select: {
+        id: true,
+        title: true,
+        requestType: true,
+        country: true,
+        createdAt: true,
+        archivedAt: true,
+        completedAt: true,
+        column: { select: { id: true, name: true, isFinal: true, isApproved: true } },
+        lead: {
+          select: {
+            id: true,
+            name: true,
+            manualName: true,
+            ycloudNickname: true,
+            whatsappContactName: true,
+            whatsappProfileName: true,
+            phoneE164: true,
+          },
+        },
+      },
+    });
+
+    return requests.map((request) => ({
+      ...request,
+      lead: request.lead ? withLeadDisplayName(request.lead) : null,
+    }));
   }
 
   // -------------------------------------------------------------

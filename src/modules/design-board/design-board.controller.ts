@@ -32,6 +32,7 @@ import {
   ListDesignRequestsQueryDto,
   MarkApprovedVersionAttachmentDto,
   MoveDesignRequestDto,
+  QuickSearchDesignRequestsQueryDto,
   SearchArchivedDesignRequestsQueryDto,
   UpdateDesignRequestDto,
 } from './dto/create-design-request.dto';
@@ -265,6 +266,23 @@ export class DesignBoardController {
     @Query() query: SearchArchivedDesignRequestsQueryDto,
   ) {
     return this.designBoardService.searchArchive(req.user, query);
+  }
+
+  // Pedido explicito del usuario, 24/nov/2026: buscador GLOBAL de
+  // bocetos en la pantalla del tablero -- a diferencia del filtro de
+  // titulo del tablero (solo mira lo visible ahi mismo) busca en TODAS
+  // las solicitudes del sistema que el usuario pueda ver (sin el gate de
+  // DESIGNER_MANAGER/ADMIN de 'archive/search': aqui CUALQUIER rol del
+  // modulo puede buscar, cada uno dentro de lo que su rol ya ve via
+  // visibilityWhere()). Dos segmentos tras 'requests', mismo motivo que
+  // 'archive/search' arriba para no chocar con 'requests/:id'.
+  @Roles(Role.ADMIN, Role.SALES, Role.DESIGNER, Role.DESIGNER_MANAGER)
+  @Get('requests/search/quick')
+  quickSearchRequests(
+    @Req() req: { user: AuthUser },
+    @Query() query: QuickSearchDesignRequestsQueryDto,
+  ) {
+    return this.designBoardService.quickSearchRequests(req.user, query);
   }
 
   // ADR-004 Submódulo 11: canal de tiempo real -- reusa el mismo bus SSE

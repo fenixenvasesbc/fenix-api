@@ -119,6 +119,19 @@ UI: pestaña "Archivo" en `app/dashboard/bocetos/page.tsx` (`components/design-b
 
 Pedido explicito del usuario: la descarga de los archivos de la versión aprobada es **individual** (un link `<a download>` por archivo, igual que el resto de adjuntos del módulo), no un zip -- el Jefe de Diseño guarda cada archivo donde le conviene (carpetas distintas según el archivo), algo que un zip único le quitaría.
 
+## Buscador GLOBAL de bocetos
+
+Pedido explícito del usuario, 24/nov/2026: un buscador que, a diferencia del filtro de título del tablero (`GET /design-board/requests?title=...`, acotado al mes/estado visible ahí mismo), busque por título **o instrucciones** entre **todas** las solicitudes del sistema que el usuario pueda ver -- cualquier mes, archivadas o no. Deliberadamente un tercer mecanismo, separado tanto de `listRequests()` (tablero del día a día) como de `searchArchive()` (archivo histórico, exclusivo `DESIGNER_MANAGER`/`ADMIN`):
+
+- `GET /design-board/requests/search/quick` (`ADMIN`, `SALES`, `DESIGNER`, `DESIGNER_MANAGER` -- **todos** los roles del módulo, a diferencia de `archive/search`). Query `search` (string, requerido, 1-200 caracteres) vía `QuickSearchDesignRequestsQueryDto`.
+- Visibilidad: reusa `visibilityWhere(user)`, igual que el tablero -- `SALES` solo encuentra sus propias solicitudes, `DESIGNER` solo las suyas asignadas, `DESIGNER_MANAGER`/`ADMIN` sin restricción. No admite los filtros adicionales del tablero (asignado/creador/sin asignar), solo texto libre.
+- Sin `archivedAt: null` ni filtro de fecha/mes: busca en cualquier estado, igual de "sin límite de fecha" que `searchArchive()`, pero sobre **todas** las solicitudes (no solo las archivadas).
+- Sin paginación -- pensado para alimentar un desplegable mientras se escribe, no una pantalla de listado. Tope fijo de `DesignBoardService.QUICK_SEARCH_RESULT_LIMIT` (20) resultados, ordenados por `createdAt` descendente.
+- Respuesta ligera (`DesignRequestQuickSearchResult` en el frontend): `id`, `title`, `requestType`, `country`, `createdAt`, `archivedAt`, `completedAt`, `column` (`id`/`name`/`isFinal`/`isApproved`) y `lead` (`id`/`displayName`/`phoneE164`) -- sin attachments/comments/SLA, para no cargar de más un resultado de búsqueda que solo sirve para elegir-y-abrir.
+- Ruta de dos segmentos tras `requests` (`search/quick`), mismo motivo que `archive/search`: no choca con `GET requests/:id`.
+
+UI: `components/design-board/design-request-quick-search.tsx`, un input nuevo con desplegable de resultados debajo (debounce 400ms, cierra al hacer click fuera o `Escape`), ubicado en la cabecera de `app/dashboard/bocetos/page.tsx` -- a propósito **separado** del filtro de título del tablero y fuera de las pestañas (`Tabs`), visible para cualquier rol del módulo. Al elegir un resultado se abre con el mismo mecanismo `?requestId=...`/`setOpenRequestId` que ya usa el resto de la pantalla.
+
 ## Navegación lead -> último boceto
 
 `GET /design-board/requests/by-lead/:leadId/latest` (`ADMIN`, `SALES`, `DESIGNER`, `DESIGNER_MANAGER`). Pedido explícito del usuario, 30/oct/2026: desde el chat de un lead, la comercial quiere ir directo al **último** boceto que pidió para ese lead -- no un desplegable con todo el histórico (puede acumular muchos bocetos viejos). Devuelve solo `{ id: string | null }` (el más reciente por `createdAt`, respetando la misma visibilidad que el resto del módulo -- `SALES` solo encuentra algo acá si el boceto es suyo); `null` si el lead no tiene ninguno visible para ese usuario. El frontend abre el detalle completo con ese id reusando el deep-link `?requestId=...` que ya existía en el tablero (`app/dashboard/bocetos/page.tsx`), en una pestaña nueva para no perder el chat -- botón "Último boceto" en el header de `app/dashboard/messages/page.tsx`, junto a "Crear boceto".

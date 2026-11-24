@@ -265,6 +265,25 @@ export class SearchArchivedDesignRequestsQueryDto {
   limit?: number;
 }
 
+// Pedido explicito del usuario, 24/nov/2026: buscador GLOBAL de bocetos
+// (input nuevo en la pantalla de bocetos, separado del filtro de titulo
+// del tablero y del buscador de archivo de searchArchive()). A
+// diferencia de los dos anteriores: lo puede usar CUALQUIER rol del
+// modulo (SALES incluido, ver DesignBoardController) -- cada uno ve solo
+// lo que su rol ya puede ver via visibilityWhere(), sin el gate de
+// DESIGNER_MANAGER/ADMIN que tiene searchArchive() -- y no excluye nada
+// por estado: busca en TODAS las solicitudes visibles para ese usuario,
+// esten o no archivadas, sean del mes que sean. Pensado para un
+// dropdown de resultados mientras se escribe, no para una pantalla de
+// listado completo: sin paginacion, con un tope fijo de resultados (ver
+// QUICK_SEARCH_RESULT_LIMIT en DesignBoardService.quickSearchRequests()).
+export class QuickSearchDesignRequestsQueryDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  search!: string;
+}
+
 export class DesignBoardReportsQueryDto {
   // Pedido explicito del usuario, 25/oct/2026: las estadisticas ya no se
   // filtran por mes completo, sino por un rango de fechas (Desde/Hasta).
