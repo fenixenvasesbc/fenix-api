@@ -59,6 +59,7 @@ import { LeadLabelDefinitionsModule } from './modules/lead-label-definitions/lea
 import { DesignRequestCategoriesModule } from './modules/design-request-categories/design-request-categories.module';
 import { AcquisitionModule } from './modules/acquisition/acquisition.module';
 import { HealthModule } from './modules/health/health.module';
+import { SessionRefreshSchedulerModule } from './modules/refresh-tokens/session-refresh-scheduler.module';
 
 @Module({
   imports: [
@@ -110,6 +111,8 @@ import { HealthModule } from './modules/health/health.module';
     AcquisitionModule,
     DesignBoardModule,
     DesignRequestSlaSchedulerModule,
+    // ADR-008: revoca sesiones activas cada manana para forzar recarga en pestanas abiertas
+    SessionRefreshSchedulerModule,
   ],
   controllers: [
     AppController,

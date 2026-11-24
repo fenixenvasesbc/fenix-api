@@ -45,6 +45,15 @@ export class AuthController {
     return this.auth.refresh(body.refreshToken);
   }
 
+  // ADR-008: revoca todas las sesiones activas (todos los usuarios). Uso:
+  // cron diario de las 6am + disparo manual de un ADMIN cuando haga falta.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @Post('sessions/revoke-all')
+  revokeAllSessions() {
+    return this.auth.revokeAllSessions();
+  }
+
   // Protegido: SOLO ADMIN puede crear ADMIN
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN)

@@ -61,6 +61,27 @@ Regla:
 
 - Revoca el refresh token recibido.
 
+## Revocación diaria de sesiones (refresh tokens)
+
+Las comerciales suelen dejar la pestaña del navegador abierta indefinidamente. Para forzar una recarga completa de la aplicación cada mañana (último build desplegado, estado en memoria limpio, re-login), un cron revoca todos los refresh tokens activos del sistema a una hora fija.
+
+Endpoint manual (además del cron):
+
+```http
+POST /auth/sessions/revoke-all
+```
+
+Rol:
+
+- `ADMIN`
+
+Reglas funcionales:
+
+- Revoca **todos** los refresh tokens activos del sistema (todos los usuarios, todas las cuentas), en una sola operación (`RefreshTokensService.revokeAllActive()`).
+- Cron automático: `SessionRefreshScheduler`, todos los días a las 6:00 (zona horaria `Europe/Madrid` por defecto, configurable con `DAILY_SESSION_REFRESH_TIMEZONE`). Se puede desactivar sin tocar código con la variable de entorno `DAILY_SESSION_REFRESH_ENABLED=false`.
+- Efecto en el cliente: no se notifica activamente a la SPA. El access token en curso sigue siendo válido hasta que caduca (`JWT_ACCESS_TTL_SECONDS`, 15 minutos por defecto); en cuanto caduca, el intento de refresh falla (el refresh token ya está revocado) y `Fenix-SPA` hace una recarga completa de la página (`window.location.href = '/'`), que lleva a la pantalla de login.
+- No distingue por rol: afecta también a cuentas `ADMIN`.
+
 ## Creación de usuarios
 
 Solo `ADMIN`.

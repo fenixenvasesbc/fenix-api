@@ -203,6 +203,17 @@ export class AuthService {
     return { message: 'Logged out' };
   }
 
+  /**
+   * ADR-008: revoca TODAS las sesiones activas del sistema (todos los
+   * usuarios). Pensado para el cron diario de las 6am y para disparo manual
+   * por un ADMIN (POST /auth/sessions/revoke-all) tras un despliegue u otra
+   * necesidad puntual. Ver RefreshTokensService.revokeAllActive().
+   */
+  async revokeAllSessions() {
+    const result = await this.refreshTokens.revokeAllActive();
+    return { revoked: result.count };
+  }
+
   async refresh(refreshToken: string) {
     if (!refreshToken) {
       throw new BadRequestException('Missing refresh token');

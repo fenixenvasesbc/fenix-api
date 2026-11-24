@@ -45,4 +45,21 @@ export class RefreshTokensService {
       where: { tokenHash },
     });
   }
+
+  /**
+   * ADR-008 (sesion-diaria): revoca TODOS los refresh tokens activos del
+   * sistema en una sola sentencia (updateMany, no un loop por usuario), para
+   * que escale sin importar cuantos usuarios haya. Lo dispara el cron diario
+   * (SessionRefreshScheduler) y tambien un endpoint manual de ADMIN
+   * (POST /auth/sessions/revoke-all). El proximo access token que caduque
+   * (<=15min, JWT_ACCESS_TTL_SECONDS) hara fallar el refresh en el cliente y
+   * Fenix-SPA fuerza una recarga completa (window.location.href='/'),
+   * forzando re-login en cualquier pestana que se haya dejado abierta.
+   */
+  revokeAllActive() {
+    return this.prisma.refreshToken.updateMany({
+      where: { revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
 }
