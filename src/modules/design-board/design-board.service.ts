@@ -1080,6 +1080,24 @@ export class DesignBoardService {
 
     if (!request) throw new NotFoundException('Design request not found');
 
+    // Pedido explicito del usuario, 26/nov/2026: aunque SALES ve la
+    // tarjeta en el tablero mientras esta en "En revision" (visibilityWhere
+    // ya se lo permite desde el 16/nov/2026), NO puede abrir su detalle --
+    // es la fase en la que el Jefe de Diseño la revisa antes de aprobarla,
+    // y el pedido explicito fue "que ninguna comercial pueda abrirlo para
+    // ver el detalle" mientras esta ahi. Se mantiene visible en el tablero
+    // (la comercial sabe que existe y en que estado esta) pero el backend
+    // rechaza este fetch puntual -- es la unica fuente real de verdad,
+    // listRequests()/getLatestRequestIdForLead()/quickSearchRequests() se
+    // ajustan aparte para no ni siquiera ofrecerla como destino. No aplica
+    // a DESIGNER_MANAGER/ADMIN/DESIGNER, que siguen viendo el detalle
+    // normalmente.
+    if (this.isSalesLike(user.role) && request.column.isInReview) {
+      throw new ForbiddenException(
+        'No puedes ver el detalle de este boceto mientras está en revisión',
+      );
+    }
+
     // Pedido explicito del usuario, 26/oct/2026: abrir el detalle marca
     // este boceto como "visto" para ESTE usuario -- limpia el indicador de
     // comentario nuevo solo en su propia card (ver listRequests() /
@@ -2127,9 +2145,24 @@ export class DesignBoardService {
   ): Promise<{ id: string | null }> {
     const request = await this.prisma.designRequest.findFirst({
       where: {
-        ...this.visibilityWhere(user),
         deletedAt: null,
         leadId,
+        // AND en vez de spread directo de visibilityWhere()+column: a
+        // proposito -- visibilityWhere() ya devuelve su propia clave
+        // `column` (el OR de columnas visibles por rol para
+        // DESIGNER_MANAGER/ADMIN sin filtro); si aqui se agregara otra
+        // clave `column` al mismo nivel, la segunda pisaria a la primera
+        // en vez de combinarse (son el mismo key en el objeto literal).
+        AND: [
+          this.visibilityWhere(user),
+          // Pedido explicito del usuario, 26/nov/2026: SALES no puede
+          // abrir el detalle de un boceto en "En revision" (ver
+          // getRequestDetail) -- no tendria sentido que este atajo la
+          // mandara justo a una que despues el backend le va a rechazar.
+          // Se omite directamente de "ultimo boceto" para ese rol, sin
+          // tocar nada para DESIGNER/DESIGNER_MANAGER/ADMIN.
+          ...(this.isSalesLike(user.role) ? [{ column: { isInReview: false } }] : []),
+        ],
       },
       orderBy: { createdAt: 'desc' },
       select: { id: true },
@@ -2279,13 +2312,6 @@ export class DesignBoardService {
     if (!search) return [];
 
     const where: Prisma.DesignRequestWhereInput = {
-      // Mismas reglas de visibilidad por rol que el tablero (listRequests)
-      // -- SALES solo busca entre sus propias solicitudes, DESIGNER solo
-      // entre las suyas asignadas, DESIGNER_MANAGER/ADMIN sin restriccion.
-      // Sin query aqui: este buscador no admite los filtros adicionales
-      // (assignedUserId/unassignedOnly/createdByUserId) del tablero, solo
-      // texto libre.
-      ...this.visibilityWhere(user),
       deletedAt: null,
       // A proposito SIN `archivedAt: null` ni filtro de mes/fecha: el
       // pedido explicito del usuario fue buscar "por todas las
@@ -2296,6 +2322,26 @@ export class DesignBoardService {
       OR: [
         { title: { contains: search, mode: 'insensitive' } },
         { instructions: { contains: search, mode: 'insensitive' } },
+      ],
+      // AND en vez de spread directo de visibilityWhere() -- igual que en
+      // getLatestRequestIdForLead(): visibilityWhere() ya devuelve su
+      // propia clave `column` (el OR de columnas visibles por rol), asi
+      // que agregar aqui otra clave `column` a mano la pisaria en vez de
+      // combinarse.
+      AND: [
+        // Mismas reglas de visibilidad por rol que el tablero
+        // (listRequests) -- SALES solo busca entre sus propias
+        // solicitudes, DESIGNER solo entre las suyas asignadas,
+        // DESIGNER_MANAGER/ADMIN sin restriccion. Sin query aqui: este
+        // buscador no admite los filtros adicionales (assignedUserId/
+        // unassignedOnly/createdByUserId) del tablero, solo texto libre.
+        this.visibilityWhere(user),
+        // Pedido explicito del usuario, 26/nov/2026: SALES no puede abrir
+        // el detalle de un boceto en "En revision" (ver
+        // getRequestDetail), asi que tampoco tiene sentido ofrecerselo
+        // como resultado de este buscador -- se excluye directamente para
+        // ese rol, sin tocar nada para DESIGNER/DESIGNER_MANAGER/ADMIN.
+        ...(this.isSalesLike(user.role) ? [{ column: { isInReview: false } }] : []),
       ],
     };
 

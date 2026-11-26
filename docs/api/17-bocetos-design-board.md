@@ -12,7 +12,7 @@ Países de una solicitud (`DesignRequestCountry`): `ES` (por defecto), `FR`, `IT
 
 | Rol | Alcance |
 |---|---|
-| `SALES` / `SALES_MANAGER` (tratado igual que `SALES` en este módulo) | Crea solicitudes; ve Nuevos, Modificación, Terminado, Aprobados (desde 30/oct/2026) y En revisión (desde 16/nov/2026) -- siempre solo sus propias tarjetas. Aprueba/envía a modificación/reenvía sus propias tarjetas; en "Aprobados" y "En revisión" es solo lectura (mover/archivar sigue siendo exclusivo de `DESIGNER`/`DESIGNER_MANAGER`/`ADMIN`). Desde 16/nov/2026, aprobar además exige haber marcado antes al menos un adjunto como "versión aprobada". `SALES_MANAGER` además ve las pestañas "Reportes y estadísticas" e "Informe semanal" (no "Por diseñador"). Desde 20/nov/2026, `SALES` puro (no `SALES_MANAGER`) ve encima del tablero el widget "Bocetos terminados sin aprobar (últimos 3 meses)" -- única estadística pensada para ese rol. |
+| `SALES` / `SALES_MANAGER` (tratado igual que `SALES` en este módulo) | Crea solicitudes; ve Nuevos, Modificación, Terminado, Aprobados (desde 30/oct/2026) y En revisión (desde 16/nov/2026) -- siempre solo sus propias tarjetas. Aprueba/envía a modificación/reenvía sus propias tarjetas; en "Aprobados" y "En revisión" es solo lectura (mover/archivar sigue siendo exclusivo de `DESIGNER`/`DESIGNER_MANAGER`/`ADMIN`). Desde 16/nov/2026, aprobar además exige haber marcado antes al menos un adjunto como "versión aprobada". **Desde 26/nov/2026**: aunque ve la tarjeta en "En revisión", **no puede abrir su detalle** (`getRequestDetail()` rechaza con `ForbiddenException` -- ver sección "En revisión: tarjeta visible, detalle bloqueado" más abajo). `SALES_MANAGER` además ve las pestañas "Reportes y estadísticas" e "Informe semanal" (no "Por diseñador"). Desde 20/nov/2026, `SALES` puro (no `SALES_MANAGER`) ve encima del tablero el widget "Bocetos terminados sin aprobar (últimos 3 meses)" -- única estadística pensada para ese rol. |
 | `DESIGNER` | Ve todas las columnas excepto "Aprobados"; solo sus tarjetas asignadas; mueve ±1. |
 | `DESIGNER_MANAGER` | Asigna diseñador, ve "Aprobados" (solo lectura: desde 05/nov/2026 ya **no** puede aprobar, ver más abajo), pausa/reanuda, archiva, ve reportes y "Por diseñador". Login restringido únicamente a este módulo. |
 | `ADMIN` | Todo lo anterior sin restricción. |
@@ -218,6 +218,17 @@ Patrón Observer (`EventEmitter2`): `DesignBoardService` solo emite eventos de d
 `DESIGN_REQUEST_UPDATED` lleva `changedFields` (los campos que de verdad cambiaron, ver los `if (dto.X !== undefined)` de `updateRequest()`) para armar un mensaje legible ("Se editó: título, instrucciones.") sin que el listener tenga que releer la solicitud. Si no hay diseñador asignado todavía, se omite — no hay a quien avisar.
 
 Requiere el valor `DESIGN_REQUEST_UPDATED` en el enum `AppNotificationType` (migración `20261027120000_design_request_updated_notification`) — como con cualquier cambio de enum de Prisma, hace falta `prisma generate`/`migrate deploy` antes de que el código compile y la base lo acepte.
+
+## En revisión: tarjeta visible, detalle bloqueado para SALES
+
+Pedido explícito del usuario, 26/nov/2026: desde el 16/nov/2026 `SALES`/`SALES_MANAGER` podía ver sus propias tarjetas en la columna "En revisión" (`isInReview`) -- tablero, detalle, lo que sea. Ahora, aunque **sigue viendo la tarjeta en el tablero** (sabe que existe y en qué estado está, `visibilityWhere()` no cambió para `listRequests()`), **no puede abrir su detalle** mientras esté en esa columna -- es la fase en la que el Jefe de Diseño la revisa antes de aprobarla.
+
+Se resolvió exclusivamente en el backend, nunca solo en la SPA -- `getRequestDetail()` reusa `visibilityWhere()` igual que el resto del módulo, así que ocultarlo únicamente en el frontend habría dejado el dato accesible por cualquier llamada directa (deep-link `?requestId=`, "último boceto", el buscador global):
+
+- `getRequestDetail()`: tras encontrar la solicitud, si `isSalesLike(user.role)` y `request.column.isInReview`, lanza `ForbiddenException` ("No puedes ver el detalle de este boceto mientras está en revisión"). No afecta a `DESIGNER`/`DESIGNER_MANAGER`/`ADMIN`.
+- `getLatestRequestIdForLead()` ("último boceto" del chat): para `SALES`, excluye `column.isInReview` del `where` (vía `AND` combinando con `visibilityWhere()`, nunca una segunda clave `column` suelta -- pisaría la que ya devuelve `visibilityWhere()`) -- no tiene sentido mandarla justo a una solicitud que después el backend le va a rechazar.
+- `quickSearchRequests()` (buscador global): mismo criterio, excluye `column.isInReview` de los resultados para `SALES`.
+- UI (`app/dashboard/bocetos/page.tsx`): el click en la tarjeta para `SALES` en esa columna muestra un toast ("No puedes ver el detalle de este boceto mientras está en revisión") en vez de abrir el diálogo -- evita el viaje redondo, pero el backend sigue siendo quien realmente lo impide (un deep-link viejo con ese `requestId`, por ejemplo, cae en el `error` ya existente del diálogo de detalle).
 
 ## UI (Fenix-SPA)
 
