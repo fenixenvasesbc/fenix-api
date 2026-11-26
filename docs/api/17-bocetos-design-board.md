@@ -42,7 +42,7 @@ Semáforo (`DesignBoardService.withSlaStatus()`, calculado al leer, no persistid
 
 Cron `DesignRequestSlaSchedulerService` (cada hora): aplica `BOCETOS_ATRASADOS` una sola vez por solicitud vencida y no pausada (`overdueLabelAppliedAt` como dedupe).
 
-Pausa (`POST /requests/:id/pause` / `.../resume`, solo `DESIGNER_MANAGER`/`ADMIN`): al reanudar, `dueAt` se desplaza hacia adelante por el tiempo real (ms) que estuvo pausada — no se recalculan días hábiles parciales.
+Pausa (`POST /requests/:id/pause` / `.../resume`, `DESIGNER_MANAGER`/`ADMIN` y, desde 26/nov/2026 -- pedido explícito del usuario --, el **diseñador asignado** a esa solicitud, acotado por `assertCanView()` para que no pueda pausar/reanudar las de otro diseñador): al reanudar, `dueAt` se desplaza hacia adelante por el tiempo real (ms) que estuvo pausada — no se recalculan días hábiles parciales.
 
 **Plazo según tipo de solicitud** (`resolveCreationSlaBusinessDays()`, usado al crear y al editar `requestType`): `BOCETO` (default) = 3 días hábiles del tablero; `MOD`/`REPET_MOD`/`REPET_ANADE` = 1 día hábil; `REPET_BOCETO` = 2 días hábiles. Además, si el tipo es `BOCETO` y la **descripción** menciona uno de estos productos (plazo extendido): vaso(s), pala(s), panini(s), "hamburguesa folding", ensaladera(s) → 4 días hábiles en vez de 3.
 

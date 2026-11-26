@@ -209,7 +209,11 @@ export class DesignBoardController {
     return this.designBoardService.sendToModification(req.user, id);
   }
 
-  @Roles(Role.ADMIN, Role.DESIGNER_MANAGER)
+  // Pedido explicito del usuario, 26/nov/2026: el diseñador asignado
+  // tambien puede pausar/reanudar el plazo de su propia solicitud (antes
+  // solo DESIGNER_MANAGER/ADMIN). El scoping a "solo lo suyo" lo aplica
+  // el service (assertCanView) -- aqui solo se habilita el rol.
+  @Roles(Role.ADMIN, Role.DESIGNER_MANAGER, Role.DESIGNER)
   @Post('requests/:id/pause')
   pause(
     @Req() req: { user: AuthUser },
@@ -218,7 +222,7 @@ export class DesignBoardController {
     return this.designBoardService.pause(req.user, id);
   }
 
-  @Roles(Role.ADMIN, Role.DESIGNER_MANAGER)
+  @Roles(Role.ADMIN, Role.DESIGNER_MANAGER, Role.DESIGNER)
   @Post('requests/:id/resume')
   resume(
     @Req() req: { user: AuthUser },

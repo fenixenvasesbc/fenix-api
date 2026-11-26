@@ -2370,20 +2370,33 @@ export class DesignBoardService {
   }
 
   // -------------------------------------------------------------
-  // Pausar / reanudar el plazo (ADR-004 Submódulo 5, §2/§4/§8): únicamente
-  // DESIGNER_MANAGER/ADMIN. No tiene sentido pausar una solicitud que ya
-  // salió del flujo activo (Terminado/Aprobados/archivada) -- ahí el
-  // semáforo ya está en CLOSED y no hay plazo corriendo.
+  // Pausar / reanudar el plazo (ADR-004 Submódulo 5, §2/§4/§8). Hasta
+  // 26/nov/2026 era exclusivo de DESIGNER_MANAGER/ADMIN -- pedido
+  // explicito del usuario esa fecha: el DISEÑADOR asignado tambien puede
+  // pausar/reanudar su propia solicitud (p.ej. esperando feedback del
+  // cliente), sin depender de que el Jefe de Diseño lo haga por el. Se
+  // reusa assertCanView() (igual que comentarios/adjuntos) para que un
+  // DESIGNER solo pueda pausar/reanudar lo que tiene asignado, nunca
+  // solicitudes de otro diseñador -- SALES sigue sin acceso (nunca pudo
+  // pausar/reanudar, esto no cambia). No tiene sentido pausar una
+  // solicitud que ya salió del flujo activo (Terminado/Aprobados/
+  // archivada) -- ahí el semáforo ya está en CLOSED y no hay plazo
+  // corriendo.
   // -------------------------------------------------------------
 
   async pause(user: AuthUser, id: string) {
-    if (user.role !== Role.DESIGNER_MANAGER && !this.isAdminLike(user.role)) {
+    if (
+      user.role !== Role.DESIGNER_MANAGER &&
+      user.role !== Role.DESIGNER &&
+      !this.isAdminLike(user.role)
+    ) {
       throw new ForbiddenException(
-        'Solo el Jefe de Diseño puede pausar el plazo',
+        'Solo el diseñador asignado o el Jefe de Diseño puede pausar el plazo',
       );
     }
 
     const request = await this.findOrThrow(id);
+    this.assertCanView(user, request);
 
     if (request.completedAt || request.archivedAt) {
       throw new BadRequestException(
@@ -2421,13 +2434,18 @@ export class DesignBoardService {
   }
 
   async resume(user: AuthUser, id: string) {
-    if (user.role !== Role.DESIGNER_MANAGER && !this.isAdminLike(user.role)) {
+    if (
+      user.role !== Role.DESIGNER_MANAGER &&
+      user.role !== Role.DESIGNER &&
+      !this.isAdminLike(user.role)
+    ) {
       throw new ForbiddenException(
-        'Solo el Jefe de Diseño puede reanudar el plazo',
+        'Solo el diseñador asignado o el Jefe de Diseño puede reanudar el plazo',
       );
     }
 
     const request = await this.findOrThrow(id);
+    this.assertCanView(user, request);
 
     if (!request.pausedAt) {
       throw new BadRequestException('Esta solicitud no está pausada');
